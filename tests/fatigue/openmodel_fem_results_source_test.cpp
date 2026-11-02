@@ -21,6 +21,10 @@ int main() {
     stress.location = OpenModel::ResultLocation::Element;
     stress.ids = {101, 9001};
     stress.values = {10, 20, 30, 4, 5, 6, 100, 200, 300, 40, 50, 60};
+    stress.semantics.quantity = ResultQuantityKind::Stress;
+    stress.semantics.components = ResultComponentKind::SymmetricTensor;
+    stress.semantics.frame = ResultCoordinateFrame::Global;
+    stress.semantics.unit.dimension = {true, -1, 1, -2, 0, 0, 0, 0};
     results.fields.push_back(stress);
 
     ResultField displacement;
@@ -61,8 +65,10 @@ int main() {
     assert(sample.components.size() == 6);
     assert(sample.componentLabels[4] == "SXZ");
     assert(sample.components[0] == 100.0 && sample.components[5] == 60.0);
-    assert(sample.frame == ReferenceFrame::Unknown);
+    assert(sample.frame == ReferenceFrame::Global);
     assert(sample.shearConvention == ShearStrainConvention::Unknown);
+    assert(sample.quantity == ResultQuantityKind::Stress);
+    assert(sample.componentKind == ResultComponentKind::SymmetricTensor);
 
     ResultPosition node;
     node.location = Fatigue::ResultLocation::Node;
