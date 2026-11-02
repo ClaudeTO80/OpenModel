@@ -73,6 +73,18 @@ int main() {
     position.entityId = 9;
     const auto history = StressHistoryBuilder::build(source, "STRAIN", position);
     assert(history);
+
+    const auto maxMagnitude = WangBrownRelativeStrain::maximumMagnitudeIndex(
+        history.history, nu);
+    assert(maxMagnitude && *maxMagnitude == 1);
+    const auto maxRelative = WangBrownRelativeStrain::maximumRelativeIndex(
+        history.history, 0, nu, 0, history.history.size());
+    assert(maxRelative && *maxRelative == 1);
+    assert(!WangBrownRelativeStrain::maximumRelativeIndex(
+        history.history, 99, nu, 0, history.history.size()));
+    assert(!WangBrownRelativeStrain::maximumRelativeIndex(
+        history.history, 0, nu, 4, 3));
+
     const auto turns = WangBrownRelativeStrain::componentTurningPoints(history.history);
     assert((turns == std::vector<std::size_t>{1, 3, 5}));
     return 0;
