@@ -123,7 +123,7 @@ FatigueReportWriteResult FatigueReportWriter::writeDamageMapJson(
             << ",\"has_damage\":" << (e.hasDamage ? "true" : "false")
             << ",\"damage\":";
         if (e.hasDamage) writeNumber(out, e.damage); else out << "null";
-        out << ",\"analysis_status\":" << static_cast<int>(e.analysisStatus)
+        out << ",\"analysis_status\":" << jsonQuote(analysisStatus(e.analysisStatus))
             << ",\"coordinate_kind\":" << jsonQuote(coordinateKind(e.coordinateKind))
             << ",\"coordinates\":";
         if (e.hasCoordinates) {
