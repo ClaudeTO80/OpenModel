@@ -57,7 +57,8 @@ set(OPENMODEL_CORE_SOURCES
     src/fatigue/FatigueAnalysis.cpp
     src/fatigue/FatigueReport.cpp
     src/fatigue/FatigueReportWriter.cpp
-    src/fatigue/FatigueSpectrumReport.cpp)
+    src/fatigue/FatigueSpectrumReport.cpp
+    src/fatigue/FatigueSpectrumReportWriter.cpp)
 
 function(openmodel_configure_core_target target export_name)
     target_include_directories(${target} PUBLIC
