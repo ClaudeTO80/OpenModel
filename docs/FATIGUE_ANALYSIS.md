@@ -144,3 +144,59 @@ unit must be dimensionless and match exactly. There is no implicit conversion.
   environment and material direction must be represented by separately
   calibrated parameter sets until temperature-dependent parameter families
   are introduced.
+
+
+## Local elastic-to-strain conversion: Neuber and Glinka
+
+LocalStrainCorrection converts uniaxial elastic Rainflow cycles into local
+stabilized strain-life cycle inputs. It accepts either the LoadCycle output
+of scalar Rainflow directly, or an explicit ElasticStrainLifeCycle vector.
+The Rainflow bridge preserves cycle count and source sample indices.
+
+The cyclic stress-strain law is Ramberg-Osgood:
+
+\[
+\varepsilon_a=\frac{\sigma_a}{E}
++\left(\frac{\sigma_a}{K'}\right)^{1/n'}.
+\]
+
+For elastic FEM stress amplitude \(\sigma_{a,e}\), Neuber solves:
+
+\[
+\sigma_a\varepsilon_a=\frac{\sigma_{a,e}^2}{E}.
+\]
+
+Glinka instead equates the local cyclic strain energy density to the elastic
+energy density:
+
+\[
+\int_0^{\sigma_a}\sigma\,d\varepsilon
+=\frac{\sigma_{a,e}^2}{2E},
+\]
+
+where the left side is evaluated analytically from the Ramberg-Osgood law.
+Both scalar equations are solved by bounded monotone bisection with finite
+value checks.
+
+The resulting StrainLifeCycle contains the local strain amplitude, the
+supplied elastic mean stress, and a maximum stress approximated as
+\(\sigma_m+\sigma_a\). This is deliberately an amplitude correction:
+the mean stress is retained, not recalculated through a cyclic constitutive
+history. Use these values as input to StrainLifeDamageModel.
+
+### Scope and limitations
+
+- This is a uniaxial local correction. It is not a multiaxial critical-plane
+  method and does not support non-proportional loading.
+- The cyclic Ramberg-Osgood constants must correspond to the material,
+  temperature, orientation and cyclic stabilization condition being analysed.
+- No residual stress relaxation, ratcheting, mean-stress relaxation,
+  hysteresis-loop reconstruction, or incremental elastoplastic FE solution
+  is performed.
+- Neuber and Glinka are alternative engineering approximations; the caller
+  must select the method appropriate to the notch/material problem.
+- Stress units in Rainflow input and material parameters must match exactly.
+  Strain units must be dimensionless. No conversion is performed.
+- The conversion does not replace validation against strain-gauge data,
+  notch analysis guidance, or a nonlinear FE solution where local plasticity
+  is substantial.
