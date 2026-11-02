@@ -17,13 +17,13 @@ int main() {
     FatigueDamageMap map;
     map.status = FatigueDamageMapStatus::Success;
     FatigueDamageMapEntry a;
-    a.position.location = OpenModel::ResultLocation::Element;
+    a.position.location = OpenModel::Fatigue::ResultLocation::Element;
     a.position.entityId = 100;
     a.hasDamage = true;
     a.damage = 0.2;
     map.entries.push_back(a);
     FatigueDamageMapEntry b;
-    b.position.location = OpenModel::ResultLocation::Element;
+    b.position.location = OpenModel::Fatigue::ResultLocation::Element;
     b.position.entityId = 200;
     b.hasDamage = true;
     b.damage = 0.7;
@@ -46,11 +46,11 @@ int main() {
     assert(converted.status == DamageMapViewerStatus::MissingDamage);
 
     map.entries[0].hasDamage = true;
-    map.entries[0].position.location = OpenModel::ResultLocation::Node;
+    map.entries[0].position.location = OpenModel::Fatigue::ResultLocation::Node;
     converted = FatigueDamageMapWebViewAdapter::makeElementField(map, mesh);
     assert(converted.status == DamageMapViewerStatus::UnsupportedLocation);
 
-    map.entries[0].position.location = OpenModel::ResultLocation::Element;
+    map.entries[0].position.location = OpenModel::Fatigue::ResultLocation::Element;
     map.entries[0].position.entityId = 200;
     converted = FatigueDamageMapWebViewAdapter::makeElementField(map, mesh);
     assert(converted.status == DamageMapViewerStatus::DuplicateElement);
