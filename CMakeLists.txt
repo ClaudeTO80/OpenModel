@@ -46,7 +46,8 @@ set(OPENMODEL_CORE_SOURCES
     src/WebViewWriter.cpp
     src/FemResults.cpp
     src/ResultBinding.cpp
-    src/fatigue/OpenModelFemResultsSource.cpp\n    src/fatigue/TensorNormalizer.cpp)
+    src/fatigue/OpenModelFemResultsSource.cpp
+    src/fatigue/TensorNormalizer.cpp)
 
 function(openmodel_configure_core_target target export_name)
     target_include_directories(${target} PUBLIC
@@ -100,10 +101,14 @@ if(OPENMODEL_BUILD_WEBUI)
     function(openmodel_embed_file input output symbol)
         file(READ "${input}" _hex HEX)
         string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," _bytes "${_hex}")
-        string(REGEX REPLACE "((0x[0-9a-f][0-9a-f],){32})" "\\1\n" _bytes "${_bytes}")
+        string(REGEX REPLACE "((0x[0-9a-f][0-9a-f],){32})" "\\1
+" _bytes "${_bytes}")
         file(WRITE "${output}"
-            "static const unsigned char ${symbol}[] = {\n${_bytes}0x00};\n"
-            "static const unsigned long ${symbol}_size = sizeof(${symbol}) - 1;\n")
+            "static const unsigned char ${symbol}[] = {
+${_bytes}0x00};
+"
+            "static const unsigned long ${symbol}_size = sizeof(${symbol}) - 1;
+")
         set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${input}")
     endfunction()
     set(_openmodel_gen_dir "${CMAKE_CURRENT_BINARY_DIR}/generated")
@@ -158,7 +163,8 @@ if(OPENMODEL_BUILD_TESTS)
     openmodel_add_test(surface_refiner_test tests/surface_refiner_test.cpp)
     openmodel_add_test(web_view_writer_test tests/web_view_writer_test.cpp)
     openmodel_add_test(fem_results_test tests/fem_results_test.cpp)
-    openmodel_add_test(fatigue_result_source_test tests/fatigue/openmodel_fem_results_source_test.cpp)\n    openmodel_add_test(fatigue_tensor_normalizer_test tests/fatigue/tensor_normalizer_test.cpp)
+    openmodel_add_test(fatigue_result_source_test tests/fatigue/openmodel_fem_results_source_test.cpp)
+    openmodel_add_test(fatigue_tensor_normalizer_test tests/fatigue/tensor_normalizer_test.cpp)
     openmodel_add_test(analysis_setup_test tests/analysis_setup_test.cpp)
     openmodel_add_test(mesh_selection_test tests/mesh_selection_test.cpp)
     set(_openmodel_core_test_names core_smoke_test mesh_validation_test abaqus_writer_test physical_groups_test
