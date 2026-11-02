@@ -63,14 +63,14 @@ FatigueDamageResult PalmgrenMiner::evaluate(const FatigueDamageInput& input) con
             result.diagnostic = "Cycle amplitude is not representable.";
             return result;
         }
-        const auto corrected = MeanStressCorrection::apply(
+        const auto correction = MeanStressCorrection::apply(
             input.meanStressCorrection, amplitude, cycle.mean, input.meanStressParameters);
-        if (!corrected) {
+        if (!correction) {
             result.status = FatigueDamageStatus::InvalidInput;
-            result.diagnostic = "Mean-stress correction failed: " + corrected.diagnostic;
+            result.diagnostic = "Mean-stress correction failed: " + correction.diagnostic;
             return result;
         }
-        const auto life = input.curve->evaluate(corrected.correctedAmplitude, input.temperatureKelvin);
+        const auto life = input.curve->evaluate(correction.correctedAmplitude, input.temperatureKelvin);
         if (!life) {
             result.status = FatigueDamageStatus::CurveEvaluationFailed;
             result.diagnostic = "S-N curve evaluation failed: " + life.diagnostic;
@@ -85,9 +85,9 @@ FatigueDamageResult PalmgrenMiner::evaluate(const FatigueDamageInput& input) con
         }
 
         // Kahan compensated summation limits loss of small increments.
-        const double corrected = increment - compensation;
-        const double next = sum + corrected;
-        compensation = (next - sum) - corrected;
+        const double adjustedIncrement = increment - compensation;
+        const double next = sum + adjustedIncrement;
+        compensation = (next - sum) - adjustedIncrement;
         if (!std::isfinite(next)) {
             result.status = FatigueDamageStatus::NumericalOverflow;
             result.diagnostic = "Accumulated damage overflowed.";
