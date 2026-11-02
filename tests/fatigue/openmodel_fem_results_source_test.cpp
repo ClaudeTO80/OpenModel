@@ -85,6 +85,13 @@ int main() {
     assert(datResults.integrationPointFields[0].recordCount() == 2);
     assert(datResults.integrationPointFields[0].elementIds[0] == 9001);
     assert(datResults.integrationPointFields[0].integrationPointIds[1] == 2);
+    assert(datResults.integrationPointFields[0].semantics.quantity == ResultQuantityKind::Stress);
+    assert(datResults.integrationPointFields[0].semantics.components == ResultComponentKind::SymmetricTensor);
+    assert(datResults.integrationPointFields[0].semantics.unit.dimension.known);
+    assert(datResults.integrationPointFields[0].semantics.unit.dimension.mass == 1);
+    assert(datResults.integrationPointFields[0].semantics.unit.scaleToSI == 0.0);
+    assert(datResults.integrationPointFields[0].semantics.frame == ResultCoordinateFrame::Global);
+    assert(datResults.fields[0].semantics.averaged);
     OpenModelFemResultsSource datSource(datResults);
     ResultPosition ip;
     ip.location = Fatigue::ResultLocation::IntegrationPoint;
@@ -92,6 +99,10 @@ int main() {
     ip.integrationPoint = 2;
     assert(datSource.readSample("STRESS", ip, 0, sample));
     assert(sample.components[0] == 30.0 && sample.components[5] == 8.0);
+    assert(sample.quantity == ResultQuantityKind::Stress);
+    assert(sample.componentKind == ResultComponentKind::SymmetricTensor);
+    assert(sample.unit.dimension.length == -1 && sample.unit.dimension.mass == 1);
+    assert(sample.frame == ResultCoordinateFrame::Global);
     ip.integrationPoint = 3;
     assert(!datSource.readSample("STRESS", ip, 0, sample));
 
