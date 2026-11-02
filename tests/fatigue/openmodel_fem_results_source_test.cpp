@@ -18,7 +18,7 @@ int main() {
     stress.name = "STRESS";
     stress.components = {"SXX", "SYY", "SZZ", "SXY", "SXZ", "SYZ"};
     stress.step = 0;
-    stress.location = OpenModel::ResultLocation::Element;
+    stress.location = OpenModel::Fatigue::ResultLocation::Element;
     stress.ids = {101, 9001};
     stress.values = {10, 20, 30, 4, 5, 6, 100, 200, 300, 40, 50, 60};
     results.fields.push_back(stress);
@@ -27,7 +27,7 @@ int main() {
     displacement.name = "DISP";
     displacement.components = {"U1", "U2", "U3"};
     displacement.step = 0;
-    displacement.location = OpenModel::ResultLocation::Node;
+    displacement.location = OpenModel::Fatigue::ResultLocation::Node;
     displacement.ids = {77};
     displacement.values = {1.0, 2.0, 3.0};
     results.fields.push_back(displacement);
@@ -37,7 +37,7 @@ int main() {
     assert(source.metadata().resultFormat == "Test solver");
     assert(source.stepCount() == 2);
 
-    ResultStep step;
+    Fatigue::ResultStep step;
     assert(source.getStep(0, step));
     assert(step.parameterKind == StepParameterKind::Time && step.parameter == 0.25);
     assert(source.getStep(1, step));
@@ -45,7 +45,7 @@ int main() {
     assert(!source.getStep(2, step));
 
     ResultPosition element;
-    element.location = ResultLocation::Element;
+    element.location = Fatigue::ResultLocation::Element;
     element.entityId = 9001;
     ResultSample sample;
     assert(source.readSample("STRESS", element, 0, sample));
@@ -56,7 +56,7 @@ int main() {
     assert(sample.shearConvention == ShearStrainConvention::Unknown);
 
     ResultPosition node;
-    node.location = ResultLocation::Node;
+    node.location = Fatigue::ResultLocation::Node;
     node.entityId = 77;
     assert(source.readSample("DISP", node, 0, sample));
     assert(sample.components[2] == 3.0);
@@ -64,7 +64,7 @@ int main() {
     // Missing records and unsupported IP data must not fall back to element means.
     element.entityId = 123456;
     assert(!source.readSample("STRESS", element, 0, sample));
-    element.location = ResultLocation::IntegrationPoint;
+    element.location = Fatigue::ResultLocation::IntegrationPoint;
     element.entityId = 9001;
     element.integrationPoint = 1;
     assert(!source.readSample("STRESS", element, 0, sample));
@@ -87,7 +87,7 @@ int main() {
     assert(datResults.integrationPointFields[0].integrationPointIds[1] == 2);
     OpenModelFemResultsSource datSource(datResults);
     ResultPosition ip;
-    ip.location = ResultLocation::IntegrationPoint;
+    ip.location = Fatigue::ResultLocation::IntegrationPoint;
     ip.entityId = 9001;
     ip.integrationPoint = 2;
     assert(datSource.readSample("STRESS", ip, 0, sample));
@@ -98,7 +98,7 @@ int main() {
     // Non-finite values and duplicate IDs are rejected.
     results.fields[0].values[0] = (std::numeric_limits<double>::quiet_NaN)();
     OpenModelFemResultsSource nonFinite(results);
-    element.location = ResultLocation::Element;
+    element.location = Fatigue::ResultLocation::Element;
     element.integrationPoint = 0;
     assert(!nonFinite.readSample("STRESS", element, 0, sample));
 
