@@ -67,6 +67,46 @@ bool startsWith(const std::string& s, const char* prefix) {
     return s.compare(0, std::char_traits<char>::length(prefix), prefix) == 0;
 }
 
+/** Populate only semantics guaranteed by the CalculiX quantity definition.
+ * Unit scale remains unknown because the result file does not declare a unit system.
+ */
+ResultFieldSemantics calculixSemantics(const std::string& fieldName,
+                                      const std::vector<std::string>& labels) {
+    ResultFieldSemantics s;
+    const std::string name = lowered(fieldName);
+    if (name == "stress" || name == "s") {
+        s.quantity = ResultQuantityKind::Stress;
+        s.unit.dimension = {true, -1, 1, -2, 0, 0, 0, 0};
+        s.components = labels.size() == 6 ? ResultComponentKind::SymmetricTensor :
+                       labels.size() == 1 ? ResultComponentKind::Scalar : ResultComponentKind::Unknown;
+        s.frame = ResultCoordinateFrame::Global;
+    } else if (name == "strain" || name == "e" || name == "mestrain") {
+        s.quantity = ResultQuantityKind::Strain;
+        s.unit.dimension = {true, 0, 0, 0, 0, 0, 0, 0};
+        s.components = labels.size() == 6 ? ResultComponentKind::SymmetricTensor :
+                       labels.size() == 1 ? ResultComponentKind::Scalar : ResultComponentKind::Unknown;
+        s.frame = ResultCoordinateFrame::Global;
+        s.shear = ResultShearConvention::Tensorial;
+    } else if (name == "disp" || name == "displacement" || name == "u") {
+        s.quantity = ResultQuantityKind::Displacement;
+        s.unit.dimension = {true, 1, 0, 0, 0, 0, 0, 0};
+        s.components = labels.size() == 1 ? ResultComponentKind::Scalar :
+                       labels.size() == 3 ? ResultComponentKind::Vector : ResultComponentKind::Unknown;
+        s.frame = ResultCoordinateFrame::Global;
+    } else if (name == "ndtemp" || name == "temperature" || name == "nt") {
+        s.quantity = ResultQuantityKind::Temperature;
+        s.unit.dimension = {true, 0, 0, 0, 0, 1, 0, 0};
+        s.components = ResultComponentKind::Scalar;
+    } else if (name == "rf" || name == "reaction_force") {
+        s.quantity = ResultQuantityKind::ReactionForce;
+        s.unit.dimension = {true, 1, 1, -2, 0, 0, 0, 0};
+        s.components = labels.size() == 3 ? ResultComponentKind::Vector :
+                       labels.size() == 1 ? ResultComponentKind::Scalar : ResultComponentKind::Unknown;
+        s.frame = ResultCoordinateFrame::Global;
+    }
+    return s;
+}
+
 /**
  * Fortran drops the exponent letter when the exponent needs three digits ("1.23456-101").
  * Re-insert it so strtod can read the number.
@@ -371,6 +411,7 @@ private:
                     field.step = stepFor(h, datasetName);
                     for (const auto& c : components)
                         if (c.stored) field.components.push_back(c.name.empty() ? datasetName : c.name);
+                    field.semantics = calculixSemantics(field.name, field.components);
                 }
                 if (isRecord(line, "-1")) {
                     if (!commit()) return false;
@@ -565,12 +606,14 @@ private:
         field.name = datFieldName(h.label);
         field.components = h.components;
         field.location = h.element ? ResultLocation::Element : ResultLocation::Node;
+        field.semantics = calculixSemantics(field.name, field.components);
         std::vector<std::size_t> pointCount;           // element data: integration points seen per element
         std::unordered_map<std::uint64_t, std::size_t> position;
         IntegrationPointResultField ipField;
         if (h.element) {
             ipField.name = field.name;
             ipField.components = field.components;
+            ipField.semantics = field.semantics;
         }
         std::set<std::pair<std::uint64_t, std::uint32_t>> seenIntegrationPoints;
         for (std::size_t r = 0; r < rows.size(); ++r) {
@@ -629,6 +672,7 @@ private:
                 maxPoints = std::max(maxPoints, pointCount[e]);
                 for (std::size_t c = 0; c < comps; ++c) field.values[e * comps + c] /= static_cast<double>(pointCount[e]);
             }
+            field.semantics.averaged = true;
             m_result.addWarning("DAT_IP_AVERAGED",
                                 "'" + field.name + "' (set " + h.set + ") is given at integration points (up to " + std::to_string(maxPoints) +
                                 " per element); the element field is an unweighted mean for viewer compatibility; native points are retained separately", headerLine);
