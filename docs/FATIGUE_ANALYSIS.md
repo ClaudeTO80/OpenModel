@@ -200,3 +200,60 @@ history. Use these values as input to StrainLifeDamageModel.
 - The conversion does not replace validation against strain-gauge data,
   notch analysis guidance, or a nonlinear FE solution where local plasticity
   is substantial.
+
+
+## End-to-end FEM strain-life analysis
+
+`StrainLifeAnalysis::run` now orchestrates the complete uniaxial path from an
+`IResultSource` to strain-life damage. The caller supplies the field name,
+one stable FEM result position, an explicit unit direction in the requested
+coordinate frame, cyclic Ramberg-Osgood constants, and CMB strain-life
+constants.
+
+The analysis performs, in order:
+
+1. `StressHistoryBuilder` reads the same stress field and FEM position at
+   every strictly increasing physical-time step.
+2. `CycleCounting::rainflow` projects the tensor as
+   \(\sigma_n=\mathbf n^T\boldsymbol\sigma\mathbf n\) and counts scalar
+   reversals. The unit direction is mandatory and is never inferred.
+3. `LocalStrainCorrection` converts each elastic cycle using the selected
+   Neuber or Glinka method.
+4. `StrainLifeDamageModel` evaluates CMB, Morrow or SWT life and accumulates
+   Palmgren-Miner damage.
+
+The result retains the original stress history, Rainflow cycles, corrected
+strain-life cycles, damage result, source metadata and the projection/method
+settings. Sample indexes therefore remain traceable from the counted cycle
+to the source history. A failed stage is returned with a stage-specific
+status and diagnostic; later stages are not run.
+
+Example:
+
+```cpp
+const auto result = StrainLifeAnalysis::run(
+    source, "STRESS", elementPosition, projection,
+    cyclicMaterial, strainLifeMaterial,
+    StrainLifeMeanStressModel::Morrow,
+    LocalStrainCorrectionMethod::Neuber);
+
+if (!result) {
+    // Inspect result.status and result.diagnostic.
+}
+else {
+    const double damage = result.damage.damage;
+    // result.cycleCounting and result.localCorrection are retained for audit.
+}
+```
+
+Both material records must declare exactly matching stress and dimensionless
+strain units and exactly the same Young's modulus. The FEM stress unit must
+also match exactly. No automatic unit conversion is performed.
+
+**Scope:** this orchestrator currently accepts stress tensor histories and
+uses an explicitly selected uniaxial normal-stress projection. It is not a
+critical-plane multiaxial strain-life solver. The local mean stress remains
+the elastic Rainflow mean; it is not relaxed by an incremental cyclic
+plasticity model. Temperature is recorded as analysis metadata, while the
+caller remains responsible for supplying material constants calibrated for
+that temperature and material condition.
