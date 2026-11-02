@@ -36,7 +36,7 @@ FemResults makeResults(const std::vector<double>& values) {
 }
 
 int main() {
-    auto results = makeResults({0.0, 100.0, 0.0, -100.0, 0.0});
+    auto results = makeResults({100.0, 200.0, 100.0, 0.0, 100.0});
     OpenModelFemResultsSource source(results);
 
     PhysicalUnit stress;
