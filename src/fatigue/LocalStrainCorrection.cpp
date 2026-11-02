@@ -65,6 +65,26 @@ bool solveMonotone(double target, double upper,
 } // namespace
 
 LocalStrainCorrectionResult LocalStrainCorrection::convert(
+    const std::vector<LoadCycle>& cycles,
+    const PhysicalUnit& stressUnit,
+    const CyclicStressStrainParameters& material,
+    LocalStrainCorrectionMethod method) {
+    if (!sameUnit(stressUnit, material.stressUnit)) {
+        LocalStrainCorrectionResult result;
+        result.status = LocalStrainCorrectionStatus::IncompatibleUnit;
+        result.diagnostic = "Rainflow stress unit must exactly match the cyclic material stress unit.";
+        return result;
+    }
+    std::vector<ElasticStrainLifeCycle> elasticCycles;
+    elasticCycles.reserve(cycles.size());
+    for (const auto& cycle : cycles) {
+        elasticCycles.push_back({0.5 * cycle.range, cycle.mean, cycle.count,
+            cycle.start.historySampleIndex, cycle.end.historySampleIndex});
+    }
+    return convert(elasticCycles, material, method);
+}
+
+LocalStrainCorrectionResult LocalStrainCorrection::convert(
     const std::vector<ElasticStrainLifeCycle>& cycles,
     const CyclicStressStrainParameters& material,
     LocalStrainCorrectionMethod method) {
