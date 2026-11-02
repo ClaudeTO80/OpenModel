@@ -1,6 +1,7 @@
 #pragma once
 
-#include <OpenModel/Fatigue/StrainLifeDamageModel.hpp>\n#include <OpenModel/Fatigue/CycleCounting.hpp>
+#include <OpenModel/Fatigue/StrainLifeDamageModel.hpp>
+#include <OpenModel/Fatigue/CycleCounting.hpp>
 
 #include <string>
 #include <vector>
@@ -52,6 +53,12 @@ struct LocalStrainCorrectionResult {
  */
 class LocalStrainCorrection final {
 public:
+    static LocalStrainCorrectionResult convert(
+        const std::vector<LoadCycle>& cycles,
+        const PhysicalUnit& stressUnit,
+        const CyclicStressStrainParameters& material,
+        LocalStrainCorrectionMethod method = LocalStrainCorrectionMethod::Neuber);
+
     static LocalStrainCorrectionResult convert(
         const std::vector<ElasticStrainLifeCycle>& cycles,
         const CyclicStressStrainParameters& material,
