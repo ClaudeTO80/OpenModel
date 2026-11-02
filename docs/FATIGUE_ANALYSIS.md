@@ -279,12 +279,14 @@ The 1993 paper associates the normal-strain excursion with a reversal of maximum
 `WangBrownRelativeStrain` adds the first reusable geometric primitive for the original Wang-Brown multiaxial reversal procedure. For two strain tensors A and B it evaluates the relative Mises strain:
 
 \[
-\\varepsilon_{R,Mises}=\\frac{\\sqrt{(\\Delta\\varepsilon_x-\\Delta\\varepsilon_y)^2+(\\Delta\\varepsilon_x-\\Delta\\varepsilon_z)^2+(\\Delta\\varepsilon_y-\\Delta\\varepsilon_z)^2+6(\\Delta\\varepsilon_{xy}^2+\\Delta\\varepsilon_{xz}^2+\\Delta\\varepsilon_{yz}^2)}}{\\sqrt{2}(1+\\bar\\nu)}.
+\varepsilon_{R,Mises}=\frac{\sqrt{(\Delta\varepsilon_x-\Delta\varepsilon_y)^2+(\Delta\varepsilon_x-\Delta\varepsilon_z)^2+(\Delta\varepsilon_y-\Delta\varepsilon_z)^2+6(\Delta\varepsilon_{xy}^2+\Delta\varepsilon_{xz}^2+\Delta\varepsilon_{yz}^2)}}{\sqrt{2}(1+\bar\nu)}.
 \]
 
 The tensor stores tensorial shear strains, so the factor 6 is the engineering-shear expression 1.5 times gamma squared after substituting gamma = 2 epsilon_xy. The effective Poisson ratio is an explicit input and must lie strictly between -1 and 0.5. The method returns NaN for invalid tensors or parameters rather than silently manufacturing a range.
 
 `componentTurningPoints` returns original history indices where at least one of the six independent tensor components has a strict local maximum or minimum. It does not remove samples from the source history; the full paths remain available for subsequent relative-strain calculations.
+
+`maximumMagnitudeIndex` selects the first sample attaining the largest absolute Mises strain over the history, which supplies the original procedure's global starting-point candidate. `maximumRelativeIndex` selects the first sample attaining the largest relative Mises strain from an explicit reference sample over a caller-selected half-open index interval. Both preserve source indices and reject invalid ranges or non-strain histories.
 
 This is groundwork, not yet the Wang-Brown multiaxial rainflow counter. The full original counting procedure also needs the initial-point selection, sequential relative-Mises path tracking, handling of previously traversed paths, and extraction of the maximum-shear and associated normal-strain excursion for each reversal. Those steps are intentionally not approximated by scalar Rainflow or by the Modified Wang-Brown algorithm.
 
