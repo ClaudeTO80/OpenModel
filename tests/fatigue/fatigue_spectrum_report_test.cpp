@@ -1,4 +1,5 @@
 #include <OpenModel/Fatigue/FatigueSpectrumReport.hpp>
+#include <OpenModel/Fatigue/FatigueReportWriter.hpp>
 
 #include <cassert>
 #include <sstream>
