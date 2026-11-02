@@ -50,11 +50,14 @@ data from physically zero values.
 
 ## Current implementation boundary
 
-The adapter currently exposes the existing `FemResults` nodal and per-element
-records. The current CalculiX DAT importer reduces integration-point rows to
-one element record and emits a diagnostic; such a record is not eligible for
-an integration-point fatigue calculation. Preserving native integration-point
-records requires a follow-up extension to `FemResults` and importer storage.
+The adapter exposes nodal, per-element and native integration-point records.
+The CalculiX DAT importer stores each `element + integration-point` row in
+`FemResults::integrationPointFields`. For viewer compatibility it also keeps a
+separate per-element unweighted mean in `fields`, with the `DAT_IP_AVERAGED`
+diagnostic. Fatigue algorithms must request `IntegrationPoint` explicitly and
+must not use the compatibility mean as a substitute. DAT currently does not
+supply section-point identity, so it is stored as zero; formats that do supply
+section points must populate that key.
 Likewise, units, tensor semantics, material assignments and load-history
 provenance must be populated by their owning model/import layers before
 algorithms rely on them.
