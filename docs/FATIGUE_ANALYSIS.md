@@ -259,3 +259,16 @@ the elastic Rainflow mean; it is not relaxed by an incremental cyclic
 plasticity model. Temperature is recorded as analysis metadata, while the
 caller remains responsible for supplying material constants calibrated for
 that temperature and material condition.
+
+
+## Wang-Brown (1993) strain-life damage relation
+
+WangBrownDamageModel implements the original Wang-Brown parameter/life relation for already-counted multiaxial cycles. The parameter is P_WB = gamma_a,max + S * epsilon_n*, where gamma_a,max is the maximum shear-strain amplitude and epsilon_n* is the associated normal-strain excursion. The life equation is P_WB = C1 * (sigma_f'/E) * (2*Nf)^b + C2 * epsilon_f' * (2*Nf)^c, with C1 = 1 + nu_e + (1 - nu_e)*S and C2 = 1 + nu_p + (1 - nu_p)*S.
+
+The implementation inverts the equation by bisection in log10(reversals), rejects extrapolation outside the configured reversal interval, and accumulates damage with linear Palmgren-Miner. It requires exact matching dimensionless strain units, valid stress units and material constants. S must be finite and non-negative; both Poisson ratios must lie in the isotropic stability interval (-1, 0.5). No mean-stress correction is added to this original relation.
+
+### Deliberate separation from cycle counting
+
+WangBrownCycle contains maximumShearStrainAmplitude, normalStrainExcursion, cycle count and source-history indices. The two strain measures must refer to the same counted cycle and must be produced by a Wang-Brown-compatible multiaxial counter. The damage model does not derive them from an arbitrary MultiaxialLoadCycle path and does not substitute scalar Rainflow, a critical-plane search, or an invariant-based equivalent strain.
+
+The 1993 paper associates the normal-strain excursion with a reversal of maximum shear strain. It is not generally the range of a normal tensor component over the entire load block. The multiaxial path segmentation and extraction of this associated excursion remain a separate algorithmic stage. Therefore this class is not yet a complete FEM-to-Wang-Brown pipeline. It is not the later modified Wang-Brown formulation.
