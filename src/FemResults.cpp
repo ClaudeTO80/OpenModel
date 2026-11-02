@@ -20,6 +20,7 @@ void FemResults::clear() noexcept {
     format.clear();
     steps.clear();
     fields.clear();
+    integrationPointFields.clear();
     eigenmodes.clear();
     modelNodeIds.clear();
     modelCoordinates.clear();
@@ -565,6 +566,12 @@ private:
         field.location = h.element ? ResultLocation::Element : ResultLocation::Node;
         std::vector<std::size_t> pointCount;           // element data: integration points seen per element
         std::unordered_map<std::uint64_t, std::size_t> position;
+        IntegrationPointResultField ipField;
+        if (h.element) {
+            ipField.name = field.name;
+            ipField.components = field.components;
+        }
+        std::set<std::pair<std::uint64_t, std::uint32_t>> seenIntegrationPoints;
         for (std::size_t r = 0; r < rows.size(); ++r) {
             const auto& tok = rows[r];
             if (tok.size() != lead + comps) {
@@ -576,12 +583,30 @@ private:
             std::uint64_t id = 0;
             datInteger(tok[0], id);
             if (id == 0) { m_result.addError(ImportStatus::InvalidInput, "DAT_BAD_ID", "Record id 0 in '" + h.label + "'", lines[r]); return false; }
+            std::uint64_t ip = 0;
+            if (h.element) {
+                if (!datInteger(tok[1], ip) || ip == 0 || ip > (std::numeric_limits<std::uint32_t>::max)()) {
+                    m_result.addError(ImportStatus::InvalidInput, "DAT_BAD_IP", "Invalid integration-point number in '" + h.label + "'", lines[r]);
+                    return false;
+                }
+                if (!seenIntegrationPoints.emplace(id, static_cast<std::uint32_t>(ip)).second) {
+                    m_result.addError(ImportStatus::InvalidInput, "DAT_DUPLICATE_IP", "Element " + std::to_string(id) +
+                                      " integration point " + std::to_string(ip) + " appears twice in '" + h.label + "'", lines[r]);
+                    return false;
+                }
+            }
             std::vector<double> v(comps);
             for (std::size_t c = 0; c < comps; ++c)
                 if (!datReal(tok[lead + c], v[c])) {
                     m_result.addError(ImportStatus::InvalidInput, "DAT_BAD_VALUE", "'" + tok[lead + c] + "' is not a number", lines[r]);
                     return false;
                 }
+            if (h.element) {
+                ipField.elementIds.push_back(id);
+                ipField.integrationPointIds.push_back(static_cast<std::uint32_t>(ip));
+                ipField.sectionPointIds.push_back(0);
+                ipField.values.insert(ipField.values.end(), v.begin(), v.end());
+            }
             const auto found = position.find(id);
             if (found == position.end()) {
                 position.emplace(id, field.ids.size());
@@ -605,7 +630,34 @@ private:
             }
             m_result.addWarning("DAT_IP_AVERAGED",
                                 "'" + field.name + "' (set " + h.set + ") is given at integration points (up to " + std::to_string(maxPoints) +
-                                " per element); each element shows the unweighted mean of its points", headerLine);
+                                " per element); the element field is an unweighted mean for viewer compatibility; native points are retained separately", headerLine);
+            // Union native point records from repeated sets of the same quantity/time.
+            bool mergedIp = false;
+            for (auto& existing : m_out.integrationPointFields) {
+                if (existing.name != ipField.name || existing.components != ipField.components ||
+                    std::fabs(m_out.steps[existing.step].value - h.time) > 1e-12 * std::max(1.0, std::fabs(h.time)))
+                    continue;
+                std::set<std::pair<std::uint64_t, std::uint32_t>> have;
+                for (std::size_t i = 0; i < existing.recordCount(); ++i)
+                    have.emplace(existing.elementIds[i], existing.integrationPointIds[i]);
+                for (std::size_t i = 0; i < ipField.recordCount(); ++i) {
+                    const auto key = std::make_pair(ipField.elementIds[i], ipField.integrationPointIds[i]);
+                    if (!have.insert(key).second) continue;
+                    existing.elementIds.push_back(key.first);
+                    existing.integrationPointIds.push_back(key.second);
+                    existing.sectionPointIds.push_back(ipField.sectionPointIds[i]);
+                    existing.values.insert(existing.values.end(),
+                        ipField.values.begin() + static_cast<std::ptrdiff_t>(i * comps),
+                        ipField.values.begin() + static_cast<std::ptrdiff_t>((i + 1) * comps));
+                }
+                mergedIp = true;
+                break;
+            }
+            if (!mergedIp) {
+                const std::string ipKey = field.name + "/ip";
+                ipField.step = stepFor(h.time, ipKey);
+                m_out.integrationPointFields.push_back(std::move(ipField));
+            }
         }
         const std::string key = field.name + (h.element ? "/e" : "/n");
         // The same quantity printed for two sets in one increment is one field: union of the records.
@@ -854,6 +906,31 @@ ResultImportResult mergeResults(FemResults& base, const FemResults& extra) {
     if (base.modelNodeIds.empty()) {
         base.modelNodeIds = extra.modelNodeIds;
         base.modelCoordinates = extra.modelCoordinates;
+    }
+    for (const auto& ip : extra.integrationPointFields) {
+        const std::size_t step = ip.step < map.size() ? map[ip.step] : ip.step;
+        bool present = false;
+        for (const auto& existing : base.integrationPointFields)
+            if (existing.step == step && existing.name == ip.name && existing.components == ip.components) { present = true; break; }
+        if (present) {
+            auto it = std::find_if(base.integrationPointFields.begin(), base.integrationPointFields.end(),
+                [&](const IntegrationPointResultField& x) { return x.step == step && x.name == ip.name && x.components == ip.components; });
+            std::set<std::pair<std::uint64_t, std::uint32_t>> have;
+            for (std::size_t i = 0; i < it->recordCount(); ++i) have.emplace(it->elementIds[i], it->integrationPointIds[i]);
+            for (std::size_t i = 0; i < ip.recordCount(); ++i) {
+                const auto key = std::make_pair(ip.elementIds[i], ip.integrationPointIds[i]);
+                if (!have.insert(key).second) continue;
+                it->elementIds.push_back(key.first);
+                it->integrationPointIds.push_back(key.second);
+                it->sectionPointIds.push_back(ip.sectionPointIds[i]);
+                it->values.insert(it->values.end(), ip.values.begin() + static_cast<std::ptrdiff_t>(i * ip.componentCount()),
+                                  ip.values.begin() + static_cast<std::ptrdiff_t>((i + 1) * ip.componentCount()));
+            }
+        } else {
+            IntegrationPointResultField copy = ip;
+            copy.step = step;
+            base.integrationPointFields.push_back(std::move(copy));
+        }
     }
     if (base.eigenmodes.empty()) base.eigenmodes = extra.eigenmodes;
     if (base.format != extra.format) base.format += " + " + extra.format;
