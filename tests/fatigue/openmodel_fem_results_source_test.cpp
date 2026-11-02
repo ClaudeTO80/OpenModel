@@ -72,11 +72,11 @@ int main() {
     // CalculiX DAT integration-point records are retained independently of
     // the per-element mean generated for viewer compatibility.
     const std::string dat =
-        "stresses (elem, integ.pnt., sxx, syy, szz, sxy, sxz, syz) for set EALL and time 1.0\\n"
-        "\\n"
-        "9001 1 10 20 30 4 5 6\\n"
-        "9001 2 30 40 50 6 7 8\\n"
-        "\\n";
+        "stresses (elem, integ.pnt., sxx, syy, szz, sxy, sxz, syz) for set EALL and time 1.0\n"
+        "\n"
+        "9001 1 10 20 30 4 5 6\n"
+        "9001 2 30 40 50 6 7 8\n"
+        "\n";
     std::istringstream datInput(dat);
     FemResults datResults;
     const ResultImportResult datImport = CalculixDatImporter{}.parse(datInput, datResults);
