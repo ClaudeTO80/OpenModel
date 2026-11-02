@@ -26,7 +26,7 @@ bool validTransform(const OpenModel::ResultCoordinateTransform& transform) {
         m[0] * (m[4] * m[8] - m[5] * m[7]) -
         m[1] * (m[3] * m[8] - m[5] * m[6]) +
         m[2] * (m[3] * m[7] - m[4] * m[6]);
-    return std::fabs(std::fabs(determinant) - 1.0) <= tolerance;
+    return std::fabs(determinant - 1.0) <= tolerance;
 }
 
 StepParameterKind toParameterKind(OpenModel::StepKind kind) {
