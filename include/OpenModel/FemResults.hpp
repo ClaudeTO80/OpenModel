@@ -55,6 +55,57 @@ enum class ResultLocation {
     Element   ///< One value per element: `ids` are external element ids.
 };
 
+/** Semantic classification of a physical result quantity. */
+enum class ResultQuantityKind {
+    Unknown, Displacement, Velocity, Acceleration, Force, Stress, Strain,
+    Temperature, Energy, Pressure, ReactionForce, HeatFlux
+};
+
+/** Shape of the stored component tuple. */
+enum class ResultComponentKind { Unknown, Scalar, Vector, SymmetricTensor, FullTensor };
+
+/** Coordinate frame in which components are expressed. */
+enum class ResultCoordinateFrame { Unknown, Global, Local, Material };
+
+/** Meaning of off-diagonal strain components. */
+enum class ResultShearConvention { Unknown, NotApplicable, Tensorial, Engineering };
+
+/**
+ * SI base-dimension exponents: length, mass, time, electric current,
+ * thermodynamic temperature, amount of substance and luminous intensity.
+ * known=false means the physical dimension itself is not established.
+ */
+struct PhysicalDimension {
+    bool known = false;
+    std::int8_t length = 0, mass = 0, time = 0, current = 0;
+    std::int8_t temperature = 0, amount = 0, luminousIntensity = 0;
+};
+
+/**
+ * Unit metadata. scaleToSI converts a value to coherent SI; zero means unknown.
+ * offsetToSI supports affine units (e.g. Celsius to kelvin). A dimension can
+ * be known even when the solver's unit scale is not.
+ */
+struct PhysicalUnit {
+    PhysicalDimension dimension;
+    std::string symbol;
+    double scaleToSI = 0.0;
+    double offsetToSI = 0.0;
+};
+
+/** Semantic and dimensional description shared by nodal, element and IP fields. */
+struct ResultFieldSemantics {
+    ResultQuantityKind quantity = ResultQuantityKind::Unknown;
+    ResultComponentKind components = ResultComponentKind::Unknown;
+    ResultCoordinateFrame frame = ResultCoordinateFrame::Unknown;
+    ResultShearConvention shear = ResultShearConvention::Unknown;
+    PhysicalUnit unit;
+    bool derived = false;
+    bool averaged = false;
+    bool interpolated = false;
+    bool extrapolated = false;
+};
+
 /**
  * @brief One named quantity defined at nodes, for one step.
  *
@@ -69,6 +120,7 @@ struct ResultField {
     ResultLocation location = ResultLocation::Node;
     std::vector<std::uint64_t> ids;       ///< External node or element id (see `location`) of each record.
     std::vector<double> values;           ///< ids.size() * components.size() values.
+    ResultFieldSemantics semantics;
 
     std::size_t componentCount() const noexcept { return components.size(); }
     std::size_t recordCount() const noexcept { return ids.size(); }
@@ -89,6 +141,7 @@ struct IntegrationPointResultField {
     std::vector<std::uint32_t> integrationPointIds;
     std::vector<std::uint32_t> sectionPointIds; // zero when not supplied by the format
     std::vector<double> values;
+    ResultFieldSemantics semantics;
 
     std::size_t componentCount() const noexcept { return components.size(); }
     std::size_t recordCount() const noexcept { return elementIds.size(); }
