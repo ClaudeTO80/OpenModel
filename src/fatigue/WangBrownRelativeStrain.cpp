@@ -1,0 +1,89 @@
+#include <OpenModel/Fatigue/WangBrownRelativeStrain.hpp>
+
+#include <algorithm>
+#include <cmath>
+#include <limits>
+
+namespace OpenModel {
+namespace Fatigue {
+namespace {
+
+bool finiteTensor(const Tensor3& tensor) noexcept {
+    for (double value : tensor.values) {
+        if (!std::isfinite(value)) return false;
+    }
+    return true;
+}
+
+} // namespace
+
+double WangBrownRelativeStrain::between(
+    const Tensor3& reference,
+    const Tensor3& current,
+    double effectivePoissonRatio) noexcept {
+    if (!finiteTensor(reference) || !finiteTensor(current) ||
+        !std::isfinite(effectivePoissonRatio) ||
+        effectivePoissonRatio <= -1.0 || effectivePoissonRatio >= 0.5) {
+        return std::numeric_limits<double>::quiet_NaN();
+    }
+
+    const double dx = current.values[0] - reference.values[0];
+    const double dy = current.values[4] - reference.values[4];
+    const double dz = current.values[8] - reference.values[8];
+    // Tensor3 stores tensorial shear strain; engineering gamma is 2*epsilon_xy.
+    const double dxy = current.values[1] - reference.values[1];
+    const double dxz = current.values[2] - reference.values[2];
+    const double dyz = current.values[5] - reference.values[5];
+
+    const double numerator =
+        (dx - dy) * (dx - dy) +
+        (dx - dz) * (dx - dz) +
+        (dy - dz) * (dy - dz) +
+        6.0 * (dxy * dxy + dxz * dxz + dyz * dyz);
+    const double denominator = std::sqrt(2.0 * (1.0 + effectivePoissonRatio));
+    const double value = std::sqrt(std::max(0.0, numerator)) / denominator;
+    return std::isfinite(value) ? value : std::numeric_limits<double>::quiet_NaN();
+}
+
+double WangBrownRelativeStrain::magnitude(
+    const Tensor3& value,
+    double effectivePoissonRatio) noexcept {
+    const Tensor3 zero{};
+    return between(zero, value, effectivePoissonRatio);
+}
+
+std::vector<std::size_t> WangBrownRelativeStrain::componentTurningPoints(
+    const StressHistory& history) {
+    std::vector<std::size_t> points;
+    if (history.quantity() != QuantityKind::Strain || history.size() < 3) {
+        return points;
+    }
+
+    const auto& samples = history.samples();
+    for (std::size_t i = 1; i + 1 < samples.size(); ++i) {
+        if (!samples[i - 1].prepared || !samples[i].prepared ||
+            !samples[i + 1].prepared) {
+            continue;
+        }
+
+        bool turning = false;
+        for (std::size_t component = 0; component < 6; ++component) {
+            const std::size_t tensorIndex = component < 3
+                ? (component == 0 ? 0 : component == 1 ? 4 : 8)
+                : (component == 3 ? 1 : component == 4 ? 2 : 5);
+            const double before = samples[i - 1].prepared.tensor.values[tensorIndex];
+            const double current = samples[i].prepared.tensor.values[tensorIndex];
+            const double after = samples[i + 1].prepared.tensor.values[tensorIndex];
+            if ((current > before && current > after) ||
+                (current < before && current < after)) {
+                turning = true;
+                break;
+            }
+        }
+        if (turning) points.push_back(i);
+    }
+    return points;
+}
+
+} // namespace Fatigue
+} // namespace OpenModel
