@@ -26,7 +26,7 @@ int main() {
     report.positions.push_back(node);
 
     FatigueSpectrumPositionResult element;
-    element.position.location = ResultLocation::Element;
+    element.position.location = Fatigue::ResultLocation::Element;
     element.position.entityId = 501;
     element.label = "element 501";
     element.hasDamage = true;
@@ -35,7 +35,7 @@ int main() {
     report.positions.push_back(element);
 
     FatigueSpectrumPositionResult ip;
-    ip.position.location = ResultLocation::IntegrationPoint;
+    ip.position.location = Fatigue::ResultLocation::IntegrationPoint;
     ip.position.entityId = 501;
     ip.position.integrationPoint = 1;
     ip.label = "element 501 IP1";
