@@ -90,6 +90,15 @@ bool OpenModelFemResultsSource::readSample(
         candidate.position = position;
         candidate.step = convertStep(results_.steps[stepIndex], stepIndex);
         candidate.fieldName = matched->name;
+    candidate.quantity = matched->semantics.quantity;
+    candidate.componentKind = matched->semantics.components;
+    candidate.frame = matched->semantics.frame;
+    candidate.shearConvention = matched->semantics.shear;
+    candidate.unit = matched->semantics.unit;
+    candidate.derived = matched->semantics.derived;
+    candidate.averaged = matched->semantics.averaged;
+    candidate.interpolated = matched->semantics.interpolated;
+    candidate.extrapolated = matched->semantics.extrapolated;
         candidate.componentLabels = matched->components;
         candidate.components.reserve(components);
         const std::size_t offset = record * components;
