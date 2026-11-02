@@ -17,7 +17,7 @@ int main() {
     report.status = FatigueSpectrumReportStatus::PartialFailure;
 
     FatigueSpectrumPositionResult node;
-    node.position.location = ResultLocation::Node;
+    node.position.location = Fatigue::ResultLocation::Node;
     node.position.entityId = 101;
     node.label = "node 101";
     node.hasDamage = true;
