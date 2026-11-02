@@ -19,7 +19,7 @@ ResultField strainField(std::size_t step, double ex, double ey, double gammaXY) 
     field.values = {ex, ey, 0.0, gammaXY, 0.0, 0.0};
     field.semantics.quantity = ResultQuantityKind::Strain;
     field.semantics.components = ResultComponentKind::SymmetricTensor;
-    field.semantics.shearConvention = ResultShearConvention::Engineering;
+    field.semantics.shear = ResultShearConvention::Engineering;
     field.semantics.frame = ResultCoordinateFrame::Global;
     field.semantics.unit.dimension = {true, 0, 0, 0, 0, 0, 0, 0};
     field.semantics.unit.symbol = "1";
