@@ -20,10 +20,10 @@
  * same mesh can be paired with many result files. Binding results to a mesh
  * (and to the viewer) is done by ResultBinding.hpp.
  *
- * Values defined **at nodes** and **per element** are supported (one value or tensor
- * per element, for example the average stress of an element). Integration-point data
- * is reported by the importers as unsupported and skipped; it is never silently
- * converted or averaged.
+ * Values defined at nodes, per element, and at integration points are retained separately.
+ * When a format provides integration-point values, importers may additionally expose
+ * an explicitly diagnosed element aggregate for viewer compatibility; the native
+ * records remain available in integrationPointFields and are never replaced by it.
  */
 
 namespace OpenModel {
@@ -74,6 +74,26 @@ struct ResultField {
     std::size_t recordCount() const noexcept { return ids.size(); }
 };
 
+/**
+ * @brief One result record at a solver integration point.
+ *
+ * Values are record-major. The identity is the external element id plus the
+ * solver's 1-based integration-point and optional section-point numbers.
+ * No extrapolation or averaging is implied by this structure.
+ */
+struct IntegrationPointResultField {
+    std::string name;
+    std::vector<std::string> components;
+    std::size_t step = 0;
+    std::vector<std::uint64_t> elementIds;
+    std::vector<std::uint32_t> integrationPointIds;
+    std::vector<std::uint32_t> sectionPointIds; // zero when not supplied by the format
+    std::vector<double> values;
+
+    std::size_t componentCount() const noexcept { return components.size(); }
+    std::size_t recordCount() const noexcept { return elementIds.size(); }
+};
+
 /** @brief One row of the eigenvalue table of a frequency analysis (CalculiX `.dat`). */
 struct EigenMode {
     std::size_t mode = 0;      ///< Mode number as printed (1-based).
@@ -87,7 +107,8 @@ struct EigenMode {
 struct FemResults {
     std::string format;                   ///< Importer name, e.g. "CalculiX FRD".
     std::vector<ResultStep> steps;
-    std::vector<ResultField> fields;      ///< Ordered as found in the file.
+    std::vector<ResultField> fields;      ///< Nodal and element-level fields, ordered as found in the file.
+    std::vector<IntegrationPointResultField> integrationPointFields; ///< Native integration-point records; never averaged.
     std::vector<EigenMode> eigenmodes;    ///< Eigenvalue table (only the `.dat` importer fills it); no mode shapes.
 
     /**
