@@ -56,47 +56,6 @@ double swtCurve(double reversals, const StrainLifeMaterialParameters& m) {
             std::pow(reversals, m.fatigueStrengthExponent + m.fatigueDuctilityExponent);
 }
 
-bool solveReversals(double target, const StrainLifeDamageInput& input,
-                    double& reversals, std::string& diagnostic) {
-    const auto& m = *input.material;
-    const bool swt = input.meanStressModel == StrainLifeMeanStressModel::SmithWatsonTopper;
-    const auto evaluate = [&](double x) {
-        const double n = std::pow(10.0, x);
-        return swt ? swtCurve(n, m)
-                   : strainLifeCurve(n, m, input.meanStressModel,
-                       input.meanStressModel == StrainLifeMeanStressModel::Morrow
-                           ? currentMeanStress : 0.0);
-    };
-    const double lo = std::log10(input.minimumReversals);
-    const double hi = std::log10(input.maximumReversals);
-    const double atLo = evaluate(lo);
-    const double atHi = evaluate(hi);
-    if (!std::isfinite(atLo) || !std::isfinite(atHi) || atLo <= 0.0 || atHi <= 0.0) {
-        diagnostic = "Strain-life equation is not finite and positive over the requested reversal interval.";
-        return false;
-    }
-    if (target > atLo || target < atHi) {
-        diagnostic = "Cycle lies outside the configured strain-life reversal interval; no extrapolation is performed.";
-        return false;
-    }
-    double a = lo, b = hi;
-    for (int i = 0; i < 160; ++i) {
-        const double mid = 0.5 * (a + b);
-        const double value = evaluate(mid);
-        if (!std::isfinite(value) || value <= 0.0) {
-            diagnostic = "Numerical failure while solving strain-life equation.";
-            return false;
-        }
-        if (value > target) a = mid;
-        else b = mid;
-    }
-    reversals = std::pow(10.0, 0.5 * (a + b));
-    if (!std::isfinite(reversals) || reversals <= 0.0) {
-        diagnostic = "Predicted reversal life is outside the numeric range.";
-        return false;
-    }
-    return true;
-}
 
 } // namespace
 
