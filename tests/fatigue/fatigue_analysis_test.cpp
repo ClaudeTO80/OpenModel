@@ -23,15 +23,19 @@ ResultField stressField(std::size_t step, double xx) {
     f.semantics.unit.scaleToSI = 1.0e6;
     return f;
 }
-}
 
-int main() {
+FemResults makeResults(const std::vector<double>& values) {
     FemResults results;
-    const double values[] = {0.0, 100.0, 0.0, -100.0, 0.0};
-    for (std::size_t i = 0; i < 5; ++i) {
+    for (std::size_t i = 0; i < values.size(); ++i) {
         results.steps.push_back({"time", static_cast<double>(i), StepKind::Time, 0});
         results.fields.push_back(stressField(i, values[i]));
     }
+    return results;
+}
+}
+
+int main() {
+    auto results = makeResults({0.0, 100.0, 0.0, -100.0, 0.0});
     ResultSourceMetadata metadata;
     metadata.solverName = "SyntheticTestSolver";
     metadata.resultFormat = "test-fixture";
@@ -85,5 +89,48 @@ int main() {
 
     assert(FatigueAnalysis::run(source, "STRESS", position, material, projection, 250.0).status ==
            FatigueAnalysisStatus::DamageEvaluationFailed);
+
+    // Two separate blocks deliberately restart their local time at zero.
+    auto secondResults = makeResults({0.0, 50.0, 0.0, -50.0, 0.0});
+    OpenModelFemResultsSource secondSource(secondResults);
+    FatigueLoadBlockInput first;
+    first.label = "High-amplitude block";
+    first.source = &source;
+    first.fieldName = "STRESS";
+    first.position = position;
+    first.projection = projection;
+    first.repetitions = 2.0;
+
+    FatigueLoadBlockInput second = first;
+    second.label = "Low-amplitude block";
+    second.source = &secondSource;
+    second.repetitions = 3.0;
+
+    const auto spectrum = FatigueSpectrumAnalysis::run({first, second}, material, 293.15);
+    assert(spectrum);
+    assert(spectrum.blocks.size() == 2);
+    assert(spectrum.blocks[0].analysis.history.samples().front().time == 0.0);
+    assert(spectrum.blocks[1].analysis.history.samples().front().time == 0.0);
+    const double expected = 2.0 * spectrum.blocks[0].damagePerBlock +
+                            3.0 * spectrum.blocks[1].damagePerBlock;
+    assert(std::fabs(spectrum.totalDamage - expected) < 1e-14);
+    assert(std::fabs(spectrum.spectrumLife - 1.0 / expected) < 1e-8);
+    assert(spectrum.blocks[0].label == "High-amplitude block");
+    assert(spectrum.blocks[1].label == "Low-amplitude block");
+
+    assert(FatigueSpectrumAnalysis::run({}, material, 293.15).status ==
+           FatigueSpectrumStatus::EmptySpectrum);
+    auto invalidBlock = first;
+    invalidBlock.repetitions = 0.0;
+    assert(FatigueSpectrumAnalysis::run({invalidBlock}, material, 293.15).status ==
+           FatigueSpectrumStatus::InvalidBlock);
+    auto failingBlock = first;
+    failingBlock.fieldName = "MISSING";
+    const auto failed = FatigueSpectrumAnalysis::run({first, failingBlock}, material, 293.15);
+    assert(failed.status == FatigueSpectrumStatus::BlockAnalysisFailed);
+    assert(failed.failedBlockIndex == 1);
+    assert(failed.blocks.size() == 2);
+    assert(failed.blocks.front().analysis);
+    assert(!failed.blocks.back().analysis);
     return 0;
 }
