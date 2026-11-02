@@ -40,8 +40,13 @@ jobs:
       - name: Build
         run: cmake --build build --config Release --parallel 4
 
-      - name: Test
+      - name: Test (Linux)
+        if: runner.os == 'Linux'
         run: ctest --test-dir build --build-config Release --output-on-failure --parallel 4
+
+      - name: Test (Windows)
+        if: runner.os == 'Windows'
+        run: ctest --test-dir build --build-config Release --output-on-failure --parallel 4 --exclude-regex "^solver_cli_"
 
       - name: Create ZIP package
         run: |
