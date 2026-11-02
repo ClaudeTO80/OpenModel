@@ -57,6 +57,7 @@ set(OPENMODEL_CORE_SOURCES
     src/fatigue/FatigueDamageModel.cpp
     src/fatigue/StrainLifeDamageModel.cpp
     src/fatigue/WangBrownDamageModel.cpp
+    src/fatigue/WangBrownRelativeStrain.cpp
     src/fatigue/StrainLifeAnalysis.cpp
     src/fatigue/LocalStrainCorrection.cpp
     src/fatigue/FatigueAnalysis.cpp
@@ -193,6 +194,7 @@ if(OPENMODEL_BUILD_TESTS)
     openmodel_add_test(fatigue_damage_model_test tests/fatigue/fatigue_damage_model_test.cpp)
     openmodel_add_test(fatigue_strain_life_damage_model_test tests/fatigue/strain_life_damage_model_test.cpp)
     openmodel_add_test(fatigue_wang_brown_damage_model_test tests/fatigue/wang_brown_damage_model_test.cpp)
+    openmodel_add_test(fatigue_wang_brown_relative_strain_test tests/fatigue/wang_brown_relative_strain_test.cpp)
     openmodel_add_test(fatigue_strain_life_analysis_test tests/fatigue/strain_life_analysis_test.cpp)
     openmodel_add_test(fatigue_local_strain_correction_test tests/fatigue/local_strain_correction_test.cpp)
     openmodel_add_test(fatigue_analysis_test tests/fatigue/fatigue_analysis_test.cpp)
