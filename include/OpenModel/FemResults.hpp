@@ -119,7 +119,7 @@ struct FemResults {
     std::vector<std::array<double, 3>> modelCoordinates;
 
     void clear() noexcept;
-    bool empty() const noexcept { return fields.empty() && eigenmodes.empty(); }
+    bool empty() const noexcept { return fields.empty() && integrationPointFields.empty() && eigenmodes.empty(); }
 
     /** @brief Indices into `steps` of the vibration modes (kind Frequency), in file order. */
     std::vector<std::size_t> modeSteps() const;
