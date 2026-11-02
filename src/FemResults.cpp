@@ -911,7 +911,7 @@ ResultImportResult CalculixDatImporter::read(const std::filesystem::path& path, 
 
 ResultImportResult mergeResults(FemResults& base, const FemResults& extra) {
     ResultImportResult result;
-    if (base.steps.empty() && base.fields.empty()) {
+    if (base.steps.empty() && base.fields.empty() && base.integrationPointFields.empty()) {
         base = extra;
         return result;
     }
@@ -962,6 +962,9 @@ ResultImportResult mergeResults(FemResults& base, const FemResults& extra) {
                 [&](const IntegrationPointResultField& x) { return x.step == step && x.name == ip.name && x.components == ip.components; });
             std::set<std::pair<std::uint64_t, std::uint32_t>> have;
             for (std::size_t i = 0; i < it->recordCount(); ++i) have.emplace(it->elementIds[i], it->integrationPointIds[i]);
+            const bool keepTransforms = !it->coordinateTransforms.empty() || !ip.coordinateTransforms.empty();
+            if (keepTransforms && it->coordinateTransforms.empty())
+                it->coordinateTransforms.resize(it->recordCount());
             for (std::size_t i = 0; i < ip.recordCount(); ++i) {
                 const auto key = std::make_pair(ip.elementIds[i], ip.integrationPointIds[i]);
                 if (!have.insert(key).second) continue;
@@ -970,6 +973,9 @@ ResultImportResult mergeResults(FemResults& base, const FemResults& extra) {
                 it->sectionPointIds.push_back(ip.sectionPointIds[i]);
                 it->values.insert(it->values.end(), ip.values.begin() + static_cast<std::ptrdiff_t>(i * ip.componentCount()),
                                   ip.values.begin() + static_cast<std::ptrdiff_t>((i + 1) * ip.componentCount()));
+                if (keepTransforms)
+                    it->coordinateTransforms.push_back(ip.coordinateTransforms.empty()
+                        ? ResultCoordinateTransform{} : ip.coordinateTransforms[i]);
             }
         } else {
             IntegrationPointResultField copy = ip;
