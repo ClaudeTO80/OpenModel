@@ -134,7 +134,6 @@ jobs:
       - name: Build
         run: cmake --build build --parallel 4
 
-      # ProcessRunner currently has no Windows implementation.
       - name: Test
         run: ctest --test-dir build --output-on-failure --parallel 4 --exclude-regex "^solver_cli_"
 
@@ -153,14 +152,54 @@ jobs:
           if-no-files-found: ignore
 
   webgl:
-    name: WebGL viewer smoke tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    name: WebGL tests (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: Linux GCC
+            runner: ubuntu-latest
+            toolchain: gcc
+          - platform: Windows MSVC
+            runner: windows-latest
+            toolchain: msvc
+          - platform: Windows MinGW64
+            runner: windows-latest
+            toolchain: mingw64
+            msystem: MINGW64
+            gcc_package: mingw-w64-x86_64-gcc
+            cmake_package: mingw-w64-x86_64-cmake
+            ninja_package: mingw-w64-x86_64-ninja
+            python_package: mingw-w64-x86_64-python
+          - platform: Windows UCRT64
+            runner: windows-latest
+            toolchain: ucrt64
+            msystem: UCRT64
+            gcc_package: mingw-w64-ucrt-x86_64-gcc
+            cmake_package: mingw-w64-ucrt-x86_64-cmake
+            ninja_package: mingw-w64-ucrt-x86_64-ninja
+            python_package: mingw-w64-ucrt-x86_64-python
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up MSYS2
+        if: matrix.toolchain == 'mingw64' || matrix.toolchain == 'ucrt64'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: ${{ matrix.msystem }}
+          update: true
+          install: >-
+            ${{ matrix.gcc_package }}
+            ${{ matrix.cmake_package }}
+            ${{ matrix.ninja_package }}
+            ${{ matrix.python_package }}
+
       - name: Set up Python
+        if: matrix.toolchain != 'mingw64' && matrix.toolchain != 'ucrt64'
         uses: actions/setup-python@v5
         with:
           python-version: "3.x"
@@ -170,12 +209,21 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Install Playwright
+      - name: Install Playwright and Chromium (Linux)
+        if: runner.os == 'Linux'
         run: |
           npm install --no-save playwright
           npx playwright install --with-deps chromium
 
-      - name: Configure
+      - name: Install Playwright and Chromium (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          npm install --no-save playwright
+          npx playwright install chromium
+
+      - name: Configure (Linux GCC)
+        if: matrix.toolchain == 'gcc'
         run: >
           cmake -S . -B build
           -DCMAKE_BUILD_TYPE=Release
@@ -183,16 +231,47 @@ jobs:
           -DOPENMODEL_BUILD_CLI=ON
           -DOPENMODEL_TEST_WEBGL_VIEWER=ON
 
-      - name: Build
+      - name: Configure (Windows MSVC)
+        if: matrix.toolchain == 'msvc'
+        run: >
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=Release
+          -DOPENMODEL_BUILD_TESTS=ON
+          -DOPENMODEL_BUILD_CLI=ON
+          -DOPENMODEL_TEST_WEBGL_VIEWER=ON
+
+      - name: Configure (Windows MinGW)
+        if: matrix.toolchain == 'mingw64' || matrix.toolchain == 'ucrt64'
+        shell: msys2 {0}
+        run: >
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DOPENMODEL_BUILD_TESTS=ON
+          -DOPENMODEL_BUILD_CLI=ON
+          -DOPENMODEL_TEST_WEBGL_VIEWER=ON
+
+      - name: Build (Linux / MSVC)
+        if: matrix.toolchain == 'gcc' || matrix.toolchain == 'msvc'
         run: cmake --build build --config Release --parallel 4
 
-      - name: Run WebGL and core tests
+      - name: Build (MinGW)
+        if: matrix.toolchain == 'mingw64' || matrix.toolchain == 'ucrt64'
+        shell: msys2 {0}
+        run: cmake --build build --parallel 4
+
+      - name: Run WebGL and core tests (Linux / MSVC)
+        if: matrix.toolchain == 'gcc' || matrix.toolchain == 'msvc'
         run: ctest --test-dir build --build-config Release --output-on-failure --parallel 2
+
+      - name: Run WebGL and core tests (MinGW)
+        if: matrix.toolchain == 'mingw64' || matrix.toolchain == 'ucrt64'
+        shell: msys2 {0}
+        run: ctest --test-dir build --output-on-failure --parallel 2
 
       - name: Upload test log on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: webgl-ctest-log
+          name: webgl-ctest-log-${{ matrix.toolchain }}
           path: build/Testing/Temporary/LastTest.log
           if-no-files-found: ignore
