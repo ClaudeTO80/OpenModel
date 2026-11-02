@@ -56,16 +56,18 @@ int main() {
         {"t3", 3.0, StepKind::Time, 0},
         {"t4", 4.0, StepKind::Time, 0},
         {"t5", 5.0, StepKind::Time, 0},
-        {"t6", 6.0, StepKind::Time, 0}
+        {"t6", 6.0, StepKind::Time, 0},
+        {"t7", 7.0, StepKind::Time, 0}
     };
     results.fields = {
         strainField(0, 0.0, 0.0, 0.0),
         strainField(1, 0.01, 0.0, 0.0),
-        strainField(2, 0.0, 0.0, 0.0),
-        strainField(3, 0.0, -0.01, 0.0),
+        strainField(2, 0.01, 0.0, 0.0),
+        strainField(3, 0.0, 0.0, 0.0),
         strainField(4, 0.0, 0.0, 0.0),
-        strainField(5, 0.0, 0.01, 0.0),
-        strainField(6, 0.0, 0.0, 0.0)
+        strainField(5, 0.0, -0.01, 0.0),
+        strainField(6, 0.0, 0.01, 0.0),
+        strainField(7, 0.0, 0.0, 0.0)
     };
     OpenModelFemResultsSource source(results);
     ResultPosition position;
@@ -86,6 +88,6 @@ int main() {
         history.history, 0, nu, 4, 3));
 
     const auto turns = WangBrownRelativeStrain::componentTurningPoints(history.history);
-    assert((turns == std::vector<std::size_t>{1, 3, 5}));
+    assert((turns == std::vector<std::size_t>{1, 5, 6}));
     return 0;
 }
