@@ -20,7 +20,7 @@ int main() {
     report.maximumDamage = 0.125;
 
     FatiguePositionResult good;
-    good.position.location = ResultLocation::IntegrationPoint;
+    good.position.location = Fatigue::ResultLocation::IntegrationPoint;
     good.position.entityId = 77;
     good.position.integrationPoint = 3;
     good.label = "IP \"hotspot\"";
@@ -38,7 +38,7 @@ int main() {
     good.analysis.cycleCounting.cycles.push_back(cycle);
 
     FatiguePositionResult bad;
-    bad.position.location = ResultLocation::Element;
+    bad.position.location = Fatigue::ResultLocation::Element;
     bad.position.entityId = 88;
     bad.analysis.status = FatigueAnalysisStatus::HistoryBuildFailed;
     bad.analysis.diagnostic = "missing \"STRESS\" record";
