@@ -23,22 +23,51 @@ Every step carries a numeric parameter, its semantic kind
 optional mode number. A fatigue history must not treat frequency or eigenmode
 indices as chronological load time.
 
-## Field components
+## Tensor and component semantics
 
-The source returns component labels and values in exactly the same order as
-stored by the importer. The contract does not assume a universal Voigt order.
-A later tensor-normalization layer must map labels explicitly and must know
-whether shear strain is tensorial or engineering. The current core FemResults
-model does not yet carry this semantic metadata; the adapter therefore reports
-`Unknown`, rather than guessing.
+Each result field carries a `ResultFieldSemantics` record:
 
-## Units and provenance
+- quantity kind (stress, strain, displacement, temperature, force, ...);
+- component shape (scalar, vector, symmetric tensor, full matrix);
+- coordinate frame (global, local, material, unknown);
+- shear convention (tensorial, engineering, not applicable, unknown);
+- provenance flags (derived, averaged, interpolated, extrapolated).
 
-Unit strings are explicit metadata. Empty unit strings mean unknown; there is
-no implicit SI assumption or conversion. Solver/version, format, source name
-and model fingerprint may be supplied by the caller. Sample flags identify
-derived, averaged, interpolated and extrapolated values when the source knows
-that provenance. An unset flag is not proof that an operation never occurred.
+Component labels and values always retain importer order. No universal Voigt
+ordering is imposed. Algorithms must map labels explicitly and validate that
+the requested tensor components exist. A six-component tensor is not assumed
+to be valid merely because it has six numbers.
+
+For strain, the shear convention is essential: engineering shear
+`gamma_xy = 2 epsilon_xy` differs from tensor shear `epsilon_xy`. Algorithms
+must convert to one internal convention before invariants or fatigue criteria
+are evaluated. Unknown convention is a hard precondition failure for any
+calculation that uses shear components.
+
+## Physical dimensions and units
+
+A `PhysicalUnit` contains SI base-dimension exponents (length, mass, time,
+electric current, temperature, amount of substance, luminous intensity), a
+display symbol, a multiplicative `scaleToSI` and an optional affine
+`offsetToSI`. The dimension can be known while the unit scale remains unknown.
+A zero scale means "not supplied"; it is never a conversion factor.
+
+Examples of dimensions:
+- displacement: L;
+- stress/pressure: M L^-1 T^-2;
+- force: M L T^-2;
+- strain: dimensionless;
+- temperature: Theta.
+
+The importer must not invent the unit system. CalculiX result files do not
+declare a coherent unit system, so the DAT/FRD importer records known physical
+dimensions for recognized quantities but leaves `symbol` and `scaleToSI`
+unknown. A caller may provide the actual model unit system when it is known.
+No implicit SI assumption or conversion is allowed.
+
+Solver/version, format, source name and model fingerprint may be supplied by
+the caller. Provenance flags are positive assertions only: false means
+"not reported", not proof that averaging or extrapolation never occurred.
 
 ## Missing and invalid data
 
