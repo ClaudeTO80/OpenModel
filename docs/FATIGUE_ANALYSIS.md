@@ -1,38 +1,44 @@
-# End-to-end fatigue analysis
+# Fatigue load-spectrum analysis
 
-## Workflow
+## Purpose
 
-`FatigueAnalysis::run` orchestrates one solver-independent, uniaxial stress-life analysis at one FEM result position:
+`FatigueSpectrumAnalysis` evaluates a sequence of independent load histories at one FEM result position and accumulates their Palmgren-Miner damage. Every block is passed through the existing `FatigueAnalysis` pipeline (exact source samples, tensor preparation, directional projection, Rainflow, S-N evaluation and Miner accumulation).
 
-1. Validate the selected `FatigueMaterial` and locate its S-N curve.
-2. Build a time-ordered `StressHistory` from exact field/position/step samples.
-3. Normalize tensor components and coordinate frame using the existing preparation layer.
-4. Project the full stress tensor onto the caller-supplied unit direction (q(t)=n^T\sigma(t)n).
-5. Count scalar cycles with Rainflow.
-6. Evaluate the S-N curve at half the Rainflow range and accumulate Palmgren-Miner damage.
+## Block contract
 
-## Traceability
+A `FatigueLoadBlockInput` contains:
+- a non-owning pointer to an `IResultSource` (the source must outlive the call);
+- an exact result field name and `ResultPosition`;
+- an explicit unit projection direction;
+- an optional label;
+- a positive finite `repetitions` count.
 
-The returned `FatigueAnalysisResult` retains:
-- field name and FEM result position;
-- source metadata (solver, format, version, fingerprint when supplied);
-- the complete normalized stress history and original samples;
-- cycle turning-point times and source history indices;
-- cycle ranges, means and weights;
-- the selected projection direction, temperature and damage summary.
+Each block is a separate time history. Its time may restart at zero; blocks are never concatenated and no synthetic time axis is invented. The input vector order is retained in the result and represents the declared operating sequence. The caller must ensure that the block definitions and repetitions describe the actual operating spectrum.
 
-The caller can therefore inspect each counted cycle and follow its endpoints back to the original FEM samples. No solver-specific logic is introduced in this service.
+## Damage accumulation
 
-## Scope and assumptions
+For block (b), the inner Rainflow/Miner analysis returns:
 
-This is explicitly a uniaxial S-N workflow. The projection direction is expressed in the selected history frame and must be a finite unit vector. It is not a multiaxial fatigue criterion.
+[
+D_b = \sum_{i\in b}\frac{n_i}{N_i}.
+]
 
-Material assignment is explicit: the caller supplies the material for the requested FEM position. The service does not infer element materials from a mesh or solver deck.
+If that block occurs (r_b) times in one complete spectrum repetition, its contribution is (r_bD_b). The spectrum damage and nominal spectrum life are:
 
-No unit conversion is performed. Stress history and S-N curve units must match exactly. Temperature is one constant absolute value in kelvin for the complete history. Mean stress is retained in Rainflow cycles but not corrected in Palmgren-Miner.
+[
+D_{\mathrm{spectrum}}=\sum_b r_bD_b,
+\qquad
+L_{\mathrm{spectrum}}=\frac{1}{D_{\mathrm{spectrum}}}.
+]
 
-The history builder currently requires every source step to be explicitly time-valued and strictly increasing. Static load sequences and multiple blocks need a separate explicit sequence model; they are not synthesized from step indices.
+A zero-damage spectrum has infinite nominal life. Accumulation checks for non-finite overflow.
 
-## Failure handling
+## Results and traceability
 
-The result status identifies the failed stage (material, history, quantity, cycle counting or damage evaluation) and includes a diagnostic. Partial history/cycle results are retained where they have already been built, allowing inspection without treating a failed analysis as successful.
+The result contains one `FatigueLoadBlockResult` per successfully evaluated block, preserving its label, repetition count, individual damage and full `FatigueAnalysisResult`. Thus cycle endpoints remain traceable to the original samples and source metadata. On failure, the index of the failing block and a diagnostic are returned; preceding successful blocks remain available.
+
+## Scope
+
+This is linear Palmgren-Miner accumulation. For this model, block order does not change the numerical total, although it is retained as part of the input contract for reporting and future sequence-sensitive models. No sequence effect, overload interaction, residual strength, mean-stress correction, automatic material mapping, unit conversion, or multiaxial criterion is introduced.
+
+All blocks in one spectrum use the same selected material, temperature and target coordinate frame. Each source history must independently satisfy the strict time-history contract.
