@@ -38,6 +38,12 @@ int main() {
     assert(std::fabs(result.damage - 1.05e-5) < 1e-12);
     assert(std::fabs(result.blockLife - 1.0 / 1.05e-5) < 1e-5);
 
+    auto correctedInput = input;
+    correctedInput.meanStressCorrection = MeanStressCorrectionKind::Goodman;
+    correctedInput.meanStressParameters.ultimateTensileStrength = 600.0;
+    auto correctedResult = miner.evaluate(correctedInput);
+    assert(correctedResult && correctedResult.damage > result.damage);
+
     auto wrongUnit = input;
     wrongUnit.amplitudeUnit.symbol = "Pa";
     wrongUnit.amplitudeUnit.scaleToSI = 1.0;
