@@ -107,13 +107,13 @@ int main() {
     assert(!datSource.readSample("STRESS", ip, 0, sample));
 
     // Non-finite values and duplicate IDs are rejected.
-    results.fields[0].values[0] = (std::numeric_limits<double>::quiet_NaN)();
+    results.fields[0].values[6] = (std::numeric_limits<double>::quiet_NaN)();
     OpenModelFemResultsSource nonFinite(results);
     element.location = Fatigue::ResultLocation::Element;
     element.integrationPoint = 0;
     assert(!nonFinite.readSample("STRESS", element, 0, sample));
 
-    results.fields[0].values[0] = 10.0;
+    results.fields[0].values[6] = 100.0;
     results.fields[0].ids.push_back(9001);
     results.fields[0].values.insert(results.fields[0].values.end(), {1, 2, 3, 4, 5, 6});
     OpenModelFemResultsSource duplicate(results);
