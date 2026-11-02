@@ -47,7 +47,8 @@ set(OPENMODEL_CORE_SOURCES
     src/FemResults.cpp
     src/ResultBinding.cpp
     src/fatigue/OpenModelFemResultsSource.cpp
-    src/fatigue/TensorNormalizer.cpp)
+    src/fatigue/TensorNormalizer.cpp
+    src/fatigue/FatigueSamplePreparer.cpp)
 
 function(openmodel_configure_core_target target export_name)
     target_include_directories(${target} PUBLIC
@@ -165,11 +166,12 @@ if(OPENMODEL_BUILD_TESTS)
     openmodel_add_test(fem_results_test tests/fem_results_test.cpp)
     openmodel_add_test(fatigue_result_source_test tests/fatigue/openmodel_fem_results_source_test.cpp)
     openmodel_add_test(fatigue_tensor_normalizer_test tests/fatigue/tensor_normalizer_test.cpp)
+    openmodel_add_test(fatigue_sample_preparer_test tests/fatigue/fatigue_sample_preparer_test.cpp)
     openmodel_add_test(analysis_setup_test tests/analysis_setup_test.cpp)
     openmodel_add_test(mesh_selection_test tests/mesh_selection_test.cpp)
     set(_openmodel_core_test_names core_smoke_test mesh_validation_test abaqus_writer_test physical_groups_test
         mesh_topology_test surface_mesher_test gltf_writer_test surface_refiner_test
-        web_view_writer_test mesh_binary_io_test mesh_importer_test fem_results_test fatigue_result_source_test fatigue_tensor_normalizer_test analysis_setup_test mesh_selection_test)
+        web_view_writer_test mesh_binary_io_test mesh_importer_test fem_results_test fatigue_result_source_test fatigue_tensor_normalizer_test fatigue_sample_preparer_test analysis_setup_test mesh_selection_test)
     if(OPENMODEL_BUILD_CLI)
         list(APPEND _openmodel_core_test_names openmodel_cli_info openmodel_cli_validate_demo)
     endif()
