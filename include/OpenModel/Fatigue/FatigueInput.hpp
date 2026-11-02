@@ -30,6 +30,13 @@ using QuantityKind = OpenModel::ResultQuantityKind;
 using PhysicalDimension = OpenModel::PhysicalDimension;
 using PhysicalUnit = OpenModel::PhysicalUnit;
 
+/** Optional model-wide unit-system labels; field-level units remain authoritative. */
+struct UnitSystem {
+    std::string name;
+    std::string length, force, mass, time, temperature;
+    std::string displacement, stress, strain;
+};
+
 /** External identity of one result location. IDs are never mesh-array offsets. */
 struct ResultPosition {
     ResultLocation location = ResultLocation::Node;
