@@ -30,6 +30,15 @@ int main() {
     displacement.location = OpenModel::ResultLocation::Node;
     displacement.ids = {77};
     displacement.values = {1.0, 2.0, 3.0};
+    displacement.semantics.quantity = ResultQuantityKind::Displacement;
+    displacement.semantics.components = ResultComponentKind::Vector;
+    displacement.semantics.frame = ResultCoordinateFrame::Local;
+    displacement.semantics.unit.dimension = {true, 1, 0, 0, 0, 0, 0, 0};
+    ResultCoordinateTransform localFrame;
+    localFrame.available = true;
+    localFrame.name = "element-local-1";
+    localFrame.localToGlobal = {{0,-1,0, 1,0,0, 0,0,1}};
+    displacement.coordinateTransforms.push_back(localFrame);
     results.fields.push_back(displacement);
 
     OpenModelFemResultsSource source(results);
@@ -60,6 +69,11 @@ int main() {
     node.entityId = 77;
     assert(source.readSample("DISP", node, 0, sample));
     assert(sample.components[2] == 3.0);
+    assert(sample.quantity == ResultQuantityKind::Displacement);
+    assert(sample.frame == ResultCoordinateFrame::Local);
+    assert(sample.coordinateTransform.available);
+    assert(sample.coordinateTransform.name == "element-local-1");
+    assert(sample.coordinateTransform.localToGlobal[1] == -1.0);
 
     // Missing records and unsupported IP data must not fall back to element means.
     element.entityId = 123456;
