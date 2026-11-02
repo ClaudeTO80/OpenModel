@@ -63,7 +63,14 @@ FatigueDamageResult PalmgrenMiner::evaluate(const FatigueDamageInput& input) con
             result.diagnostic = "Cycle amplitude is not representable.";
             return result;
         }
-        const auto life = input.curve->evaluate(amplitude, input.temperatureKelvin);
+        const auto corrected = MeanStressCorrection::apply(
+            input.meanStressCorrection, amplitude, cycle.mean, input.meanStressParameters);
+        if (!corrected) {
+            result.status = FatigueDamageStatus::InvalidInput;
+            result.diagnostic = "Mean-stress correction failed: " + corrected.diagnostic;
+            return result;
+        }
+        const auto life = input.curve->evaluate(corrected.correctedAmplitude, input.temperatureKelvin);
         if (!life) {
             result.status = FatigueDamageStatus::CurveEvaluationFailed;
             result.diagnostic = "S-N curve evaluation failed: " + life.diagnostic;
@@ -93,7 +100,9 @@ FatigueDamageResult PalmgrenMiner::evaluate(const FatigueDamageInput& input) con
     result.damage = sum;
     result.blockLife = sum > 0.0 ? 1.0 / sum : std::numeric_limits<double>::infinity();
     result.status = FatigueDamageStatus::Success;
-    result.diagnostic = "Linear Palmgren-Miner damage evaluated; mean-stress and sequence effects were not considered.";
+    result.diagnostic = input.meanStressCorrection == MeanStressCorrectionKind::None
+        ? "Linear Palmgren-Miner damage evaluated without mean-stress correction or sequence effects."
+        : "Linear Palmgren-Miner damage evaluated after the selected uniaxial mean-stress correction; sequence effects were not considered.";
     return result;
 }
 
