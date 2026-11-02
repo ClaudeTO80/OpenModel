@@ -23,6 +23,16 @@ const char* coordinateKind(DamageMapCoordinateKind k) {
     }
     return "unknown";
 }
+const char* analysisStatus(FatigueSpectrumStatus s) {
+    switch (s) {
+    case FatigueSpectrumStatus::Success: return "success";
+    case FatigueSpectrumStatus::EmptySpectrum: return "empty_spectrum";
+    case FatigueSpectrumStatus::InvalidBlock: return "invalid_block";
+    case FatigueSpectrumStatus::BlockAnalysisFailed: return "block_analysis_failed";
+    case FatigueSpectrumStatus::NumericalOverflow: return "numerical_overflow";
+    }
+    return "unknown";
+}
 const char* locationName(ResultLocation l) {
     switch (l) {
     case ResultLocation::Node: return "node";
@@ -78,7 +88,7 @@ FatigueReportWriteResult FatigueReportWriter::writeDamageMapCsv(
             << e.position.sectionPoint << ',' << csvQuote(e.label) << ','
             << (e.hasDamage ? "true" : "false") << ',';
         if (e.hasDamage) writeNumber(out, e.damage);
-        out << ',' << static_cast<int>(e.analysisStatus) << ','
+        out << ',' << analysisStatus(e.analysisStatus) << ','
             << coordinateKind(e.coordinateKind) << ',' << (e.hasCoordinates ? "true" : "false") << ',';
         if (e.hasCoordinates) {
             writeNumber(out, e.coordinates[0]); out << ',';
