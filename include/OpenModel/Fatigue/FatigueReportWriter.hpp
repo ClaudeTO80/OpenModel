@@ -1,6 +1,7 @@
 #pragma once
 
 #include <OpenModel/Fatigue/FatigueReport.hpp>
+#include <OpenModel/Fatigue/FatigueSpectrumReport.hpp>
 
 #include <iosfwd>
 #include <string>
@@ -29,6 +30,14 @@ public:
         const FatigueReport& report, std::ostream& output);
     static FatigueReportWriteResult writeJson(
         const FatigueReport& report, std::ostream& output,
+        bool includeCycles = false);
+
+    static FatigueReportWriteResult writeCsvSpectrumSummary(
+        const FatigueSpectrumReport& report, std::ostream& output);
+    static FatigueReportWriteResult writeCsvSpectrumBlocks(
+        const FatigueSpectrumReport& report, std::ostream& output);
+    static FatigueReportWriteResult writeSpectrumJson(
+        const FatigueSpectrumReport& report, std::ostream& output,
         bool includeCycles = false);
 };
 
