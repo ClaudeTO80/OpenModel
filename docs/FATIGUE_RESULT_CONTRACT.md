@@ -29,7 +29,7 @@ Each result field carries a `ResultFieldSemantics` record:
 
 - quantity kind (stress, strain, displacement, temperature, force, ...);
 - component shape (scalar, vector, symmetric tensor, full matrix);
-- coordinate frame (global, local, material, unknown);
+- coordinate frame (global, local, material, unknown), plus an optional per-record orthogonal basis mapping local axes into global axes;
 - shear convention (tensorial, engineering, not applicable, unknown);
 - provenance flags (derived, averaged, interpolated, extrapolated).
 
@@ -42,7 +42,11 @@ For strain, the shear convention is essential: engineering shear
 `gamma_xy = 2 epsilon_xy` differs from tensor shear `epsilon_xy`. Algorithms
 must convert to one internal convention before invariants or fatigue criteria
 are evaluated. Unknown convention is a hard precondition failure for any
-calculation that uses shear components.
+calculation that uses shear components. A non-global vector/tensor sample also
+requires its per-record local-to-global basis before it can be combined with
+samples in another frame. The basis stores its three local unit axes as columns
+expressed in global coordinates; it contains no translation because translation
+does not affect vector/tensor components.
 
 ## Physical dimensions and units
 
