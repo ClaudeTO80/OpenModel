@@ -118,27 +118,56 @@ std::vector<std::size_t> WangBrownRelativeStrain::componentTurningPoints(
     }
 
     const auto& samples = history.samples();
-    for (std::size_t i = 1; i + 1 < samples.size(); ++i) {
-        if (!samples[i - 1].prepared || !samples[i].prepared ||
-            !samples[i + 1].prepared) {
-            continue;
-        }
+    std::vector<bool> isTurning(samples.size(), false);
+    constexpr std::size_t tensorIndices[6] = {0, 4, 8, 1, 2, 5};
 
-        bool turning = false;
-        for (std::size_t component = 0; component < 6; ++component) {
-            const std::size_t tensorIndex = component < 3
-                ? (component == 0 ? 0 : component == 1 ? 4 : 8)
-                : (component == 3 ? 1 : component == 4 ? 2 : 5);
-            const double before = samples[i - 1].prepared.tensor.values[tensorIndex];
-            const double current = samples[i].prepared.tensor.values[tensorIndex];
-            const double after = samples[i + 1].prepared.tensor.values[tensorIndex];
-            if ((current > before && current > after) ||
-                (current < before && current < after)) {
-                turning = true;
-                break;
+    // Process contiguous valid runs independently. A plateau is one extremum,
+    // represented by its middle original sample.
+    for (std::size_t component = 0; component < 6; ++component) {
+        std::size_t runBegin = 0;
+        while (runBegin < samples.size()) {
+            while (runBegin < samples.size() &&
+                   (!samples[runBegin].prepared ||
+                    !finiteTensor(samples[runBegin].prepared.tensor))) {
+                ++runBegin;
             }
+            if (runBegin >= samples.size()) break;
+
+            std::size_t runEnd = runBegin;
+            while (runEnd + 1 < samples.size() &&
+                   samples[runEnd + 1].prepared &&
+                   finiteTensor(samples[runEnd + 1].prepared.tensor)) {
+                ++runEnd;
+            }
+
+            std::size_t plateauBegin = runBegin;
+            while (plateauBegin <= runEnd) {
+                std::size_t plateauEnd = plateauBegin;
+                const double level =
+                    samples[plateauBegin].prepared.tensor.values[tensorIndices[component]];
+                while (plateauEnd + 1 <= runEnd &&
+                       samples[plateauEnd + 1].prepared.tensor.values[tensorIndices[component]] == level) {
+                    ++plateauEnd;
+                }
+
+                if (plateauBegin > runBegin && plateauEnd < runEnd) {
+                    const double before =
+                        samples[plateauBegin - 1].prepared.tensor.values[tensorIndices[component]];
+                    const double after =
+                        samples[plateauEnd + 1].prepared.tensor.values[tensorIndices[component]];
+                    if ((level > before && level > after) ||
+                        (level < before && level < after)) {
+                        isTurning[plateauBegin + (plateauEnd - plateauBegin) / 2] = true;
+                    }
+                }
+                plateauBegin = plateauEnd + 1;
+            }
+            runBegin = runEnd + 1;
         }
-        if (turning) points.push_back(i);
+    }
+
+    for (std::size_t i = 0; i < isTurning.size(); ++i) {
+        if (isTurning[i]) points.push_back(i);
     }
     return points;
 }
