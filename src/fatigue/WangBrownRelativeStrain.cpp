@@ -41,7 +41,7 @@ double WangBrownRelativeStrain::between(
         (dx - dz) * (dx - dz) +
         (dy - dz) * (dy - dz) +
         6.0 * (dxy * dxy + dxz * dxz + dyz * dyz);
-    const double denominator = std::sqrt(2.0) * (1.0 + effectivePoissonRatio);
+    const double denominator = std::sqrt(2.0 * (1.0 + effectivePoissonRatio));
     const double value = std::sqrt(std::max(0.0, numerator)) / denominator;
     return std::isfinite(value) ? value : std::numeric_limits<double>::quiet_NaN();
 }
