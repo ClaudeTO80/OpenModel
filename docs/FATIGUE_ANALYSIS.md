@@ -1,3 +1,5 @@
+> **HTML companion:** [Open the detailed MathJax fatigue manual](fatigue/index.html). It covers the FEM result contract, tensor normalization, scalar cycle counting, S–N and strain-life mathematics, local strain corrections, multiaxial extension boundaries, reporting and C++ integration.
+
 # Fatigue load-spectrum analysis
 
 ## Purpose
