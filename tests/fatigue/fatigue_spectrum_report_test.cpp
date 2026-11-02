@@ -1,6 +1,7 @@
 #include <OpenModel/Fatigue/FatigueSpectrumReport.hpp>
 
 #include <cassert>
+#include <sstream>
 
 using namespace OpenModel;
 using namespace OpenModel::Fatigue;
@@ -86,6 +87,15 @@ int main() {
     assert(report.positions[0].damage > report.positions[1].damage);
     assert(report.positions[0].spectrum.blocks.size() == 1);
     assert(report.positions[0].spectrum.blocks[0].repetitions == 2.0);
+
+    std::ostringstream summary, blockCsv, json;
+    assert(FatigueReportWriter::writeCsvSpectrumSummary(report, summary));
+    assert(FatigueReportWriter::writeCsvSpectrumBlocks(report, blockCsv));
+    assert(FatigueReportWriter::writeSpectrumJson(report, json, true));
+    assert(summary.str().find("spectrum_life") != std::string::npos);
+    assert(blockCsv.str().find("damage_contribution") != std::string::npos);
+    assert(json.str().find("openmodel.fatigue-spectrum-report.v1") != std::string::npos);
+    assert(json.str().find("\"cycles\":[") != std::string::npos);
 
     const auto partial = FatigueSpectrumReportBuilder::build(
         {p1, unassigned}, 293.15);
