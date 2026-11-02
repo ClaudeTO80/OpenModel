@@ -17,15 +17,17 @@ concurrency:
 
 jobs:
   core:
-    name: Core, CLI and tests (${{ matrix.os }}, ${{ matrix.build_type }})
-    runs-on: ${{ matrix.os }}
+    name: Core, CLI and tests (${{ matrix.platform }}, ${{ matrix.build_type }})
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - ubuntu-latest
-          - windows-latest
+        include:
+          - platform: Linux GCC
+            runner: ubuntu-latest
+          - platform: Windows MSVC
+            runner: windows-latest
         build_type:
           - Release
           - Debug
@@ -54,8 +56,7 @@ jobs:
         if: runner.os == 'Linux'
         run: ctest --test-dir build --build-config ${{ matrix.build_type }} --output-on-failure --parallel 4
 
-      # ProcessRunner currently has no Windows implementation. Keep all other
-      # unit, CLI, fixture and FEM/fatigue tests active on Windows.
+      # ProcessRunner currently has no Windows implementation.
       - name: Test (Windows)
         if: runner.os == 'Windows'
         run: ctest --test-dir build --build-config ${{ matrix.build_type }} --output-on-failure --parallel 4 --exclude-regex "^solver_cli_"
@@ -71,7 +72,83 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: ctest-log-${{ matrix.os }}-${{ matrix.build_type }}
+          name: ctest-log-${{ matrix.platform }}-${{ matrix.build_type }}
+          path: build/Testing/Temporary/LastTest.log
+          if-no-files-found: ignore
+
+  windows-mingw:
+    name: Core, CLI and tests (Windows ${{ matrix.msystem }}, ${{ matrix.build_type }})
+    runs-on: windows-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - msystem: MINGW64
+            gcc_package: mingw-w64-x86_64-gcc
+            cmake_package: mingw-w64-x86_64-cmake
+            ninja_package: mingw-w64-x86_64-ninja
+            python_package: mingw-w64-x86_64-python
+          - msystem: UCRT64
+            gcc_package: mingw-w64-ucrt-x86_64-gcc
+            cmake_package: mingw-w64-ucrt-x86_64-cmake
+            ninja_package: mingw-w64-ucrt-x86_64-ninja
+            python_package: mingw-w64-ucrt-x86_64-python
+        build_type:
+          - Release
+          - Debug
+
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up MSYS2 (${{ matrix.msystem }})
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: ${{ matrix.msystem }}
+          update: true
+          install: >-
+            ${{ matrix.gcc_package }}
+            ${{ matrix.cmake_package }}
+            ${{ matrix.ninja_package }}
+            ${{ matrix.python_package }}
+
+      - name: Show toolchain
+        run: |
+          gcc --version
+          cmake --version
+          ninja --version
+
+      - name: Configure
+        run: >
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+          -DOPENMODEL_BUILD_TESTS=ON
+          -DOPENMODEL_BUILD_CLI=ON
+          -DOPENMODEL_BUILD_SHARED=ON
+
+      - name: Build
+        run: cmake --build build --parallel 4
+
+      # ProcessRunner currently has no Windows implementation.
+      - name: Test
+        run: ctest --test-dir build --output-on-failure --parallel 4 --exclude-regex "^solver_cli_"
+
+      - name: Install and consume the CMake package
+        run: |
+          cmake --install build --prefix "$PWD/install"
+          cmake -S examples/cmake-consumer -B consumer -G Ninja -DCMAKE_PREFIX_PATH="$PWD/install" -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+          cmake --build consumer --parallel 4
+
+      - name: Upload test log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ctest-log-${{ matrix.msystem }}-${{ matrix.build_type }}
           path: build/Testing/Temporary/LastTest.log
           if-no-files-found: ignore
 
