@@ -8,7 +8,7 @@
 <div class="tile"><h3><a href="fem-results.html">5. FEM results</a></h3><p>Result import, tensor invariants, mesh binding, deformed and modal views.</p></div>
 <div class="tile"><h3><a href="analysis.html">6. Analysis workflow</a></h3><p>Analysis scripts, linear elasticity assumptions, loads and CalculiX execution.</p></div>
 <div class="tile"><h3><a href="formats.html">7. File formats</a></h3><p>Abaqus/CalculiX input, MGMB mesh persistence, MGWV viewer container.</p></div>
-<div class="tile"><h3><a href="architecture.html">8. API and architecture</a></h3><p>Library layers, import contracts, CLI, desktop workbench and tests.</p></div>
+<div class="tile"><h3><a href="architecture.html">8. API and architecture</a></h3><p>Library layers, import contracts, CLI, desktop workbench and tests.</p></div><div class="tile"><h3><a href="glossary.html">9. Glossary and symbol index</a></h3><p>Alphabetical concept index and mathematical notation reference.</p></div>
 </div>
 <h2>What is OpenModel?</h2><p>OpenModel is a C++17 library, command-line application and optional lightweight desktop workbench for finite-element meshes and results. Its central workflow is to import CAD or an existing mesh, generate and validate a discretization, prepare solver input, execute CalculiX where supported, import result files and inspect fields in a WebGL viewer.</p>
 <p>The core deliberately separates the mesh representation (<code>MeshData</code>) from analysis settings (<code>AnalysisModel</code>) and solver output (<code>FemResults</code>). This separation allows one mesh to be reused with different analysis definitions and result sets without embedding solver-specific state in the mesh.</p>
