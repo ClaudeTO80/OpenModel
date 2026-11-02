@@ -54,9 +54,10 @@ public:
 
     /**
      * Return original sample indices at which at least one of the six
-     * independent strain components has a strict local maximum or minimum.
-     * The input is not decimated: returned indices always refer to the
-     * original StressHistory.
+     * independent strain components has a local maximum or minimum. Flat
+     * extrema are represented by the midpoint sample of the plateau.
+     * Invalid samples split the history into independent valid runs. The
+     * input is not decimated: indices always refer to the original history.
      */
     static std::vector<std::size_t> componentTurningPoints(
         const StressHistory& history);
