@@ -70,7 +70,8 @@ bool OpenModelFemResultsSource::readSample(
         }
         if (matched == nullptr || matched->componentCount() == 0 ||
             matched->elementIds.size() != matched->integrationPointIds.size() ||
-            matched->elementIds.size() != matched->sectionPointIds.size())
+            matched->elementIds.size() != matched->sectionPointIds.size() ||
+            (!matched->coordinateTransforms.empty() && matched->coordinateTransforms.size() != matched->recordCount()))
             return false;
         const std::size_t count = matched->recordCount();
         const std::size_t components = matched->componentCount();
@@ -90,6 +91,8 @@ bool OpenModelFemResultsSource::readSample(
         candidate.position = position;
         candidate.step = convertStep(results_.steps[stepIndex], stepIndex);
         candidate.fieldName = matched->name;
+        if (!matched->coordinateTransforms.empty())
+            candidate.coordinateTransform = matched->coordinateTransforms[record];
     candidate.quantity = matched->semantics.quantity;
     candidate.componentKind = matched->semantics.components;
     candidate.frame = matched->semantics.frame;
@@ -129,7 +132,8 @@ bool OpenModelFemResultsSource::readSample(
     if (componentCount != 0 &&
         recordCount > (std::numeric_limits<std::size_t>::max)() / componentCount)
         return false;
-    if (matched->values.size() != recordCount * componentCount) return false;
+    if (matched->values.size() != recordCount * componentCount ||
+        (!matched->coordinateTransforms.empty() && matched->coordinateTransforms.size() != recordCount)) return false;
     std::size_t record = recordCount;
     for (std::size_t i = 0; i < recordCount; ++i) {
         if (matched->ids[i] == position.entityId) {
