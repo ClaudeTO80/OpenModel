@@ -6,14 +6,14 @@ using namespace OpenModel;
 using namespace OpenModel::Fatigue;
 
 namespace {
-ResultField stressField(std::size_t step, std::uint64_t id, double xx) {
+ResultField stressField(std::size_t step, double xx) {
     ResultField f;
     f.name = "STRESS";
     f.components = {"SXX", "SYY", "SZZ", "SXY", "SXZ", "SYZ"};
     f.step = step;
     f.location = OpenModel::ResultLocation::Element;
-    f.ids = {id};
-    f.values = {xx, 0.0, 0.0, 0.0, 0.0, 0.0};
+    f.ids = {42, 43};
+    f.values = {xx, 0.0, 0.0, 0.0, 0.0, 0.0, xx * 0.5, 0.0, 0.0, 0.0, 0.0, 0.0};
     f.semantics.quantity = ResultQuantityKind::Stress;
     f.semantics.components = ResultComponentKind::SymmetricTensor;
     f.semantics.frame = ResultCoordinateFrame::Global;
@@ -46,8 +46,7 @@ int main() {
     const double history[] = {0.0, 100.0, 0.0, -100.0, 0.0};
     for (std::size_t step = 0; step < 5; ++step) {
         results.steps.push_back({"time", static_cast<double>(step), StepKind::Time, 0});
-        results.fields.push_back(stressField(step, 42, history[step]));
-        results.fields.push_back(stressField(step, 43, history[step] * 0.5));
+        results.fields.push_back(stressField(step, history[step]));
     }
     ResultSourceMetadata metadata;
     metadata.solverName = "ReportFixture";
