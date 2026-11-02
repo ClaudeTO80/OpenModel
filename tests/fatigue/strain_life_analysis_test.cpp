@@ -1,4 +1,5 @@
 #include <OpenModel/Fatigue/StrainLifeAnalysis.hpp>
+#include <OpenModel/Fatigue/OpenModelFemResultsSource.hpp>
 
 #include <cassert>
 #include <cmath>
