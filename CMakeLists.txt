@@ -45,7 +45,29 @@ set(OPENMODEL_CORE_SOURCES
     src/GltfWriter.cpp
     src/WebViewWriter.cpp
     src/FemResults.cpp
-    src/ResultBinding.cpp)
+    src/ResultBinding.cpp
+    src/fatigue/OpenModelFemResultsSource.cpp
+    src/fatigue/TensorNormalizer.cpp
+    src/fatigue/FatigueSamplePreparer.cpp
+    src/fatigue/StressHistory.cpp
+    src/fatigue/CycleCounting.cpp
+    src/fatigue/MultiaxialCycleCounting.cpp
+    src/fatigue/FatigueMaterial.cpp
+    src/fatigue/MeanStressCorrection.cpp
+    src/fatigue/FatigueDamageModel.cpp
+    src/fatigue/StrainLifeDamageModel.cpp
+    src/fatigue/WangBrownDamageModel.cpp
+    src/fatigue/WangBrownRelativeStrain.cpp
+    src/fatigue/StrainLifeAnalysis.cpp
+    src/fatigue/LocalStrainCorrection.cpp
+    src/fatigue/FatigueAnalysis.cpp
+    src/fatigue/FatigueReport.cpp
+    src/fatigue/FatigueReportWriter.cpp
+    src/fatigue/FatigueSpectrumReport.cpp
+    src/fatigue/FatigueSpectrumReportWriter.cpp
+    src/fatigue/FatigueDamageMap.cpp
+    src/fatigue/FatigueDamageMapWriter.cpp
+    src/fatigue/FatigueDamageMapWebViewAdapter.cpp)
 
 function(openmodel_configure_core_target target export_name)
     target_include_directories(${target} PUBLIC
@@ -99,10 +121,14 @@ if(OPENMODEL_BUILD_WEBUI)
     function(openmodel_embed_file input output symbol)
         file(READ "${input}" _hex HEX)
         string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," _bytes "${_hex}")
-        string(REGEX REPLACE "((0x[0-9a-f][0-9a-f],){32})" "\\1\n" _bytes "${_bytes}")
+        string(REGEX REPLACE "((0x[0-9a-f][0-9a-f],){32})" "\\1
+" _bytes "${_bytes}")
         file(WRITE "${output}"
-            "static const unsigned char ${symbol}[] = {\n${_bytes}0x00};\n"
-            "static const unsigned long ${symbol}_size = sizeof(${symbol}) - 1;\n")
+            "static const unsigned char ${symbol}[] = {
+${_bytes}0x00};
+"
+            "static const unsigned long ${symbol}_size = sizeof(${symbol}) - 1;
+")
         set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${input}")
     endfunction()
     set(_openmodel_gen_dir "${CMAKE_CURRENT_BINARY_DIR}/generated")
@@ -157,11 +183,32 @@ if(OPENMODEL_BUILD_TESTS)
     openmodel_add_test(surface_refiner_test tests/surface_refiner_test.cpp)
     openmodel_add_test(web_view_writer_test tests/web_view_writer_test.cpp)
     openmodel_add_test(fem_results_test tests/fem_results_test.cpp)
+    openmodel_add_test(fatigue_result_source_test tests/fatigue/openmodel_fem_results_source_test.cpp)
+    openmodel_add_test(fatigue_tensor_normalizer_test tests/fatigue/tensor_normalizer_test.cpp)
+    openmodel_add_test(fatigue_sample_preparer_test tests/fatigue/fatigue_sample_preparer_test.cpp)
+    openmodel_add_test(fatigue_stress_history_test tests/fatigue/stress_history_test.cpp)
+    openmodel_add_test(fatigue_cycle_counting_test tests/fatigue/cycle_counting_test.cpp)
+    openmodel_add_test(fatigue_multiaxial_cycle_contract_test tests/fatigue/multiaxial_cycle_contract_test.cpp)
+    openmodel_add_test(fatigue_material_test tests/fatigue/fatigue_material_test.cpp)
+    openmodel_add_test(fatigue_mean_stress_correction_test tests/fatigue/mean_stress_correction_test.cpp)
+    openmodel_add_test(fatigue_damage_model_test tests/fatigue/fatigue_damage_model_test.cpp)
+    openmodel_add_test(fatigue_strain_life_damage_model_test tests/fatigue/strain_life_damage_model_test.cpp)
+    openmodel_add_test(fatigue_wang_brown_damage_model_test tests/fatigue/wang_brown_damage_model_test.cpp)
+    openmodel_add_test(fatigue_wang_brown_relative_strain_test tests/fatigue/wang_brown_relative_strain_test.cpp)
+    openmodel_add_test(fatigue_strain_life_analysis_test tests/fatigue/strain_life_analysis_test.cpp)
+    openmodel_add_test(fatigue_local_strain_correction_test tests/fatigue/local_strain_correction_test.cpp)
+    openmodel_add_test(fatigue_analysis_test tests/fatigue/fatigue_analysis_test.cpp)
+    openmodel_add_test(fatigue_report_test tests/fatigue/fatigue_report_test.cpp)
+    openmodel_add_test(fatigue_report_writer_test tests/fatigue/fatigue_report_writer_test.cpp)
+    openmodel_add_test(fatigue_spectrum_report_test tests/fatigue/fatigue_spectrum_report_test.cpp)
+    openmodel_add_test(fatigue_damage_map_test tests/fatigue/fatigue_damage_map_test.cpp)
+    openmodel_add_test(fatigue_damage_map_writer_test tests/fatigue/fatigue_damage_map_writer_test.cpp)
+    openmodel_add_test(fatigue_damage_map_webview_adapter_test tests/fatigue/fatigue_damage_map_webview_adapter_test.cpp)
     openmodel_add_test(analysis_setup_test tests/analysis_setup_test.cpp)
     openmodel_add_test(mesh_selection_test tests/mesh_selection_test.cpp)
     set(_openmodel_core_test_names core_smoke_test mesh_validation_test abaqus_writer_test physical_groups_test
         mesh_topology_test surface_mesher_test gltf_writer_test surface_refiner_test
-        web_view_writer_test mesh_binary_io_test mesh_importer_test fem_results_test analysis_setup_test mesh_selection_test)
+        web_view_writer_test mesh_binary_io_test mesh_importer_test fem_results_test fatigue_result_source_test fatigue_tensor_normalizer_test fatigue_sample_preparer_test fatigue_stress_history_test fatigue_cycle_counting_test fatigue_multiaxial_cycle_contract_test fatigue_material_test fatigue_mean_stress_correction_test fatigue_damage_model_test fatigue_strain_life_damage_model_test fatigue_wang_brown_damage_model_test fatigue_analysis_test fatigue_report_test fatigue_report_writer_test fatigue_spectrum_report_test fatigue_damage_map_test fatigue_damage_map_writer_test fatigue_damage_map_webview_adapter_test analysis_setup_test mesh_selection_test)
     if(OPENMODEL_BUILD_CLI)
         list(APPEND _openmodel_core_test_names openmodel_cli_info openmodel_cli_validate_demo)
     endif()

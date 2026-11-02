@@ -20,10 +20,10 @@
  * same mesh can be paired with many result files. Binding results to a mesh
  * (and to the viewer) is done by ResultBinding.hpp.
  *
- * Values defined **at nodes** and **per element** are supported (one value or tensor
- * per element, for example the average stress of an element). Integration-point data
- * is reported by the importers as unsupported and skipped; it is never silently
- * converted or averaged.
+ * Values defined at nodes, per element, and at integration points are retained separately.
+ * When a format provides integration-point values, importers may additionally expose
+ * an explicitly diagnosed element aggregate for viewer compatibility; the native
+ * records remain available in integrationPointFields and are never replaced by it.
  */
 
 namespace OpenModel {
@@ -55,6 +55,68 @@ enum class ResultLocation {
     Element   ///< One value per element: `ids` are external element ids.
 };
 
+/** Semantic classification of a physical result quantity. */
+enum class ResultQuantityKind {
+    Unknown, Displacement, Velocity, Acceleration, Force, Stress, Strain,
+    Temperature, Energy, Pressure, ReactionForce, HeatFlux
+};
+
+/** Shape of the stored component tuple. */
+enum class ResultComponentKind { Unknown, Scalar, Vector, SymmetricTensor, Matrix };
+
+/** Coordinate frame in which components are expressed. */
+enum class ResultCoordinateFrame { Unknown, Global, Local, Material };
+
+/** Meaning of off-diagonal strain components. */
+enum class ResultShearConvention { Unknown, NotApplicable, Tensorial, Engineering };
+
+/**
+ * SI base-dimension exponents: length, mass, time, electric current,
+ * thermodynamic temperature, amount of substance and luminous intensity.
+ * known=false means the physical dimension itself is not established.
+ */
+struct PhysicalDimension {
+    bool known = false;
+    std::int8_t length = 0, mass = 0, time = 0, current = 0;
+    std::int8_t temperature = 0, amount = 0, luminousIntensity = 0;
+};
+
+/**
+ * Unit metadata. scaleToSI converts a value to coherent SI; zero means unknown.
+ * offsetToSI supports affine units (e.g. Celsius to kelvin). A dimension can
+ * be known even when the solver's unit scale is not.
+ */
+struct PhysicalUnit {
+    PhysicalDimension dimension;
+    std::string symbol;
+    double scaleToSI = 0.0;
+    double offsetToSI = 0.0;
+};
+
+/**
+ * Orthogonal basis mapping local vector/tensor components into global axes.
+ * The three columns are the local x/y/z unit axes expressed globally.
+ * Translation is deliberately omitted: it does not affect vector/tensor values.
+ */
+struct ResultCoordinateTransform {
+    bool available = false;
+    std::string name;
+    std::array<double, 9> localToGlobal = {{1,0,0, 0,1,0, 0,0,1}};
+};
+
+/** Semantic and dimensional description shared by nodal, element and IP fields. */
+struct ResultFieldSemantics {
+    ResultQuantityKind quantity = ResultQuantityKind::Unknown;
+    ResultComponentKind components = ResultComponentKind::Unknown;
+    ResultCoordinateFrame frame = ResultCoordinateFrame::Unknown;
+    ResultShearConvention shear = ResultShearConvention::Unknown;
+    PhysicalUnit unit;
+    bool derived = false;
+    bool averaged = false;
+    bool interpolated = false;
+    bool extrapolated = false;
+};
+
 /**
  * @brief One named quantity defined at nodes, for one step.
  *
@@ -69,9 +131,35 @@ struct ResultField {
     ResultLocation location = ResultLocation::Node;
     std::vector<std::uint64_t> ids;       ///< External node or element id (see `location`) of each record.
     std::vector<double> values;           ///< ids.size() * components.size() values.
+    ResultFieldSemantics semantics;
+    // Optional per-record local-to-global basis; empty means no transform was supplied.
+    std::vector<ResultCoordinateTransform> coordinateTransforms;
 
     std::size_t componentCount() const noexcept { return components.size(); }
     std::size_t recordCount() const noexcept { return ids.size(); }
+};
+
+/**
+ * @brief One result record at a solver integration point.
+ *
+ * Values are record-major. The identity is the external element id plus the
+ * solver's 1-based integration-point and optional section-point numbers.
+ * No extrapolation or averaging is implied by this structure.
+ */
+struct IntegrationPointResultField {
+    std::string name;
+    std::vector<std::string> components;
+    std::size_t step = 0;
+    std::vector<std::uint64_t> elementIds;
+    std::vector<std::uint32_t> integrationPointIds;
+    std::vector<std::uint32_t> sectionPointIds; // zero when not supplied by the format
+    std::vector<double> values;
+    ResultFieldSemantics semantics;
+    // Optional per-IP basis; when present, its size must equal recordCount().
+    std::vector<ResultCoordinateTransform> coordinateTransforms;
+
+    std::size_t componentCount() const noexcept { return components.size(); }
+    std::size_t recordCount() const noexcept { return elementIds.size(); }
 };
 
 /** @brief One row of the eigenvalue table of a frequency analysis (CalculiX `.dat`). */
@@ -87,7 +175,8 @@ struct EigenMode {
 struct FemResults {
     std::string format;                   ///< Importer name, e.g. "CalculiX FRD".
     std::vector<ResultStep> steps;
-    std::vector<ResultField> fields;      ///< Ordered as found in the file.
+    std::vector<ResultField> fields;      ///< Nodal and element-level fields, ordered as found in the file.
+    std::vector<IntegrationPointResultField> integrationPointFields; ///< Native integration-point records; never averaged.
     std::vector<EigenMode> eigenmodes;    ///< Eigenvalue table (only the `.dat` importer fills it); no mode shapes.
 
     /**
@@ -98,7 +187,7 @@ struct FemResults {
     std::vector<std::array<double, 3>> modelCoordinates;
 
     void clear() noexcept;
-    bool empty() const noexcept { return fields.empty() && eigenmodes.empty(); }
+    bool empty() const noexcept { return fields.empty() && integrationPointFields.empty() && eigenmodes.empty(); }
 
     /** @brief Indices into `steps` of the vibration modes (kind Frequency), in file order. */
     std::vector<std::size_t> modeSteps() const;

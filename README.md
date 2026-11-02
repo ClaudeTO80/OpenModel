@@ -143,6 +143,7 @@ cmake/               package configuration template
 
 ## Documentation
 
+- [Fatigue analysis — detailed MathJax HTML manual](docs/fatigue/index.html) – theory, FEM result contract, tensor history, Rainflow, S–N, strain-life, multiaxial extension contract, spectra, reports and C++ integration examples.
 - [`docs/SOLVER.md`](docs/SOLVER.md) – analysis script, solver launch, picking and groups
 - [`docs/FEM_RESULTS.md`](docs/FEM_RESULTS.md) – result formats and how they are bound to a mesh
 - [`docs/MESH_IMPORTERS.md`](docs/MESH_IMPORTERS.md) – mesh importers
