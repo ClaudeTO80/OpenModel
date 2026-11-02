@@ -1,0 +1,54 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Strain-life fatigue — OpenModel fatigue analysis technical documentation."><title>Strain-life fatigue · OpenModel Fatigue</title><link rel="stylesheet" href="assets/fatigue.css"><script>window.MathJax={tex:{inlineMath:[['\(','\)']],displayMath:[['\[','\]']],processEscapes:true},options:{skipHtmlTags:['script','noscript','style','textarea','pre','code']},chtml:{scale:1}};</script><script defer src="https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-chtml.js"></script></head><body><header class="top"><div class="brand">OpenModel · Fatigue Analysis <small>Technical and mathematical reference · feature/fatigue-result-contract</small></div></header><div class="layout"><aside class="side"><strong>Fatigue documentation</strong><div class="navlinks"><a href="index.html">Overview & contents</a><a href="data-contract.html">FEM data contract</a><a href="tensor-history.html">Tensor history & counting</a><a href="stress-life.html">Stress-life (S–N)</a><a href="strain-life.html" class="active">Strain-life (ε–N)</a><a href="multiaxial.html">Multiaxial contract</a><a href="reports.html">Spectra, reports & maps</a></div><hr><a href="../index.html">OpenModel documentation</a><a href="https://github.com/ClaudeTO80/OpenModel/tree/feature/fatigue-result-contract">Feature branch source ↗</a></aside><main class="content"><div class="crumb"><a href="index.html">Fatigue documentation</a> / Strain-life fatigue</div><div class="eyebrow">C++17 · solver-neutral fatigue module</div>
+<h1>Strain-life fatigue (ε–N)</h1><p class="lead">The strain-life route uses cyclic material parameters to relate stabilized total strain amplitude to reversals to failure. OpenModel separates local elastic-to-strain conversion from the strain-life damage model.</p>
+<h2>1. Coffin–Manson–Basquin material parameters</h2><p>The current model stores Young's modulus \(E\), fatigue strength coefficient \(\sigma_f'\), fatigue strength exponent \(b\), fatigue ductility coefficient \(\varepsilon_f'\) and fatigue ductility exponent \(c\). The implemented validation requires</p>
+<div class="math">\[E>0,\quad \sigma_f'>0,\quad \varepsilon_f'>0,\quad b<0,\quad c<0.\]</div>
+<p>The independent variable is reversals to failure \(2N_f\), whereas Rainflow counts cycles. For a fully reversed stabilized cycle, the Coffin–Manson–Basquin (CMB) equation is</p>
+<div class="math">\[\varepsilon_a=
+\frac{\sigma_f'}{E}(2N_f)^b+
+\varepsilon_f'(2N_f)^c.\]</div>
+<p>The first term is the elastic (Basquin) contribution; the second is the plastic (Coffin–Manson) contribution. The supplied \(\varepsilon_a\) is total strain amplitude, not strain range or peak strain.</p>
+<h2>2. Morrow mean-stress model</h2><p>Morrow modifies the elastic fatigue-strength term using the signed mean stress of the stabilized cycle:</p>
+<div class="math">\[\varepsilon_a=
+\frac{\sigma_f'-\sigma_m}{E}(2N_f)^b+
+\varepsilon_f'(2N_f)^c.\]</div>
+<p>In this implementation the condition \(\sigma_f'-\sigma_m>0\) is required for every cycle. Mean stress is cycle-specific, so the inverse life equation is solved separately for each cycle.</p>
+<h2>3. Smith–Watson–Topper (SWT)</h2><p>The SWT parameter combines maximum tensile stress with total strain amplitude:</p>
+<div class="math">\[P_{\mathrm{SWT}}=\sigma_{\max}\varepsilon_a.\]</div>
+<p>Combining it with the CMB material relation gives the life equation evaluated by the implementation:</p>
+<div class="math">\[P_{\mathrm{SWT}}(2N_f)=
+\frac{(\sigma_f')^2}{E}(2N_f)^{2b}
++\sigma_f'\varepsilon_f'(2N_f)^{b+c}.\]</div>
+<p>The input cycle must have \(\sigma_{\max}>0\). The implementation solves the right-hand side against the target \(P_{\mathrm{SWT}}\), not against strain amplitude alone.</p>
+<h2>4. Reversals, cycles and damage</h2><p>After solving for reversals, the cycle life is converted to cycles:</p>
+<div class="math">\[N_f=\frac{2N_f}{2}.\]</div>
+<p>For a Rainflow count weight \(n_i\), the damage increment is \(n_i/N_{f,i}\). Total strain-life Miner damage is therefore</p>
+<div class="math">\[D=\sum_i\frac{n_i}{N_{f,i}}.\]</div>
+<p>As in the stress-life route, the nominal block repetition life is \(1/D\) for positive damage and \(+\infty\) for zero damage. The sum uses compensated arithmetic.</p>
+<h2>5. Numerical inversion</h2><p>The CMB, Morrow and SWT equations are monotone decreasing in reversals for the required negative exponents and positive coefficients (with the Morrow coefficient condition satisfied). OpenModel brackets the solution on the caller's configured interval and performs bisection in logarithmic coordinates:</p>
+<div class="math">\[x=\log_{10}(2N_f),\qquad
+x\in[\log_{10}N_{\min}^{(r)},\log_{10}N_{\max}^{(r)}].\]</div>
+<p>It performs 160 bisection iterations. The defaults are 1 and \(10^{16}\) reversals. If the target parameter lies outside the curve values at the interval endpoints, the cycle is rejected. There is no life extrapolation outside this interval.</p>
+<h2>6. Local cyclic stress–strain relation</h2><p><code>LocalStrainCorrection</code> starts from elastic FEM stress cycles and a cyclic Ramberg–Osgood material law:</p>
+<div class="math">\[\varepsilon_a=\frac{\sigma_a}{E}
++\left(\frac{\sigma_a}{K'}\right)^{1/n'},\]</div>
+<p>where \(K'\) is the cyclic strength coefficient and \(n'\) the cyclic strain-hardening exponent. The implementation requires \(K'>0\) and \(0<n'\leq1\). It solves for the local stress amplitude \(\sigma_a\), then evaluates the corresponding local strain amplitude.</p>
+<h3>Neuber rule</h3><p>For elastic FEM stress amplitude \(\sigma_{a,e}\), Neuber imposes</p>
+<div class="math">\[\sigma_a\varepsilon_a=\frac{\sigma_{a,e}^2}{E}.\]</div>
+<p>Substituting Ramberg–Osgood produces a scalar nonlinear equation in \(\sigma_a\):</p>
+<div class="math">\[\sigma_a\left[
+\frac{\sigma_a}{E}+
+\left(\frac{\sigma_a}{K'}\right)^{1/n'}
+\right]-\frac{\sigma_{a,e}^2}{E}=0.\]</div>
+<h3>Glinka energy method</h3><p>Glinka equates the local cyclic strain-energy density to the elastic energy density:</p>
+<div class="math">\[W(\sigma_a)=\int_0^{\sigma_a}\sigma\,d\varepsilon
+=\frac{\sigma_{a,e}^2}{2E}.\]</div>
+<p>For the Ramberg–Osgood law, the integral evaluated by the implementation is</p>
+<div class="math">\[W(\sigma_a)=\frac{\sigma_a^2}{2E}
++\frac{K'}{1+1/n'}
+\left(\frac{\sigma_a}{K'}\right)^{1+1/n'}.\]</div>
+<p>Both methods use a bounded monotone bisection solver with finite-value checks. The search upper bound starts at the elastic amplitude and is doubled until the response brackets the target.</p>
+<h2>7. End-to-end FEM strain-life orchestration</h2><p><code>StrainLifeAnalysis::run</code> executes the stages in order:</p><ol><li>Build a stress tensor history from the same field and FEM position at every physical-time step.</li><li>Project the tensor using the explicit unit direction and count scalar Rainflow cycles.</li><li>Convert elastic cycle amplitudes with Neuber or Glinka.</li><li>Evaluate CMB, Morrow or SWT life and accumulate Miner damage.</li></ol>
+<p>The orchestrator currently requires a stress history; it does not reinterpret an FEM strain field as a stress history or derive local stabilized stress/strain loops from an incremental plasticity calculation. It also requires the FEM stress unit and the two material stress units to match exactly, the strain units to match exactly, and the two material records to use exactly the same Young's modulus.</p>
+<div class="warning">The local correction retains the supplied elastic cycle mean stress and approximates maximum stress as \(\sigma_{\max}=\sigma_m+\sigma_a\). It does not model residual-stress relaxation, ratcheting, cyclic hardening/softening, non-proportional loading or hysteresis-loop reconstruction. Material constants must be calibrated for the relevant temperature, environment, orientation and cyclic condition; temperature is metadata here, not an automatic material-property interpolation.</div>
+<div class="prevnext"><a href="stress-life.html">← Stress-life analysis</a><a href="multiaxial.html">Multiaxial contract →</a></div>
+</main></div><footer class="footer">Documentation targets <code>feature/fatigue-result-contract</code>. Mathematical descriptions are tied to the implementation in this branch and distinguish implemented algorithms from extension contracts.</footer></body></html>
