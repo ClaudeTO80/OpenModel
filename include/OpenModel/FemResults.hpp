@@ -93,6 +93,17 @@ struct PhysicalUnit {
     double offsetToSI = 0.0;
 };
 
+/**
+ * Orthogonal basis mapping local vector/tensor components into global axes.
+ * The three columns are the local x/y/z unit axes expressed globally.
+ * Translation is deliberately omitted: it does not affect vector/tensor values.
+ */
+struct ResultCoordinateTransform {
+    bool available = false;
+    std::string name;
+    std::array<double, 9> localToGlobal = {{1,0,0, 0,1,0, 0,0,1}};
+};
+
 /** Semantic and dimensional description shared by nodal, element and IP fields. */
 struct ResultFieldSemantics {
     ResultQuantityKind quantity = ResultQuantityKind::Unknown;
@@ -121,6 +132,8 @@ struct ResultField {
     std::vector<std::uint64_t> ids;       ///< External node or element id (see `location`) of each record.
     std::vector<double> values;           ///< ids.size() * components.size() values.
     ResultFieldSemantics semantics;
+    // Optional per-record local-to-global basis; empty means no transform was supplied.
+    std::vector<ResultCoordinateTransform> coordinateTransforms;
 
     std::size_t componentCount() const noexcept { return components.size(); }
     std::size_t recordCount() const noexcept { return ids.size(); }
@@ -142,6 +155,8 @@ struct IntegrationPointResultField {
     std::vector<std::uint32_t> sectionPointIds; // zero when not supplied by the format
     std::vector<double> values;
     ResultFieldSemantics semantics;
+    // Optional per-IP basis; when present, its size must equal recordCount().
+    std::vector<ResultCoordinateTransform> coordinateTransforms;
 
     std::size_t componentCount() const noexcept { return components.size(); }
     std::size_t recordCount() const noexcept { return elementIds.size(); }
