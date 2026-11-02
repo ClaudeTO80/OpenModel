@@ -1,5 +1,7 @@
 #pragma once
 
+#include <OpenModel/FemResults.hpp>
+
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -16,26 +18,17 @@ enum class ResultLocation { Node, Element, IntegrationPoint };
 enum class StepParameterKind { None, Time, Frequency, LoadFactor, User };
 
 /** Semantic shape of a field; labels remain authoritative for component ordering. */
-enum class ComponentKind { Scalar, Vector, SymmetricTensor, Matrix, Unknown };
+using ComponentKind = OpenModel::ResultComponentKind;
 
 /** Convention used for shear strain components. */
-enum class ShearStrainConvention { NotApplicable, Tensorial, Engineering, Unknown };
+using ShearStrainConvention = OpenModel::ResultShearConvention;
 
 /** Coordinate system in which vector/tensor components are expressed. */
-enum class ReferenceFrame { Global, Local, Material, Unknown };
+using ReferenceFrame = OpenModel::ResultCoordinateFrame;
 
-/** Describes a physical unit. Empty strings mean that the unit is not known. */
-struct UnitSystem {
-    std::string name;
-    std::string length;
-    std::string force;
-    std::string mass;
-    std::string time;
-    std::string temperature;
-    std::string displacement;
-    std::string stress;
-    std::string strain;
-};
+using QuantityKind = OpenModel::ResultQuantityKind;
+using PhysicalDimension = OpenModel::PhysicalDimension;
+using PhysicalUnit = OpenModel::PhysicalUnit;
 
 /** External identity of one result location. IDs are never mesh-array offsets. */
 struct ResultPosition {
@@ -75,11 +68,13 @@ struct ResultSample {
     ResultPosition position;
     ResultStep step;
     std::string fieldName;
+    QuantityKind quantity = QuantityKind::Unknown;
     ComponentKind componentKind = ComponentKind::Unknown;
     std::vector<std::string> componentLabels;
     std::vector<double> components;
     ReferenceFrame frame = ReferenceFrame::Unknown;
     ShearStrainConvention shearConvention = ShearStrainConvention::Unknown;
+    PhysicalUnit unit;
 
     // Provenance flags. False means "not reported", not necessarily "never happened".
     bool derived = false;
