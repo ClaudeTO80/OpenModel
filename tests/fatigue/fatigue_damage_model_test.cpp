@@ -20,7 +20,7 @@ int main() {
         curve, diagnostic));
 
     std::vector<LoadCycle> cycles(3);
-    cycles[0].range = 200.0; cycles[0].count = 1.0; // amplitude 100, D=1e-5
+    cycles[0].range = 200.0; cycles[0].mean = 50.0; cycles[0].count = 1.0; // amplitude 100, D=1e-5
     cycles[1].range = 100.0; cycles[1].count = 0.5; // amplitude 50, D=0.5e-6
     cycles[2].range = 0.0; cycles[2].count = 0.5;  // no damage
 
