@@ -57,7 +57,7 @@ int main() {
     StressProjection projection;
     projection.direction = {{1.0, 0.0, 0.0}};
     FatiguePositionInput p1;
-    p1.position.location = ResultLocation::Element;
+    p1.position.location = Fatigue::ResultLocation::Element;
     p1.position.entityId = 42;
     p1.material = &material;
     p1.projection = projection;
