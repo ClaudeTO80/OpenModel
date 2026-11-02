@@ -20,7 +20,7 @@ public:
      * multiaxial rainflow counting:
      *
      * sqrt((dx-dy)^2 + (dx-dz)^2 + (dy-dz)^2
-     *      + 6*(dExy^2+dExz^2+dEyz^2)) / (sqrt(2)*(1+nuBar)).
+     *      + 6*(dExy^2+dExz^2+dEyz^2)) / (sqrt(2*(1+nuBar))).
      *
      * Tensor shear components are tensorial (gamma/2), consistent with
      * TensorNormalizer's canonical Tensor3 representation.
