@@ -8,6 +8,27 @@ namespace OpenModel {
 namespace Fatigue {
 namespace {
 
+bool validTransform(const OpenModel::ResultCoordinateTransform& transform) {
+    if (!transform.available) return false;
+    for (double value : transform.localToGlobal)
+        if (!std::isfinite(value)) return false;
+    const auto dot = [&](std::size_t a, std::size_t b) {
+        return transform.localToGlobal[a] * transform.localToGlobal[b] +
+               transform.localToGlobal[3 + a] * transform.localToGlobal[3 + b] +
+               transform.localToGlobal[6 + a] * transform.localToGlobal[6 + b];
+    };
+    constexpr double tolerance = 1e-6;
+    for (std::size_t i = 0; i < 3; ++i)
+        for (std::size_t j = 0; j < 3; ++j)
+            if (std::fabs(dot(i, j) - (i == j ? 1.0 : 0.0)) > tolerance) return false;
+    const auto& m = transform.localToGlobal;
+    const double determinant =
+        m[0] * (m[4] * m[8] - m[5] * m[7]) -
+        m[1] * (m[3] * m[8] - m[5] * m[6]) +
+        m[2] * (m[3] * m[7] - m[4] * m[6]);
+    return std::fabs(std::fabs(determinant) - 1.0) <= tolerance;
+}
+
 StepParameterKind toParameterKind(OpenModel::StepKind kind) {
     switch (kind) {
     case OpenModel::StepKind::Time: return StepParameterKind::Time;
@@ -87,6 +108,7 @@ bool OpenModelFemResultsSource::readSample(
             }
         }
         if (record == count) return false;
+        if (!matched->coordinateTransforms.empty() && !validTransform(matched->coordinateTransforms[record])) return false;
         ResultSample candidate;
         candidate.position = position;
         candidate.step = convertStep(results_.steps[stepIndex], stepIndex);
@@ -142,6 +164,7 @@ bool OpenModelFemResultsSource::readSample(
         }
     }
     if (record == recordCount) return false;
+    if (!matched->coordinateTransforms.empty() && !validTransform(matched->coordinateTransforms[record])) return false;
     ResultSample candidate;
     candidate.position = position;
     candidate.step = convertStep(results_.steps[stepIndex], stepIndex);
