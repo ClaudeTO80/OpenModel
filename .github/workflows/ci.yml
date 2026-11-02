@@ -2,28 +2,113 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - feature/**
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   core:
     name: Core, CLI and tests (${{ matrix.os }}, ${{ matrix.build_type }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest]
-        build_type: [Release, Debug]
+        os:
+          - ubuntu-latest
+          - windows-latest
+        build_type:
+          - Release
+          - Debug
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DOPENMODEL_BUILD_TESTS=ON
+        run: >
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+          -DOPENMODEL_BUILD_TESTS=ON
+          -DOPENMODEL_BUILD_CLI=ON
+          -DOPENMODEL_BUILD_SHARED=ON
+
       - name: Build
-        run: cmake --build build --parallel
+        run: cmake --build build --config ${{ matrix.build_type }} --parallel 4
+
       - name: Test
-        run: ctest --test-dir build --output-on-failure --parallel 4
+        run: ctest --test-dir build --build-config ${{ matrix.build_type }} --output-on-failure --parallel 4
+
       - name: Install and consume the CMake package
+        shell: bash
         run: |
-          cmake --install build --prefix "$PWD/install"
+          cmake --install build --config "${{ matrix.build_type }}" --prefix "$PWD/install"
           cmake -S examples/cmake-consumer -B consumer -DCMAKE_PREFIX_PATH="$PWD/install"
-          cmake --build consumer
+          cmake --build consumer --config "${{ matrix.build_type }}" --parallel 4
+
+      - name: Upload test log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ctest-log-${{ matrix.os }}-${{ matrix.build_type }}
+          path: build/Testing/Temporary/LastTest.log
+          if-no-files-found: ignore
+
+  webgl:
+    name: WebGL viewer smoke tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Playwright
+        run: |
+          npm install --no-save playwright
+          npx playwright install --with-deps chromium
+
+      - name: Configure
+        run: >
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=Release
+          -DOPENMODEL_BUILD_TESTS=ON
+          -DOPENMODEL_BUILD_CLI=ON
+          -DOPENMODEL_TEST_WEBGL_VIEWER=ON
+
+      - name: Build
+        run: cmake --build build --config Release --parallel 4
+
+      - name: Run WebGL and core tests
+        run: ctest --test-dir build --build-config Release --output-on-failure --parallel 2
+
+      - name: Upload test log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: webgl-ctest-log
+          path: build/Testing/Temporary/LastTest.log
+          if-no-files-found: ignore
