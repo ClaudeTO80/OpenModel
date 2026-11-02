@@ -2,6 +2,7 @@
 
 #include <OpenModel/Fatigue/CycleCounting.hpp>
 #include <OpenModel/Fatigue/FatigueMaterial.hpp>
+#include <OpenModel/Fatigue/MeanStressCorrection.hpp>
 
 #include <string>
 #include <vector>
@@ -35,6 +36,8 @@ struct FatigueDamageInput {
     const FatigueCurve* curve = nullptr;
     PhysicalUnit amplitudeUnit;
     double temperatureKelvin = 293.15;
+    MeanStressCorrectionKind meanStressCorrection = MeanStressCorrectionKind::None;
+    MeanStressCorrectionParameters meanStressParameters;
 };
 
 /** Solver-neutral extension point for cumulative fatigue damage models. */
