@@ -1,0 +1,28 @@
+# Build trees
+/build*/
+/out/
+/install/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+CTestTestfile.cmake
+Testing/
+compile_commands.json
+_deps/
+
+# IDE / OS
+.vscode/
+.idea/
+*.user
+.DS_Store
+Thumbs.db
+
+# Generated or local artefacts
+*.mgwv
+*.mgmb
+*.glb
+job/
+openmodel_job/
+node_modules/
+__pycache__/
+*.pyc

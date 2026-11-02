@@ -1,0 +1,135 @@
+/**
+ * @file gmsh_assembly_test.cpp
+ * @brief CAD components and groups become physical groups, and the interface mode controls whether two
+ *        touching solids share nodes. Uses the XDE assembly fixture (Base/Cover touching on z = 10, two Pins).
+ */
+#include "support/assembly_fixture.hpp"
+
+#include <OpenModel/GmshMesher.hpp>
+#include <OpenModel/OCCModel.hpp>
+
+#include <cmath>
+#include <cstdio>
+#include <iostream>
+#include <map>
+#include <memory>
+#include <set>
+
+#define CHECK(cond)                                                                      \
+    do {                                                                                 \
+        if (!(cond)) {                                                                   \
+            std::cerr << "CHECK failed: " #cond " (line " << __LINE__ << ")\n";          \
+            return 1;                                                                    \
+        }                                                                                \
+    } while (0)
+
+namespace {
+
+struct Located {
+    const ElementBlock* block;
+    std::size_t index;
+};
+
+std::map<ElementId, Located> indexElements(const MeshData& mesh) {
+    std::map<ElementId, Located> map;
+    for (const auto& block : mesh.getElementBlocks())
+        for (std::size_t i = 0; i < block.ids.size(); ++i) map[block.ids[i]] = {&block, i};
+    return map;
+}
+
+const MeshPhysicalGroup* group(const MeshData& mesh, const std::string& name) {
+    for (const auto& g : mesh.getPhysicalGroups())
+        if (g.name == name) return &g;
+    return nullptr;
+}
+
+/** Sum of tetrahedron volumes of a group; also collects the node indices lying on the plane z = 10. */
+double groupVolume(const MeshData& mesh, const std::map<ElementId, Located>& elements, const MeshPhysicalGroup& g,
+                   std::set<NodeIndex>* nodesOnPlane) {
+    double volume = 0.0;
+    for (const ElementId id : g.elementIds) {
+        const auto& at = elements.at(id);
+        if (at.block->type != ElementType::Tetrahedron4 && at.block->type != ElementType::Tetrahedron10) continue;
+        const std::size_t n = at.block->nodesPerElement;
+        std::array<std::array<double, 3>, 4> p;
+        for (std::size_t k = 0; k < 4; ++k) p[k] = mesh.nodeCoordinates(at.block->connectivity[at.index * n + k]);
+        auto sub = [](const std::array<double, 3>& a, const std::array<double, 3>& b) {
+            return std::array<double, 3>{{a[0] - b[0], a[1] - b[1], a[2] - b[2]}};
+        };
+        const auto a = sub(p[1], p[0]), b = sub(p[2], p[0]), c = sub(p[3], p[0]);
+        volume += std::fabs(a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0]) + a[2] * (b[0] * c[1] - b[1] * c[0])) / 6.0;
+        if (nodesOnPlane)
+            for (std::size_t k = 0; k < 4; ++k) {
+                const NodeIndex node = at.block->connectivity[at.index * n + k];
+                if (std::fabs(mesh.nodeCoordinates(node)[2] - 10.0) < 1e-6) nodesOnPlane->insert(node);
+            }
+    }
+    return volume;
+}
+
+int run(InterfaceMode mode, const std::string& step) {
+    auto cad = std::make_shared<OCCModel>();
+    CHECK(cad->loadFromFile(step));
+    MeshingOptions options;
+    options.elementSize = 2.0;
+    options.maxElementSize = 2.0;
+    options.interfaceMode = mode;
+    GmshMesher mesher;
+    MeshData mesh;
+    CHECK(mesher.buildMesh(cad, options, mesh));
+    const char* label = mode == InterfaceMode::Conformal ? "conformal" : "independent";
+    std::cout << "--- " << label << ": " << mesh.getNumNodes() << " nodes, " << mesh.getNumElements() << " elements\n";
+    for (const auto& line : mesher.diagnostics()) std::cout << "    " << line << '\n';
+
+    const auto elements = indexElements(mesh);
+    const auto* base = group(mesh, "Assy/Base");
+    const auto* cover = group(mesh, "Assy/Cover");
+    const auto* pin1 = group(mesh, "Assy/Pin");
+    const auto* pin2 = group(mesh, "Assy/Pin #2");
+    CHECK(base && cover && pin1 && pin2);
+    CHECK(base->dimension == 3 && cover->dimension == 3);
+
+    std::set<NodeIndex> onPlaneBase, onPlaneCover;
+    const double vBase = groupVolume(mesh, elements, *base, &onPlaneBase);
+    const double vCover = groupVolume(mesh, elements, *cover, &onPlaneCover);
+    const double vPin1 = groupVolume(mesh, elements, *pin1, nullptr);
+    const double vPin2 = groupVolume(mesh, elements, *pin2, nullptr);
+    std::cout << "    volumes: base " << vBase << " cover " << vCover << " pin " << vPin1 << " / " << vPin2
+              << "  (exact 1000, 500, " << M_PI * 5 << ")\n";
+    CHECK(std::fabs(vBase - 1000.0) < 1.0 && std::fabs(vCover - 500.0) < 1.0);
+    CHECK(vPin1 > 0.0 && vPin2 > 0.0 && std::fabs(vPin1 - M_PI * 5.0) / (M_PI * 5.0) < 0.2);
+
+    // Face groups: the top face of the Base is both the layer "Interface" and the named face "TopFace".
+    const auto* layer = group(mesh, "Interface");
+    const auto* named = group(mesh, "TopFace");
+    CHECK(layer && named && layer->dimension == 2 && named->dimension == 2);
+    CHECK(!layer->elementIds.empty() && layer->elementIds == named->elementIds);
+    for (const ElementId id : layer->elementIds) {
+        const auto& at = elements.at(id);
+        CHECK(at.block->type == ElementType::Triangle3);
+        for (std::size_t k = 0; k < 3; ++k)
+            CHECK(std::fabs(mesh.nodeCoordinates(at.block->connectivity[at.index * 3 + k])[2] - 10.0) < 1e-6);
+    }
+
+    std::set<NodeIndex> shared;
+    for (const NodeIndex n : onPlaneBase) if (onPlaneCover.count(n)) shared.insert(n);
+    std::cout << "    nodes on z=10: base " << onPlaneBase.size() << ", cover " << onPlaneCover.size() << ", shared " << shared.size() << '\n';
+    if (mode == InterfaceMode::Conformal) {
+        CHECK(!shared.empty() && shared.size() == onPlaneBase.size());
+    } else {
+        CHECK(shared.empty());
+    }
+    return 0;
+}
+
+} // namespace
+
+int main() {
+    const std::string step = "openmodel_gmsh_assembly.step";
+    CHECK(writeAssemblyFixture(step));
+    const int a = run(InterfaceMode::Independent, step);
+    const int b = a == 0 ? run(InterfaceMode::Conformal, step) : a;
+    std::remove(step.c_str());
+    if (a == 0 && b == 0) std::cout << "gmsh_assembly_test passed\n";
+    return a != 0 ? a : b;
+}

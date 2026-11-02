@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OpenModel — GLB PBR Viewer</title>
+<style>
+:root{color-scheme:dark;font:14px system-ui,sans-serif}*{box-sizing:border-box}body{margin:0;background:#10141b;color:#e9edf4}header{display:flex;gap:1rem;align-items:center;flex-wrap:wrap;padding:.8rem 1rem;background:#1b222d;border-bottom:1px solid #354052}h1{font-size:1rem;margin:0}button,label{border:1px solid #536176;background:#293444;color:inherit;border-radius:6px;padding:.5rem .75rem;cursor:pointer}button:hover,label:hover{background:#36465c}#status{color:#b8c6d9}main{height:calc(100vh - 62px);position:relative}canvas{display:block;width:100%;height:100%}#help{position:absolute;bottom:1rem;left:1rem;background:#111a;color:#dce6f5;padding:.6rem .8rem;border-radius:6px;pointer-events:none}#file{display:none}
+</style>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+</head>
+<body>
+<header><h1>OpenModel · GLB PBR Viewer</h1><label for="file">Apri file GLB / glTF</label><input id="file" type="file" accept=".glb,.gltf,model/gltf-binary,model/gltf+json"><button id="reset">Inquadra modello</button><span id="status">Carica un file .glb esportato da OpenModel.</span></header>
+<main id="viewport"><div id="help">Trascina: ruota · Rotella: zoom · Tasto destro: sposta</div></main>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+const root=document.querySelector('#viewport'), status=document.querySelector('#status');
+const scene=new THREE.Scene(); scene.background=new THREE.Color(0x10141b);
+const camera=new THREE.PerspectiveCamera(45,1,.01,1e7); camera.position.set(3,2.5,4);
+const renderer=new THREE.WebGLRenderer({antialias:true,alpha:false}); renderer.setPixelRatio(Math.min(devicePixelRatio,2)); renderer.outputColorSpace=THREE.SRGBColorSpace; renderer.toneMapping=THREE.ACESFilmicToneMapping; renderer.toneMappingExposure=1; root.appendChild(renderer.domElement);
+const controls=new OrbitControls(camera,renderer.domElement); controls.enableDamping=true;
+scene.add(new THREE.HemisphereLight(0xdde8ff,0x34313a,2));
+const key=new THREE.DirectionalLight(0xffffff,3.2);key.position.set(4,7,5);scene.add(key);
+const fill=new THREE.DirectionalLight(0x9dbbff,1.2);fill.position.set(-5,2,-4);scene.add(fill);
+const grid=new THREE.GridHelper(10,20,0x465267,0x293342);scene.add(grid);
+let model=null;
+function frame(object){const box=new THREE.Box3().setFromObject(object);if(box.isEmpty())return;const size=box.getSize(new THREE.Vector3()),center=box.getCenter(new THREE.Vector3());const max=Math.max(size.x,size.y,size.z,0.01);camera.near=max/10000;camera.far=max*1000;camera.updateProjectionMatrix();camera.position.copy(center).add(new THREE.Vector3(max*1.7,max*1.2,max*1.7));controls.target.copy(center);controls.minDistance=max*.02;controls.maxDistance=max*100;controls.update();grid.position.y=box.min.y;grid.scale.setScalar(Math.max(1,max/10));}
+function loadFile(file){if(!file)return;const url=URL.createObjectURL(file);status.textContent='Caricamento '+file.name+'…';new GLTFLoader().load(url,gltf=>{if(model)scene.remove(model);model=gltf.scene;scene.add(model);frame(model);status.textContent=`${file.name} · ${gltf.scene.children.length} oggetto/i`;URL.revokeObjectURL(url);},undefined,error=>{status.textContent='Errore: '+(error?.message||'file glTF non valido');URL.revokeObjectURL(url);});}
+document.querySelector('#file').addEventListener('change',e=>loadFile(e.target.files[0]));document.querySelector('#reset').addEventListener('click',()=>{if(model)frame(model)});
+root.addEventListener('dragover',e=>{e.preventDefault();});root.addEventListener('drop',e=>{e.preventDefault();loadFile(e.dataTransfer.files[0])});
+function resize(){const w=root.clientWidth,h=root.clientHeight;camera.aspect=w/h;camera.updateProjectionMatrix();renderer.setSize(w,h,false)}new ResizeObserver(resize).observe(root);resize();
+renderer.setAnimationLoop(()=>{controls.update();renderer.render(scene,camera)});
+</script>
+</body></html>

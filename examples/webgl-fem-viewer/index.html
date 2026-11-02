@@ -1,0 +1,1298 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OpenModel · Viewer FEM</title>
+<style>
+:root {
+  --bg: #f4f5f7; --panel: #ffffff; --panel-2: #eceef2; --line: #d3d8e0; --text: #1b2230; --muted: #5b6678;
+  --accent: #1f6feb; --viewport: #e9ecf1; --edge: #10151d;
+  color-scheme: light;
+  font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1319; --panel: #171c24; --panel-2: #202733; --line: #303a49; --text: #e6ebf3; --muted: #93a0b4;
+    --accent: #5aa0ff; --viewport: #10141b; --edge: #05070a; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1319; --panel: #171c24; --panel-2: #202733; --line: #303a49; --text: #e6ebf3; --muted: #93a0b4;
+  --accent: #5aa0ff; --viewport: #10141b; --edge: #05070a; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--text); display: grid; grid-template-columns: 300px 1fr; overflow: hidden; }
+aside { background: var(--panel); border-right: 1px solid var(--line); overflow-y: auto; padding: 14px 14px 24px; }
+h1 { font-size: 15px; margin: 0 0 2px; letter-spacing: .01em; }
+.sub { color: var(--muted); margin-bottom: 12px; }
+section { border-top: 1px solid var(--line); padding: 12px 0 4px; }
+h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 8px; font-weight: 600; }
+label.row, .row { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; }
+.row > span:first-child { flex: 0 0 82px; color: var(--muted); }
+select, input[type=number], button {
+  font: inherit; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; min-height: 30px;
+}
+select, input[type=number] { flex: 1; min-width: 0; }
+input[type=range] { flex: 1; min-width: 0; accent-color: var(--accent); }
+button { cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); color: #fff; border-color: transparent; }
+button:focus-visible, select:focus-visible, input:focus-visible, label:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
+.btns { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+#stats { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; font-variant-numeric: tabular-nums; margin: 0; }
+#stats dt { color: var(--muted); } #stats dd { margin: 0; text-align: right; }
+#blocks, #legend, #comps, #comps ul { list-style: none; margin: 0; padding: 0; }
+#blocks, #legend, #comps { max-height: 260px; overflow-y: auto; }
+#comps ul { padding-left: 14px; }
+#comps li { padding: 0; }
+#comps label { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; cursor: pointer; padding: 3px 0; }
+#comps .row3 { display: flex; align-items: center; gap: 8px; }
+#blocks li, #legend li { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
+#blocks label { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; cursor: pointer; }
+.sw { width: 12px; height: 12px; border-radius: 3px; border: 1px solid rgba(128,128,128,.5); flex: none; }
+.nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.ct { color: var(--muted); font-variant-numeric: tabular-nums; }
+#compSec[hidden], #defSec[hidden], #resultsInfo[hidden], #blocksSec[hidden], #drop[hidden], #scalarBox[hidden], #clipBox[hidden], #legendBox[hidden] { display: none; }
+#bar { height: 12px; border-radius: 3px; border: 1px solid var(--line); margin: 4px 0 8px; }
+main { position: relative; min-width: 0; background: var(--viewport); }
+canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+canvas.drag { cursor: grabbing; }
+#hud { position: absolute; left: 12px; bottom: 10px; color: var(--muted); background: color-mix(in srgb, var(--panel) 80%, transparent); border: 1px solid var(--line); border-radius: 6px; padding: 5px 9px; pointer-events: none; }
+#drop { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; color: var(--muted); padding: 24px; pointer-events: none; }
+#drop b { display: block; font-size: 16px; color: var(--text); margin-bottom: 6px; }
+#msg { position: absolute; top: 10px; left: 12px; right: 12px; background: #b3261e; color: #fff; border-radius: 6px; padding: 8px 12px; }
+#msg[hidden] { display: none; }
+main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dashed var(--accent); border-radius: 10px; pointer-events: none; }
+@media (max-width: 760px) {
+  body { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+  aside { border-right: 0; border-bottom: 1px solid var(--line); max-height: 42vh; }
+}
+</style>
+</head>
+<body>
+<aside>
+  <h1>OpenModel · Viewer FEM</h1>
+  <div class="sub" id="fileName">Nessun file caricato</div>
+  <div class="sub" id="resultsInfo" hidden></div>
+  <div class="btns">
+    <button class="primary" id="openBtn">Apri .mgwv…</button>
+    <button id="shotBtn">Salva PNG</button>
+    <button id="themeBtn" title="Cambia tema">Tema</button>
+  </div>
+  <input type="file" id="file" accept=".mgwv" hidden>
+
+  <section>
+    <h2>Modello</h2>
+    <dl id="stats"></dl>
+  </section>
+
+  <section>
+    <h2>Vista</h2>
+    <div class="btns">
+      <button data-view="x">+X</button><button data-view="y">+Y</button><button data-view="z">+Z</button>
+      <button data-view="iso">Iso</button><button id="fitBtn">Inquadra</button>
+    </div>
+    <label class="row"><span>Colora per</span>
+      <select id="colorMode">
+        <option value="block">Blocco</option>
+        <option value="region">Regione</option>
+        <option value="surface">Superficie</option>
+        <option value="scalar">Campo scalare</option>
+        <option value="flat">Uniforme</option>
+      </select></label>
+    <div id="scalarBox" hidden>
+      <label class="row"><span>Campo</span><select id="fieldSel"></select></label>
+      <div id="bar"></div>
+      <div class="row"><span>Min / Max</span><input type="number" id="smin" step="any"><input type="number" id="smax" step="any"></div>
+    </div>
+    <label class="row"><span>Spigoli</span>
+      <select id="wire">
+        <option value="none">Nascosti</option>
+        <option value="skin" selected>Superficie</option>
+        <option value="all">Tutti (con sezione)</option>
+      </select></label>
+  </section>
+
+  <section>
+    <h2>Sezione</h2>
+    <label class="row"><span>Piano</span><input type="checkbox" id="clipOn"> <span style="flex:1;color:var(--text)">Attiva sezione</span></label>
+    <div id="clipBox" hidden>
+      <label class="row"><span>Asse</span>
+        <select id="clipAxis"><option value="0">X</option><option value="1">Y</option><option value="2" selected>Z</option></select></label>
+      <label class="row"><span>Posizione</span><input type="range" id="clipPos" min="0" max="1000" value="500"></label>
+      <label class="row"><span>Verso</span><input type="checkbox" id="clipFlip"> <span style="flex:1;color:var(--text)">Inverti</span></label>
+    </div>
+  </section>
+
+  <section id="defSec" hidden>
+    <h2>Deformata</h2>
+    <label class="row"><span>Mostra</span><input type="checkbox" id="defOn" checked> <span style="flex:1;color:var(--text)" id="defName">Spostamenti</span></label>
+    <label class="row"><span>Scala</span><input type="range" id="defScale" min="0" max="1000" value="100"></label>
+    <div class="row"><span>Fattore</span><input type="number" id="defFactor" step="any" min="0"></div>
+    <div class="row"><span>Max spost.</span><span id="defMax" style="flex:1;text-align:right"></span></div>
+    <div id="modeBox" hidden>
+      <label class="row"><span>Modo</span><select id="modeSel"></select></label>
+      <div class="row"><span>Frequenza</span><span id="modeFreq" style="flex:1;text-align:right"></span></div>
+      <label class="row"><span>Anima</span><input type="checkbox" id="modeAnim"> <span style="flex:1;color:var(--text)">oscillazione</span></label>
+    </div>
+  </section>
+
+  <section id="pickSec" hidden>
+    <h2>Selezione</h2>
+    <label class="row"><span>Seleziona</span>
+      <select id="pickMode">
+        <option value="off">Disattivata</option>
+        <option value="node">Nodi</option>
+        <option value="element">Elementi</option>
+        <option value="face">Facce</option>
+      </select></label>
+    <label class="row"><span>Angolo</span><input type="number" id="pickAngle" min="0" max="180" step="1" value="0" title="Facce: estende la selezione alle facce collegate la cui normale devia meno di questo angolo (0 = una sola faccia)"> <span style="flex:1;color:var(--text)">° (facce)</span></label>
+    <label class="row"><span>Riquadro</span><input type="checkbox" id="pickBox"> <span style="flex:1;color:var(--text)">trascina per selezionare</span></label>
+    <div class="row"><span>Selezionati</span><span id="pickCount" style="flex:1;text-align:right">nessuno</span></div>
+    <div class="row"><button id="pickClear" style="flex:1">Annulla selezione</button></div>
+    <p style="color:var(--muted);margin:0">Clic: seleziona · Ctrl+clic: aggiungi/togli · Alt+trascina o «Riquadro»: selezione ad area. Si selezionano solo le parti visibili.</p>
+  </section>
+
+  <section id="compSec" hidden>
+    <h2>Componenti</h2>
+    <ul id="comps"></ul>
+  </section>
+
+  <section id="blocksSec">
+    <h2>Blocchi</h2>
+    <ul id="blocks"></ul>
+  </section>
+
+  <section id="legendBox" hidden>
+    <h2 id="legendTitle">Legenda</h2>
+    <ul id="legend"></ul>
+  </section>
+</aside>
+
+<main id="view">
+  <canvas id="gl"></canvas>
+  <div id="drop"><div><b>Trascina qui un file .mgwv</b>generato con <code>openmodel export-web</code></div></div>
+  <div id="msg" hidden></div>
+  <div id="selBox" hidden style="position:absolute;border:1px dashed var(--accent);background:color-mix(in srgb, var(--accent) 15%, transparent);pointer-events:none"></div>
+  <div id="hud">Sinistro: ruota (o seleziona, se attiva) · Destro o Maiusc: sposta · Rotella: zoom · Doppio clic: inquadra</div>
+</main>
+
+<script>
+"use strict";
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const canvas = $("gl"), view = $("view");
+  const gl = canvas.getContext("webgl2", { antialias: true, preserveDrawingBuffer: true });
+  if (!gl) {
+    $("msg").hidden = false; $("msg").textContent = "WebGL2 non è disponibile in questo browser.";
+    return;
+  }
+  const TEX_W = 4096, TEX_SHIFT = 12, TEX_MASK = TEX_W - 1;
+  const maxTex = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+
+  /* ------------------------------------------------------------- shaders */
+  const GLSL_COMMON = `#version 300 es
+  precision highp float; precision highp int; precision highp sampler2D; precision highp usampler2D;
+  ivec2 at(int i) { return ivec2(i & ${TEX_MASK}, i >> ${TEX_SHIFT}); }
+  `;
+  const VS_TRI = GLSL_COMMON + `
+  uniform sampler2D uPos; uniform usampler2D uIdx, uBlock, uRegion, uSurf, uVis, uGVis;
+  uniform sampler2D uPalette, uScalar, uDisp; uniform usampler2D uSel;
+  uniform mat4 uMV, uP; uniform int uMode; uniform int uHasScalar; uniform int uScalarPerTri; uniform int uHasDisp; uniform float uDispScale;
+  out vec3 vView; out vec3 vModel; out vec3 vColor; out float vS; flat out uint vSel;
+  void main() {
+    int tri = gl_VertexID / 3;
+    vSel = texelFetch(uSel, at(tri), 0).r;
+    int vi = int(texelFetch(uIdx, at(gl_VertexID), 0).r);
+    vec3 p = texelFetch(uPos, at(vi), 0).rgb;
+    uint block = texelFetch(uBlock, at(tri), 0).r;
+    uint id = block;
+    if (uMode == 1) id = texelFetch(uRegion, at(tri), 0).r;
+    else if (uMode == 2) id = texelFetch(uSurf, at(tri), 0).r;
+    vColor = texelFetch(uPalette, at(int(id)), 0).rgb;
+    vS = uHasScalar == 1 ? texelFetch(uScalar, at(uScalarPerTri == 1 ? tri : vi), 0).r : 0.0;
+    vModel = p;
+    // Deformed shape: the stored positions stay undeformed (clipping uses vModel), only the drawn position moves.
+    vec3 q = p;
+    if (uHasDisp == 1) q += uDispScale * texelFetch(uDisp, at(vi), 0).rgb;
+    vec4 mv = uMV * vec4(q, 1.0);
+    vView = mv.xyz;
+    uint region = texelFetch(uRegion, at(tri), 0).r;
+    bool hidden = texelFetch(uVis, at(int(block)), 0).r == 0u || (region != 0u && texelFetch(uGVis, at(int(region)), 0).r == 0u);
+    gl_Position = hidden ? vec4(2.0, 2.0, 2.0, 1.0) : uP * mv;
+  }`;
+  const FS_TRI = GLSL_COMMON + `
+  uniform vec4 uClip; uniform int uClipOn; uniform int uMode;
+  uniform sampler2D uLut; uniform vec2 uRange;
+  in vec3 vView; in vec3 vModel; in vec3 vColor; in float vS; flat in uint vSel;
+  out vec4 o;
+  void main() {
+    if (uClipOn == 1 && dot(uClip.xyz, vModel) > uClip.w) discard;
+    vec3 base = vColor;
+    if (uMode == 3) base = texture(uLut, vec2(clamp((vS - uRange.x) / max(uRange.y - uRange.x, 1e-30), 0.0, 1.0), 0.5)).rgb;
+    if (vSel != 0u) base = mix(base, vec3(1.0, 0.45, 0.0), 0.75);
+    vec3 n = normalize(cross(dFdx(vView), dFdy(vView)));
+    float key = abs(dot(n, normalize(vec3(0.35, 0.55, 1.0))));
+    float fill = abs(dot(n, normalize(vec3(-0.6, -0.2, 0.5))));
+    float light = 0.30 + 0.62 * key + 0.18 * fill;
+    o = vec4(base * light, 1.0);
+  }`;
+  const VS_EDGE = GLSL_COMMON + `
+  uniform sampler2D uPos, uDisp; uniform usampler2D uEIdx, uEBlock, uERegion, uVis, uGVis;
+  uniform mat4 uMV, uP; uniform int uHasDisp; uniform float uDispScale;
+  out vec3 vModel;
+  void main() {
+    int e = gl_VertexID / 2;
+    int vi = int(texelFetch(uEIdx, at(gl_VertexID), 0).r);
+    vec3 p = texelFetch(uPos, at(vi), 0).rgb;
+    uint block = texelFetch(uEBlock, at(e), 0).r;
+    vModel = p;
+    uint region = texelFetch(uERegion, at(e), 0).r;
+    bool hidden = texelFetch(uVis, at(int(block)), 0).r == 0u || (region != 0u && texelFetch(uGVis, at(int(region)), 0).r == 0u);
+    vec3 q = p;
+    if (uHasDisp == 1) q += uDispScale * texelFetch(uDisp, at(vi), 0).rgb;
+    gl_Position = hidden ? vec4(2.0, 2.0, 2.0, 1.0) : uP * uMV * vec4(q, 1.0);
+  }`;
+  const FS_EDGE = GLSL_COMMON + `
+  uniform vec4 uClip; uniform int uClipOn; uniform vec3 uColor;
+  in vec3 vModel; out vec4 o;
+  void main() {
+    if (uClipOn == 1 && dot(uClip.xyz, vModel) > uClip.w) discard;
+    o = vec4(uColor, 1.0);
+  }`;
+
+  // Picking: triangles and vertices are drawn with their index (+1) encoded in RGBA8 into an off-screen buffer.
+  const VS_PICK_TRI = GLSL_COMMON + `
+  uniform sampler2D uPos, uDisp; uniform usampler2D uIdx, uBlock, uRegion, uVis, uGVis;
+  uniform mat4 uMV, uP; uniform int uHasDisp; uniform float uDispScale;
+  out vec3 vModel; flat out uint vId;
+  void main() {
+    int tri = gl_VertexID / 3;
+    int vi = int(texelFetch(uIdx, at(gl_VertexID), 0).r);
+    vec3 p = texelFetch(uPos, at(vi), 0).rgb;
+    uint block = texelFetch(uBlock, at(tri), 0).r;
+    uint region = texelFetch(uRegion, at(tri), 0).r;
+    bool hidden = texelFetch(uVis, at(int(block)), 0).r == 0u || (region != 0u && texelFetch(uGVis, at(int(region)), 0).r == 0u);
+    vModel = p; vId = uint(tri + 1);
+    vec3 q = p;
+    if (uHasDisp == 1) q += uDispScale * texelFetch(uDisp, at(vi), 0).rgb;
+    gl_Position = hidden ? vec4(2.0, 2.0, 2.0, 1.0) : uP * uMV * vec4(q, 1.0);
+  }`;
+  const VS_NODE = GLSL_COMMON + `
+  uniform sampler2D uPos, uDisp; uniform usampler2D uVSel;
+  uniform mat4 uMV, uP; uniform int uHasDisp; uniform float uDispScale; uniform float uPointSize; uniform int uOnlySelected;
+  out vec3 vModel; flat out uint vId;
+  void main() {
+    int vi = gl_VertexID;
+    vec3 p = texelFetch(uPos, at(vi), 0).rgb;
+    vModel = p; vId = uint(vi + 1);
+    vec3 q = p;
+    if (uHasDisp == 1) q += uDispScale * texelFetch(uDisp, at(vi), 0).rgb;
+    gl_Position = uP * uMV * vec4(q, 1.0);
+    gl_PointSize = uPointSize;
+    if (uOnlySelected == 1 && texelFetch(uVSel, at(vi), 0).r == 0u) gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+  }`;
+  const FS_PICK = GLSL_COMMON + `
+  uniform vec4 uClip; uniform int uClipOn; uniform int uOut; uniform vec3 uColor;
+  in vec3 vModel; flat in uint vId; out vec4 o;
+  void main() {
+    if (uClipOn == 1 && dot(uClip.xyz, vModel) > uClip.w) discard;
+    if (uOut == 1) {                       // visible marker of a selected node: a round dot
+      vec2 d = gl_PointCoord - 0.5;
+      if (dot(d, d) > 0.25) discard;
+      o = vec4(uColor, 1.0);
+    } else {
+      o = vec4(float(vId & 255u), float((vId >> 8) & 255u), float((vId >> 16) & 255u), float((vId >> 24) & 255u)) / 255.0;
+    }
+  }`;
+
+  function program(vs, fs) {
+    const make = (type, src) => {
+      const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+      if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+      return s;
+    };
+    const p = gl.createProgram();
+    gl.attachShader(p, make(gl.VERTEX_SHADER, vs)); gl.attachShader(p, make(gl.FRAGMENT_SHADER, fs));
+    gl.linkProgram(p);
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+    const u = {};
+    const n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+    for (let i = 0; i < n; i++) { const info = gl.getActiveUniform(p, i); u[info.name] = gl.getUniformLocation(p, info.name); }
+    return { p, u };
+  }
+  const triProg = program(VS_TRI, FS_TRI), edgeProg = program(VS_EDGE, FS_EDGE);
+  const pickTriProg = program(VS_PICK_TRI, FS_PICK), nodeProg = program(VS_NODE, FS_PICK);
+  const vao = gl.createVertexArray();
+
+  /* ------------------------------------------------------------- textures */
+  // 1D data is stored in 2D textures TEX_W wide so that very large meshes fit.
+  function dataTexture(kind, array, components) {
+    const count = array.length / components;
+    const rows = Math.max(1, Math.ceil(count / TEX_W));
+    if (rows > maxTex) throw new Error("Il modello supera il limite delle texture della GPU (" + count + " elementi).");
+    const width = Math.min(Math.max(count, 1), TEX_W);
+    const padded = new array.constructor(width * rows * components);
+    padded.set(array);
+    const fmt = {
+      f3: [gl.RGB32F, gl.RGB, gl.FLOAT], f1: [gl.R32F, gl.RED, gl.FLOAT],
+      u1: [gl.R32UI, gl.RED_INTEGER, gl.UNSIGNED_INT], c4: [gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE],
+      c3: [gl.RGB8, gl.RGB, gl.UNSIGNED_BYTE],
+    }[kind];
+    const t = gl.createTexture();
+    // Upload on a scratch unit so a texture created while drawing never replaces a bound one.
+    gl.activeTexture(gl.TEXTURE0 + 15);
+    gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.texImage2D(gl.TEXTURE_2D, 0, fmt[0], width, rows, 0, fmt[1], fmt[2], padded);
+    const filter = kind === "c4" || kind === "c3" ? gl.LINEAR : gl.NEAREST;
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    return t;
+  }
+  // 1 row x 256 colour map used for scalar fields (viridis).
+  const VIRIDIS = ["#440154", "#482878", "#3e4989", "#31688e", "#26828e", "#1f9e89", "#35b779", "#6ece58", "#b5de2b", "#fde725"];
+  const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+  function lutColor(t) {
+    const x = Math.min(Math.max(t, 0), 1) * (VIRIDIS.length - 1), i = Math.min(Math.floor(x), VIRIDIS.length - 2), f = x - i;
+    const a = hex(VIRIDIS[i]), b = hex(VIRIDIS[i + 1]);
+    return a.map((v, k) => Math.round(v + (b[k] - v) * f));
+  }
+  const lutData = new Uint8Array(256 * 4);
+  for (let i = 0; i < 256; i++) lutData.set([...lutColor(i / 255), 255], i * 4);
+  const lutTex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, lutTex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 256, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, lutData);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  const gradient = "linear-gradient(90deg," + VIRIDIS.join(",") + ")";
+  $("bar").style.background = gradient;
+
+  // Okabe-Ito based categorical palette, extended with lighter/darker variants.
+  const CATEGORICAL = ["#56b4e9", "#e69f00", "#009e73", "#cc79a7", "#d55e00", "#0072b2", "#f0e442", "#8c8c8c",
+    "#a6d9f5", "#f5cd7a", "#66cdaa", "#e6b3cf", "#ec9a66", "#6aa6d6", "#f6ef9a", "#bdbdbd"];
+  const GRAY = [150, 156, 166];
+
+  /* ----------------------------------------------------------------- state */
+  const S = {
+    model: null, tex: {}, count: {}, mode: "block", vis: null, palettes: {},
+    wire: "skin", clipOn: false, clipAxis: 2, clipPos: 0.5, clipFlip: false,
+    fieldIndex: 0, range: [0, 1], dirty: true,
+    defOn: true, defFactor: 1, defSuggested: 1,
+    modeIndex: 0, animate: false, phase: 0, lastTick: 0,
+    pickMode: "off", pickAngle: 0, pickBox: false, sel: { node: new Set(), element: new Set(), face: new Set() },
+    rot: [1, 0, 0, 0, 1, 0, 0, 0, 1], target: [0, 0, 0], dist: 3, radius: 1,
+  };
+
+  /* ---------------------------------------------------------- file parsing */
+  function parseMGWV(buffer) {
+    const dv = new DataView(buffer);
+    if (buffer.byteLength < 24) throw new Error("File troppo corto.");
+    const magic = [0x4d, 0x47, 0x57, 0x56, 0x0d, 0x0a, 0x1a, 0x0a];
+    for (let i = 0; i < 8; i++) if (dv.getUint8(i) !== magic[i]) throw new Error("Non è un file MGWV.");
+    const version = dv.getUint32(8, true), jsonLen = dv.getUint32(12, true), binLen = dv.getUint32(16, true);
+    if (version !== 1) throw new Error("Versione MGWV non supportata: " + version);
+    if (24 + jsonLen + binLen !== buffer.byteLength) throw new Error("Dimensione del file incoerente.");
+    const meta = JSON.parse(new TextDecoder().decode(new Uint8Array(buffer, 24, jsonLen)));
+    const binStart = 24 + jsonLen;
+    const slice = (Type, offset, count) => {
+      if (offset + count * 4 > binLen) throw new Error("Sezione dati fuori dal file.");
+      return new Type(buffer, binStart + offset, count);
+    };
+    const c = meta.chunks;
+    for (const key of ["positions", "triIndices", "triBlock", "triRegion", "triSurface", "edgeIndices", "edgeBlock"])
+      if (!c[key]) throw new Error("Sezione mancante nel file: " + key + " (rigenerare il file con la versione corrente di OpenModel).");
+    const model = {
+      meta,
+      positions: slice(Float32Array, c.positions.offset, c.positions.count),
+      triIndices: slice(Uint32Array, c.triIndices.offset, c.triIndices.count),
+      triBlock: slice(Uint32Array, c.triBlock.offset, c.triBlock.count),
+      triRegion: slice(Uint32Array, c.triRegion.offset, c.triRegion.count),
+      triSurface: slice(Uint32Array, c.triSurface.offset, c.triSurface.count),
+      edgeIndices: slice(Uint32Array, c.edgeIndices.offset, c.edgeIndices.count),
+      edgeBlock: slice(Uint32Array, c.edgeBlock.offset, c.edgeBlock.count),
+      // Optional chunk: files written before edgeRegion existed show every edge regardless of group visibility.
+      edgeRegion: c.edgeRegion ? slice(Uint32Array, c.edgeRegion.offset, c.edgeRegion.count) : new Uint32Array(meta.counts.edges),
+      // Optional chunk (results with a displacement field): 3 float32 per vertex.
+      disp: c.displacement ? slice(Float32Array, c.displacement.offset, c.displacement.count) : null,
+      // Optional picking chunks (written together): external ids of the vertices and of the elements owning the triangles.
+      vertexNodeId: c.vertexNodeId ? slice(Uint32Array, c.vertexNodeId.offset, c.vertexNodeId.count) : null,
+      triElementId: c.triElementId ? slice(Uint32Array, c.triElementId.offset, c.triElementId.count) : null,
+      triFace: c.triFace ? slice(Uint32Array, c.triFace.offset, c.triFace.count) : null,
+      // location "element": one value per triangle (value of the owning element); otherwise one per vertex.
+      fields: meta.fields.map((f) => ({
+        name: f.name, min: f.min, max: f.max, element: f.location === "element",
+        values: slice(Float32Array, f.offset, f.location === "element" ? meta.counts.triangles : meta.counts.vertices),
+      })),
+      // Optional vibration modes: 3 float32 per vertex each.
+      modes: (meta.modes || []).map((m) => ({ label: m.label, frequency: m.frequency, max: m.max, disp: slice(Float32Array, m.offset, meta.counts.vertices * 3) })),
+    };
+    if (model.modes.length) {
+      model.disp = model.modes[0].disp;
+      // Dynamic field: displacement magnitude of the selected mode (recomputed when the mode changes).
+      const dyn = { name: "|u| (modo)", min: 0, max: 0, element: false, dynamic: true, values: new Float32Array(meta.counts.vertices) };
+      model.fields.unshift(dyn);
+      fillModeMagnitude(dyn, model.modes[0]);
+    }
+    const n = meta.counts;
+    if (model.triIndices.length !== n.triangles * 3 || model.edgeIndices.length !== n.edges * 2) throw new Error("Conteggi incoerenti.");
+    model.canPick = !!(model.vertexNodeId && model.triElementId && model.triFace &&
+      model.vertexNodeId.length === n.vertices && model.triElementId.length === n.triangles && model.triFace.length === n.triangles);
+    if (model.disp && model.disp.length !== n.vertices * 3) throw new Error("Spostamenti incoerenti con il numero di vertici.");
+    return model;
+  }
+
+  function fillModeMagnitude(field, mode) {
+    let hi = 0;
+    for (let i = 0; i < field.values.length; i++) {
+      const m = Math.hypot(mode.disp[3 * i], mode.disp[3 * i + 1], mode.disp[3 * i + 2]);
+      field.values[i] = m; if (m > hi) hi = m;
+    }
+    field.min = 0; field.max = hi;
+  }
+
+  /* --------------------------------------------------------------- upload */
+  function freeModel() {
+    for (const t of Object.values(S.tex)) gl.deleteTexture(t);
+    S.tex = {};
+  }
+  function upload(model) {
+    freeModel();
+    const n = model.meta.counts, T = S.tex;
+    T.pos = dataTexture("f3", model.positions, 3);
+    T.idx = dataTexture("u1", model.triIndices, 1);
+    T.block = dataTexture("u1", model.triBlock, 1);
+    T.region = dataTexture("u1", model.triRegion, 1);
+    T.surf = dataTexture("u1", model.triSurface, 1);
+    T.eidx = dataTexture("u1", model.edgeIndices, 1);
+    T.eblock = dataTexture("u1", model.edgeBlock, 1);
+    T.eregion = dataTexture("u1", model.edgeRegion, 1);
+    S.vis = new Uint32Array(Math.max(1, model.meta.blocks.length)).fill(1);
+    T.vis = dataTexture("u1", S.vis, 1);
+    // Group visibility, indexed like triRegion: 0 = no group (always shown), g + 1 = meta.groups[g].
+    S.gvis = new Uint32Array(model.meta.groups.length + 1).fill(1);
+    T.gvis = dataTexture("u1", S.gvis, 1);
+    T.selTri = dataTexture("u1", new Uint32Array(Math.max(1, n.triangles)), 1);
+    T.selVert = dataTexture("u1", new Uint32Array(Math.max(1, n.vertices)), 1);
+    T.scalar = dataTexture("f1", model.fields.length ? model.fields[0].values : new Float32Array(1), 1);
+    T.disp = dataTexture("f3", model.disp || new Float32Array(3), 3);
+    S.palettes = {};
+    S.model = model;
+    S.sel = { node: new Set(), element: new Set(), face: new Set() };
+    S.faceInfo = null; S.nodeVertex = null;
+    S.count = { tris: n.triangles, skinTris: n.boundaryTriangles, edges: n.edges, skinEdges: n.boundaryEdges };
+  }
+  function setField(i) {
+    const f = S.model.fields[i];
+    if (!f) return;
+    S.fieldIndex = i;
+    gl.deleteTexture(S.tex.scalar);
+    S.tex.scalar = dataTexture("f1", f.values, 1);
+    S.range = [f.min, f.max];
+    $("smin").value = f.min; $("smax").value = f.max;
+    S.dirty = true;
+  }
+  function refreshVisibility() {
+    gl.deleteTexture(S.tex.vis);
+    S.tex.vis = dataTexture("u1", S.vis, 1);
+    gl.deleteTexture(S.tex.gvis);
+    S.tex.gvis = dataTexture("u1", S.gvis, 1);
+    S.dirty = true;
+  }
+  // Palette textures hold one colour per identifier (index 0 of region/surface = "no group").
+  function paletteFor(mode) {
+    if (S.palettes[mode]) return S.palettes[mode];
+    const meta = S.model.meta;
+    const count = mode === "block" ? meta.blocks.length : meta.groups.length + 1;
+    const data = new Uint8Array(Math.max(1, count) * 3);
+    for (let i = 0; i < count; i++) {
+      let rgb;
+      if (mode === "flat") rgb = hex("#8fb3d9");
+      else if (mode === "block") rgb = hex(CATEGORICAL[i % CATEGORICAL.length]);
+      else rgb = i === 0 ? GRAY : hex(groupColor(i));
+      data.set(rgb, i * 3);
+    }
+    return (S.palettes[mode] = dataTexture("c3", data, 3));
+  }
+  // Colour of region/surface id i (1-based group index): the colour stored in the file (for example from the CAD) or the palette.
+  function groupColor(i) {
+    const g = S.model.meta.groups[i - 1];
+    return g && g.color ? g.color : CATEGORICAL[(i - 1) % CATEGORICAL.length];
+  }
+  const colorOf = (mode, i) => {
+    if (mode === "block") return CATEGORICAL[i % CATEGORICAL.length];
+    return i === 0 ? "#969ca6" : groupColor(i);
+  };
+
+  /* ------------------------------------------------------------ math (col-major) */
+  function mul(a, b) {
+    const o = new Float32Array(16);
+    for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) {
+      let s = 0; for (let k = 0; k < 4; k++) s += a[k * 4 + r] * b[c * 4 + k];
+      o[c * 4 + r] = s;
+    }
+    return o;
+  }
+  function perspective(fovy, aspect, near, far) {
+    const f = 1 / Math.tan(fovy / 2), nf = 1 / (near - far);
+    return new Float32Array([f / aspect, 0, 0, 0, 0, f, 0, 0, 0, 0, (far + near) * nf, -1, 0, 0, 2 * far * near * nf, 0]);
+  }
+  // rot is a row-major 3x3 stored as an array: rot[row*3+col].
+  function modelView() {
+    const R = S.rot, t = S.target, d = S.dist;
+    const rt = [R[0] * t[0] + R[1] * t[1] + R[2] * t[2], R[3] * t[0] + R[4] * t[1] + R[5] * t[2], R[6] * t[0] + R[7] * t[1] + R[8] * t[2]];
+    return new Float32Array([R[0], R[3], R[6], 0, R[1], R[4], R[7], 0, R[2], R[5], R[8], 0, -rt[0], -rt[1], -rt[2] - d, 1]);
+  }
+  const mat3mul = (a, b) => {
+    const o = new Array(9);
+    for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) o[r * 3 + c] = a[r * 3] * b[c] + a[r * 3 + 1] * b[3 + c] + a[r * 3 + 2] * b[6 + c];
+    return o;
+  };
+  const rotX = (a) => [1, 0, 0, 0, Math.cos(a), -Math.sin(a), 0, Math.sin(a), Math.cos(a)];
+  const rotY = (a) => [Math.cos(a), 0, Math.sin(a), 0, 1, 0, -Math.sin(a), 0, Math.cos(a)];
+  function orthonormalize(m) {
+    let x = [m[0], m[1], m[2]], y = [m[3], m[4], m[5]];
+    const nrm = (v) => { const l = Math.hypot(...v) || 1; return v.map((q) => q / l); };
+    x = nrm(x);
+    const d = x[0] * y[0] + x[1] * y[1] + x[2] * y[2];
+    y = nrm(y.map((q, i) => q - d * x[i]));
+    const z = [x[1] * y[2] - x[2] * y[1], x[2] * y[0] - x[0] * y[2], x[0] * y[1] - x[1] * y[0]];
+    return [...x, ...y, ...z];
+  }
+
+  /* --------------------------------------------------------------- camera */
+  function bounds() {
+    const b = S.model.meta.bbox, o = S.model.meta.origin;
+    const lo = b.min.map((v, i) => v - o[i]), hi = b.max.map((v, i) => v - o[i]);
+    return { lo, hi, center: lo.map((v, i) => (v + hi[i]) / 2), diag: Math.hypot(...hi.map((v, i) => v - lo[i])) };
+  }
+  const VIEWS = {
+    // Rotations that map the model axis towards the viewer (Z up for X/Y views).
+    x: [0, 1, 0, 0, 0, 1, 1, 0, 0], y: [-1, 0, 0, 0, 0, 1, 0, 1, 0], z: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+  };
+  // Rotation whose rows are the view axes (right, up, towards-viewer) in model coordinates.
+  function lookRotation(back) {
+    const norm = (v) => { const l = Math.hypot(...v) || 1; return v.map((q) => q / l); };
+    const cross = (a, c) => [a[1] * c[2] - a[2] * c[1], a[2] * c[0] - a[0] * c[2], a[0] * c[1] - a[1] * c[0]];
+    const z = norm(back), right = norm(cross([0, 0, 1], z)), up = cross(z, right);
+    return [...right, ...up, ...z];
+  }
+  function setView(name) {
+    if (!S.model) return;
+    S.rot = name === "iso" ? lookRotation([1, -1.1, 0.9]) : VIEWS[name].slice();
+    fit();
+  }
+  function fit() {
+    if (!S.model) return;
+    const b = bounds();
+    S.target = b.center; S.radius = Math.max(b.diag / 2, 1e-12);
+    S.dist = S.radius * 2.6;
+    S.dirty = true;
+  }
+
+  /* ------------------------------------------------------------- rendering */
+  function themeColors() {
+    const cs = getComputedStyle(document.documentElement);
+    const css = (n) => cs.getPropertyValue(n).trim();
+    const parse = (h) => (h.startsWith("#") ? [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255) : [0.9, 0.9, 0.9]);
+    return { bg: parse(css("--viewport")), edge: parse(css("--edge")) };
+  }
+  function bindTex(prog, name, unit, tex) {
+    gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, tex); gl.uniform1i(prog.u[name], unit);
+  }
+  function clipUniform() {
+    const n = [0, 0, 0]; const sign = S.clipFlip ? -1 : 1;
+    n[S.clipAxis] = sign;
+    const b = bounds();
+    const pos = b.lo[S.clipAxis] + (b.hi[S.clipAxis] - b.lo[S.clipAxis]) * S.clipPos;
+    return [n[0], n[1], n[2], sign * pos];
+  }
+  function render() {
+    S.dirty = false;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const w = Math.max(1, Math.round(canvas.clientWidth * dpr)), h = Math.max(1, Math.round(canvas.clientHeight * dpr));
+    if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+    gl.viewport(0, 0, w, h);
+    const th = themeColors();
+    gl.clearColor(th.bg[0], th.bg[1], th.bg[2], 1);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    if (!S.model) return;
+    const near = Math.max(S.radius * 0.01, S.dist - S.radius * 2), far = S.dist + S.radius * 3;
+    const P = perspective(0.8, w / h, near, far), MV = modelView();
+    const clip = clipUniform();
+    gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL);
+    gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(1, 1);
+    gl.bindVertexArray(vao);
+
+    const modeId = { block: 0, region: 1, surface: 2, scalar: 3, flat: 0 }[S.mode];
+    const paletteMode = S.mode === "scalar" ? "block" : S.mode;
+    gl.useProgram(triProg.p);
+    gl.uniformMatrix4fv(triProg.u.uMV, false, MV); gl.uniformMatrix4fv(triProg.u.uP, false, P);
+    gl.uniform1i(triProg.u.uMode, modeId);
+    gl.uniform1i(triProg.u.uHasScalar, S.model.fields.length ? 1 : 0);
+    const activeField = S.model.fields[S.fieldIndex];
+    gl.uniform1i(triProg.u.uScalarPerTri, activeField && activeField.element ? 1 : 0);
+    // Mode animation: the shape oscillates as sin(phase) around the undeformed position.
+    const dispScale = S.model.disp && S.defOn ? S.defFactor * (S.animate ? Math.sin(S.phase) : 1) : 0;
+    gl.uniform1i(triProg.u.uHasDisp, S.model.disp ? 1 : 0); gl.uniform1f(triProg.u.uDispScale, dispScale);
+    gl.uniform4fv(triProg.u.uClip, clip); gl.uniform1i(triProg.u.uClipOn, S.clipOn ? 1 : 0);
+    gl.uniform2fv(triProg.u.uRange, S.range);
+    const T = S.tex;
+    bindTex(triProg, "uPos", 0, T.pos); bindTex(triProg, "uIdx", 1, T.idx); bindTex(triProg, "uBlock", 2, T.block);
+    bindTex(triProg, "uRegion", 3, T.region); bindTex(triProg, "uSurf", 4, T.surf); bindTex(triProg, "uVis", 5, T.vis);
+    bindTex(triProg, "uGVis", 9, T.gvis);
+    bindTex(triProg, "uPalette", 6, paletteFor(paletteMode)); bindTex(triProg, "uScalar", 7, T.scalar);
+    bindTex(triProg, "uLut", 8, lutTex); bindTex(triProg, "uDisp", 10, T.disp); bindTex(triProg, "uSel", 11, T.selTri);
+    const drawTris = S.clipOn ? S.count.tris : S.count.skinTris;
+    if (drawTris > 0) gl.drawArrays(gl.TRIANGLES, 0, drawTris * 3);
+    gl.disable(gl.POLYGON_OFFSET_FILL);
+
+    if (S.wire !== "none") {
+      gl.useProgram(edgeProg.p);
+      gl.uniformMatrix4fv(edgeProg.u.uMV, false, MV); gl.uniformMatrix4fv(edgeProg.u.uP, false, P);
+      gl.uniform4fv(edgeProg.u.uClip, clip); gl.uniform1i(edgeProg.u.uClipOn, S.clipOn ? 1 : 0);
+      gl.uniform3fv(edgeProg.u.uColor, th.edge);
+      gl.uniform1i(edgeProg.u.uHasDisp, S.model.disp ? 1 : 0); gl.uniform1f(edgeProg.u.uDispScale, dispScale);
+      bindTex(edgeProg, "uDisp", 6, T.disp);
+      bindTex(edgeProg, "uPos", 0, T.pos); bindTex(edgeProg, "uEIdx", 1, T.eidx);
+      bindTex(edgeProg, "uEBlock", 2, T.eblock); bindTex(edgeProg, "uVis", 3, T.vis);
+      bindTex(edgeProg, "uERegion", 4, T.eregion); bindTex(edgeProg, "uGVis", 5, T.gvis);
+      const n = S.wire === "all" && S.clipOn ? S.count.edges : S.count.skinEdges;
+      if (n > 0) gl.drawArrays(gl.LINES, 0, n * 2);
+    }
+    if (S.pickMode === "node" && S.sel.node.size > 0) {
+      gl.useProgram(nodeProg.p);
+      gl.uniformMatrix4fv(nodeProg.u.uMV, false, MV); gl.uniformMatrix4fv(nodeProg.u.uP, false, P);
+      gl.uniform4fv(nodeProg.u.uClip, clip); gl.uniform1i(nodeProg.u.uClipOn, S.clipOn ? 1 : 0);
+      gl.uniform1i(nodeProg.u.uHasDisp, S.model.disp ? 1 : 0); gl.uniform1f(nodeProg.u.uDispScale, dispScale);
+      gl.uniform1f(nodeProg.u.uPointSize, 9 * dpr); gl.uniform1i(nodeProg.u.uOnlySelected, 1);
+      gl.uniform1i(nodeProg.u.uOut, 1); gl.uniform3f(nodeProg.u.uColor, 1.0, 0.45, 0.0);
+      bindTex(nodeProg, "uPos", 0, T.pos); bindTex(nodeProg, "uDisp", 1, T.disp); bindTex(nodeProg, "uVSel", 2, T.selVert);
+      gl.drawArrays(gl.POINTS, 0, S.model.meta.counts.vertices);
+    }
+    gl.bindVertexArray(null);
+  }
+  function loop(now) {
+    if (S.animate) {
+      const dt = S.lastTick ? Math.max(0, Math.min(0.1, (now - S.lastTick) / 1000)) : 0;
+      S.phase = (S.phase + 2 * Math.PI * 0.5 * dt) % (2 * Math.PI);   // one oscillation every 2 s
+      S.dirty = true;
+    }
+    S.lastTick = now;
+    if (S.dirty) render();
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+  new ResizeObserver(() => { S.dirty = true; }).observe(view);
+
+  /* ------------------------------------------------------------------- UI */
+  const fmt = (n) => n.toLocaleString("it-IT");
+  function fillStats() {
+    const m = S.model.meta, c = m.counts;
+    const rows = [
+      ["Nodi", fmt(c.nodes)], ["Elementi", fmt(c.elements)], ["Triangoli (superficie)", fmt(c.boundaryTriangles)],
+      ["Triangoli (interni)", fmt(c.triangles - c.boundaryTriangles)], ["Spigoli", fmt(c.edges)],
+      ["Dimensioni", m.bbox.max.map((v, i) => Number((v - m.bbox.min[i]).toPrecision(4))).join(" × ")],
+    ];
+    $("stats").innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
+  }
+  function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+  function fillBlocks() {
+    const m = S.model.meta;
+    $("blocks").innerHTML = m.blocks.map((b, i) =>
+      `<li><label><input type="checkbox" data-block="${i}" checked><span class="sw" style="background:${colorOf("block", i)};${S.mode === "block" ? "" : "display:none"}"></span><span class="nm" title="${esc(b.name)}">${esc(b.name)}</span></label><span class="ct">${fmt(b.elements)}</span></li>`).join("");
+    $("blocksSec").hidden = m.blocks.length === 0;
+  }
+  // Tree of the volume groups: names are split at "/" so an assembly path (Assy/Bracket/Bolt) becomes a hierarchy.
+  // Dimension of the groups that colour the model by region: volume groups, or face groups when the file is a pure surface.
+  function regionDim(meta) {
+    if (meta.groups.some((g) => g.dimension === 3)) return 3;
+    return meta.blocks.every((b) => b.dimension < 3) && meta.groups.some((g) => g.dimension === 2) ? 2 : 0;
+  }
+  function fillComponents() {
+    const m = S.model.meta, dim = regionDim(m);
+    const root = { children: new Map(), own: [] };
+    m.groups.forEach((g, i) => {
+      if (g.dimension !== dim) return;
+      let node = root;
+      for (const part of g.name.split("/")) {
+        if (!node.children.has(part)) node.children.set(part, { children: new Map(), own: [] });
+        node = node.children.get(part);
+      }
+      node.own.push(i + 1);
+    });
+    const collect = (node) => [...node.own, ...[...node.children.values()].flatMap(collect)];
+    const render = (node, name) => {
+      const ids = collect(node);
+      const leaf = node.children.size === 0 && node.own.length === 1;
+      const g = leaf ? m.groups[node.own[0] - 1] : null;
+      const sw = leaf ? `<span class="sw" style="background:${groupColor(node.own[0])}"></span>` : "";
+      const count = g && g.elements !== undefined ? `<span class="ct">${fmt(g.elements)}</span>` : "";
+      const kids = node.children.size ? `<ul>${[...node.children].map(([n, c]) => render(c, n)).join("")}</ul>` : "";
+      return `<li><div class="row3"><label><input type="checkbox" data-groups="${ids.join(",")}" checked>${sw}<span class="nm" title="${esc(name)}">${esc(name)}</span></label>${count}</div>${kids}</li>`;
+    };
+    const items = [...root.children].map(([n, c]) => render(c, n));
+    $("comps").innerHTML = items.join("");
+    $("compSec").hidden = items.length === 0;
+    $("blocksSec").hidden = items.length > 0 || m.blocks.length === 0;
+    syncComponents();
+  }
+  // Checkbox state follows S.gvis: a parent is checked when all of its groups are visible, indeterminate when some are.
+  function syncComponents() {
+    document.querySelectorAll("#comps input[data-groups]").forEach((box) => {
+      const ids = box.dataset.groups.split(",").map(Number);
+      const on = ids.filter((g) => S.gvis[g]).length;
+      box.checked = on === ids.length; box.indeterminate = on > 0 && on < ids.length;
+    });
+  }
+  function fillLegend() {
+    const m = S.model.meta, box = $("legendBox");
+    if (S.mode !== "region" && S.mode !== "surface") { box.hidden = true; return; }
+    const dim = S.mode === "region" ? 3 : 2;
+    const items = [`<li><span class="sw" style="background:#969ca6"></span><span class="nm">senza gruppo</span></li>`];
+    m.groups.forEach((g, i) => {
+      if (S.mode === "region" ? g.dimension === 3 || g.dimension === 2 : g.dimension === dim)
+        items.push(`<li><span class="sw" style="background:${colorOf(S.mode, i + 1)}"></span><span class="nm" title="${esc(g.name)}">${esc(g.name)}${g.material ? " · " + esc(g.material) : ""}</span><span class="ct">${g.tag}</span></li>`);
+    });
+    $("legend").innerHTML = items.join("");
+    $("legendTitle").textContent = S.mode === "region" ? "Regioni (gruppi fisici)" : "Superfici (gruppi fisici)";
+    box.hidden = false;
+  }
+  function refreshUi() {
+    $("scalarBox").hidden = S.mode !== "scalar";
+    $("clipBox").hidden = !S.clipOn;
+    fillBlocks(); fillComponents(); fillLegend();
+    const hasField = S.model && S.model.fields.length > 0;
+    for (const o of $("colorMode").options) if (o.value === "scalar") o.disabled = !hasField;
+    S.dirty = true;
+  }
+  // Deformed shape controls. The slider runs from 0 to 10x the suggested factor (largest displacement = 10% of the model size).
+  const trim = (v) => String(Number(v.toPrecision(4)));
+  function setupDeformation(model) {
+    const meta = model.meta, def = meta.deformation, has = !!model.disp && !!def;
+    $("defSec").hidden = !has;
+    setupModes(model);   // also resets the selector and the animation left over from a previously loaded file
+    if (!has) return;
+    S.defOn = true; $("defOn").checked = true;
+    S.defSuggested = def.max > 0 ? 0.1 * bounds().diag / def.max : 1;
+    S.defFactor = S.defSuggested;
+    $("defScale").value = 100; $("defFactor").value = trim(S.defFactor);
+    $("defName").textContent = def.name || "Spostamenti";
+    $("defMax").textContent = def.max.toPrecision(4);
+  }
+  const modeText = (m) => m.label;
+  function setupModes(model) {
+    const has = model.modes.length > 0;
+    $("modeBox").hidden = !has;
+    S.animate = false; S.phase = 0; $("modeAnim").checked = false;
+    S.modeIndex = 0;
+    if (!has) return;
+    $("modeSel").innerHTML = model.modes.map((m, i) => `<option value="${i}">${esc(modeText(m))}</option>`).join("");
+    $("modeFreq").textContent = String(Number(model.modes[0].frequency.toPrecision(6)));
+  }
+  function setMode(i) {
+    const model = S.model;
+    if (!model || !model.modes[i]) return;
+    S.modeIndex = i;
+    const mode = model.modes[i];
+    model.disp = mode.disp;
+    gl.deleteTexture(S.tex.disp);
+    S.tex.disp = dataTexture("f3", mode.disp, 3);
+    const dyn = model.fields.find((f) => f.dynamic);
+    if (dyn) {
+      fillModeMagnitude(dyn, mode);
+      if (model.fields[S.fieldIndex] === dyn) setField(S.fieldIndex);
+    }
+    // The factor suggested for the whole file (largest displacement of any mode) stays valid for every mode.
+    $("modeSel").value = i;
+    $("modeFreq").textContent = String(Number(mode.frequency.toPrecision(6)));
+    S.dirty = true;
+  }
+  function setupResultsInfo(meta) {
+    const el = $("resultsInfo");
+    el.hidden = !meta.results; el.textContent = meta.results ? "Risultati: " + meta.results.label : "";
+  }
+  function showMessage(text) { const el = $("msg"); el.textContent = text; el.hidden = !text; }
+  function loadBuffer(buffer, name) {
+    try {
+      const t0 = performance.now();
+      const model = parseMGWV(buffer);
+      const t1 = performance.now();
+      upload(model);
+      // A file with volume groups (CAD components) opens coloured by component; otherwise by block.
+      S.mode = regionDim(model.meta) ? "region" : "block";
+      // A file that carries solver results opens coloured by the first field.
+      if (model.meta.results && model.fields.length) S.mode = "scalar";
+      $("colorMode").value = S.mode;
+      const sel = $("fieldSel"); sel.innerHTML = model.fields.map((f, i) => `<option value="${i}">${esc(f.name)}${f.element ? " [elemento]" : ""}</option>`).join("");
+      if (model.fields.length) setField(0);
+      S.clipOn = false; $("clipOn").checked = false;
+      $("fileName").textContent = name || "modello";
+      $("drop").hidden = true; showMessage("");
+      S.pickMode = "off"; $("pickMode").value = "off"; canvas.style.cursor = ""; $("pickCount").textContent = "nessuno";
+      $("pickSec").hidden = !model.canPick;
+      setupDeformation(model); setupResultsInfo(model.meta);
+      fillStats(); refreshUi(); setView("iso");
+      S.loadInfo = { parse: t1 - t0, upload: performance.now() - t1 };
+      window.__lastLoad = S.loadInfo;
+    } catch (err) {
+      showMessage("Errore: " + err.message);
+    }
+  }
+  async function loadFile(file) {
+    if (!file) return;
+    loadBuffer(await file.arrayBuffer(), file.name);
+  }
+
+  $("openBtn").addEventListener("click", () => $("file").click());
+  $("file").addEventListener("change", (e) => loadFile(e.target.files[0]));
+  $("fitBtn").addEventListener("click", fit);
+  document.querySelectorAll("[data-view]").forEach((b) => b.addEventListener("click", () => setView(b.dataset.view)));
+  $("colorMode").addEventListener("change", (e) => { S.mode = e.target.value; refreshUi(); });
+  $("fieldSel").addEventListener("change", (e) => setField(+e.target.value));
+  $("smin").addEventListener("input", (e) => { S.range[0] = +e.target.value; S.dirty = true; });
+  $("smax").addEventListener("input", (e) => { S.range[1] = +e.target.value; S.dirty = true; });
+  $("wire").addEventListener("change", (e) => { S.wire = e.target.value; S.dirty = true; });
+  $("defOn").addEventListener("change", (e) => { S.defOn = e.target.checked; S.dirty = true; });
+  $("defScale").addEventListener("input", (e) => { S.defFactor = S.defSuggested * e.target.value / 100; $("defFactor").value = trim(S.defFactor); S.dirty = true; });
+  $("defFactor").addEventListener("input", (e) => {
+    const f = +e.target.value; if (!(f >= 0)) return;
+    S.defFactor = f; $("defScale").value = Math.min(1000, S.defSuggested > 0 ? f / S.defSuggested * 100 : 0); S.dirty = true;
+  });
+  $("modeSel").addEventListener("change", (e) => setMode(+e.target.value));
+  $("modeAnim").addEventListener("change", (e) => { S.animate = e.target.checked; S.lastTick = 0; S.dirty = true; });
+  $("clipOn").addEventListener("change", (e) => { S.clipOn = e.target.checked; refreshUi(); });
+  $("clipAxis").addEventListener("change", (e) => { S.clipAxis = +e.target.value; S.dirty = true; });
+  $("clipPos").addEventListener("input", (e) => { S.clipPos = e.target.value / 1000; S.dirty = true; });
+  $("clipFlip").addEventListener("change", (e) => { S.clipFlip = e.target.checked; S.dirty = true; });
+  $("comps").addEventListener("change", (e) => {
+    const ids = e.target.dataset.groups; if (ids === undefined) return;
+    for (const g of ids.split(",")) S.gvis[+g] = e.target.checked ? 1 : 0;
+    refreshVisibility(); syncComponents();
+  });
+  $("blocks").addEventListener("change", (e) => {
+    const i = e.target.dataset.block; if (i === undefined) return;
+    S.vis[+i] = e.target.checked ? 1 : 0; refreshVisibility();
+  });
+  $("shotBtn").addEventListener("click", () => {
+    render();
+    canvas.toBlob((blob) => { const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "openmodel-view.png"; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); });
+  });
+  $("themeBtn").addEventListener("click", () => {
+    const root = document.documentElement;
+    const dark = root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+    root.dataset.theme = dark ? "light" : "dark"; S.dirty = true;
+  });
+  window.addEventListener("keydown", (e) => {
+    if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
+    const k = { "1": "x", "2": "y", "3": "z", "0": "iso" }[e.key];
+    if (k) setView(k); else if (e.key === "f") fit();
+  });
+
+  view.addEventListener("dragover", (e) => { e.preventDefault(); view.classList.add("over"); });
+  view.addEventListener("dragleave", () => view.classList.remove("over"));
+  view.addEventListener("drop", (e) => { e.preventDefault(); view.classList.remove("over"); loadFile(e.dataTransfer.files[0]); });
+
+  /* --------------------------------------------------------------- picking */
+  // Off-screen id buffers: one holds the triangle drawn at each pixel, the other the vertex (node) markers.
+  // Both use the camera, deformation, clipping and visibility of the visible image, so what can be picked is what is seen.
+  const pickBuf = { fbo: null, depth: null, texTri: null, texNode: null, w: 0, h: 0 };
+  function ensurePickBuffer(w, h) {
+    if (pickBuf.fbo && pickBuf.w === w && pickBuf.h === h) return;
+    if (pickBuf.fbo) { gl.deleteFramebuffer(pickBuf.fbo); gl.deleteRenderbuffer(pickBuf.depth); gl.deleteTexture(pickBuf.texTri); gl.deleteTexture(pickBuf.texNode); }
+    const colorTexture = () => {
+      const t = gl.createTexture();
+      gl.activeTexture(gl.TEXTURE0 + 15); gl.bindTexture(gl.TEXTURE_2D, t);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+      return t;
+    };
+    pickBuf.texTri = colorTexture(); pickBuf.texNode = colorTexture();
+    pickBuf.depth = gl.createRenderbuffer();
+    gl.bindRenderbuffer(gl.RENDERBUFFER, pickBuf.depth);
+    gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, w, h);
+    pickBuf.fbo = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, pickBuf.fbo);
+    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, pickBuf.depth);
+    pickBuf.w = w; pickBuf.h = h;
+  }
+  // Camera and state shared by the visible render and the pick render.
+  function viewParams() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const w = Math.max(1, Math.round(canvas.clientWidth * dpr)), h = Math.max(1, Math.round(canvas.clientHeight * dpr));
+    const near = Math.max(S.radius * 0.01, S.dist - S.radius * 2), far = S.dist + S.radius * 3;
+    const dispScale = S.model.disp && S.defOn ? S.defFactor * (S.animate ? Math.sin(S.phase) : 1) : 0;
+    return { dpr, w, h, P: perspective(0.8, w / h, near, far), MV: modelView(), clip: clipUniform(), dispScale };
+  }
+  function renderPick(vp) {
+    ensurePickBuffer(vp.w, vp.h);
+    const T = S.tex;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, pickBuf.fbo);
+    gl.viewport(0, 0, vp.w, vp.h);
+    gl.bindVertexArray(vao);
+    gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL); gl.depthMask(true);
+    gl.disable(gl.BLEND);
+    // Pass 1: triangles (ids), pushed back a little so that the vertex markers on their surface win the depth test.
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, pickBuf.texTri, 0);
+    gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(2, 4);
+    gl.useProgram(pickTriProg.p);
+    gl.uniformMatrix4fv(pickTriProg.u.uMV, false, vp.MV); gl.uniformMatrix4fv(pickTriProg.u.uP, false, vp.P);
+    gl.uniform4fv(pickTriProg.u.uClip, vp.clip); gl.uniform1i(pickTriProg.u.uClipOn, S.clipOn ? 1 : 0);
+    gl.uniform1i(pickTriProg.u.uHasDisp, S.model.disp ? 1 : 0); gl.uniform1f(pickTriProg.u.uDispScale, vp.dispScale);
+    gl.uniform1i(pickTriProg.u.uOut, 0);
+    bindTex(pickTriProg, "uPos", 0, T.pos); bindTex(pickTriProg, "uIdx", 1, T.idx); bindTex(pickTriProg, "uBlock", 2, T.block);
+    bindTex(pickTriProg, "uRegion", 3, T.region); bindTex(pickTriProg, "uVis", 5, T.vis); bindTex(pickTriProg, "uGVis", 9, T.gvis);
+    bindTex(pickTriProg, "uDisp", 10, T.disp);
+    const drawTris = S.clipOn ? S.count.tris : S.count.skinTris;
+    if (drawTris > 0) gl.drawArrays(gl.TRIANGLES, 0, drawTris * 3);
+    gl.disable(gl.POLYGON_OFFSET_FILL);
+    // Pass 2: vertices (ids) tested against the depth of pass 1 and not written to it.
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, pickBuf.texNode, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT); gl.depthMask(false);
+    gl.useProgram(nodeProg.p);
+    gl.uniformMatrix4fv(nodeProg.u.uMV, false, vp.MV); gl.uniformMatrix4fv(nodeProg.u.uP, false, vp.P);
+    gl.uniform4fv(nodeProg.u.uClip, vp.clip); gl.uniform1i(nodeProg.u.uClipOn, S.clipOn ? 1 : 0);
+    gl.uniform1i(nodeProg.u.uHasDisp, S.model.disp ? 1 : 0); gl.uniform1f(nodeProg.u.uDispScale, vp.dispScale);
+    gl.uniform1f(nodeProg.u.uPointSize, 3); gl.uniform1i(nodeProg.u.uOnlySelected, 0); gl.uniform1i(nodeProg.u.uOut, 0);
+    bindTex(nodeProg, "uPos", 0, T.pos); bindTex(nodeProg, "uDisp", 1, T.disp); bindTex(nodeProg, "uVSel", 2, T.selVert);
+    gl.drawArrays(gl.POINTS, 0, S.model.meta.counts.vertices);
+    gl.depthMask(true);
+    gl.bindVertexArray(null);
+  }
+  // Ids (1-based, 0 = nothing) of a rectangle of the id buffer; x, y are canvas pixels with the origin at the top left.
+  function readIds(which, x, y, w, h) {
+    x = Math.max(0, Math.min(pickBuf.w - 1, Math.floor(x))); y = Math.max(0, Math.min(pickBuf.h - 1, Math.floor(y)));
+    w = Math.max(1, Math.min(pickBuf.w - x, Math.ceil(w))); h = Math.max(1, Math.min(pickBuf.h - y, Math.ceil(h)));
+    gl.bindFramebuffer(gl.FRAMEBUFFER, pickBuf.fbo);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, which === "tri" ? pickBuf.texTri : pickBuf.texNode, 0);
+    const bytes = new Uint8Array(w * h * 4);
+    gl.readPixels(x, pickBuf.h - y - h, w, h, gl.RGBA, gl.UNSIGNED_BYTE, bytes);
+    const ids = new Uint32Array(w * h);
+    for (let i = 0; i < ids.length; i++) ids[i] = (bytes[4 * i] | (bytes[4 * i + 1] << 8) | (bytes[4 * i + 2] << 16) | (bytes[4 * i + 3] << 24)) >>> 0;
+    return { ids, x, y, w, h };
+  }
+  const toCanvasPx = (clientX, clientY) => {
+    const r = canvas.getBoundingClientRect(), k = canvas.width / r.width;
+    return [(clientX - r.left) * k, (clientY - r.top) * k];
+  };
+  // What lies under a canvas pixel: the triangle (index or -1) and the nearest vertex marker within `radius` pixels (index or -1).
+  function pickAt(px, py, radius) {
+    if (!S.model || !S.model.canPick) return { tri: -1, vertex: -1 };
+    const vp = viewParams();
+    renderPick(vp);
+    const t = readIds("tri", px, py, 1, 1);
+    const r = radius === undefined ? 8 : radius;
+    const n = readIds("node", px - r, py - r, 2 * r + 1, 2 * r + 1);
+    let best = -1, bestD = Infinity;
+    for (let j = 0; j < n.h; j++) for (let i = 0; i < n.w; i++) {
+      const id = n.ids[j * n.w + i]; if (!id) continue;
+      const d = Math.hypot(n.x + i - px, n.y + j - py);
+      if (d < bestD) { bestD = d; best = id - 1; }
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    return { tri: t.ids[0] ? t.ids[0] - 1 : -1, vertex: best };
+  }
+  // Everything visible in a canvas-pixel rectangle: sets of triangle and vertex indices.
+  function pickRect(x0, y0, x1, y1) {
+    const tris = new Set(), verts = new Set();
+    if (!S.model || !S.model.canPick) return { tris, verts };
+    renderPick(viewParams());
+    const x = Math.min(x0, x1), y = Math.min(y0, y1), w = Math.abs(x1 - x0) + 1, h = Math.abs(y1 - y0) + 1;
+    const t = readIds("tri", x, y, w, h), n = readIds("node", x, y, w, h);
+    for (const id of t.ids) if (id) tris.add(id - 1);
+    for (const id of n.ids) if (id) verts.add(id - 1);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    return { tris, verts };
+  }
+  function project(vertex) {
+    const vp = viewParams(), m = S.model, q = [m.positions[3 * vertex], m.positions[3 * vertex + 1], m.positions[3 * vertex + 2]];
+    if (m.disp) for (let k = 0; k < 3; k++) q[k] += vp.dispScale * m.disp[3 * vertex + k];
+    const a = [q[0], q[1], q[2], 1], v = new Array(4), c = new Array(4);
+    for (let r = 0; r < 4; r++) v[r] = vp.MV[r] * a[0] + vp.MV[4 + r] * a[1] + vp.MV[8 + r] * a[2] + vp.MV[12 + r] * a[3];
+    for (let r = 0; r < 4; r++) c[r] = vp.P[r] * v[0] + vp.P[4 + r] * v[1] + vp.P[8 + r] * v[2] + vp.P[12 + r] * v[3];
+    const cr = canvas.getBoundingClientRect(), k = cr.width / canvas.width;
+    return { canvas: [(c[0] / c[3] * 0.5 + 0.5) * vp.w, (1 - (c[1] / c[3] * 0.5 + 0.5)) * vp.h],
+             client: [cr.left + (c[0] / c[3] * 0.5 + 0.5) * vp.w * k, cr.top + (1 - (c[1] / c[3] * 0.5 + 0.5)) * vp.h * k], depth: c[2] / c[3] };
+  }
+
+  /* ---------------------------------------------------- selection model */
+  // Faces: a face is the run of 1 (triangle) or 2 (quadrilateral) consecutive triangles with the same triFace index.
+  // Adjacency (skin faces only, through shared edges) is built the first time a selection by angle is asked for.
+  function buildFaceInfo() {
+    if (S.faceInfo) return S.faceInfo;
+    const m = S.model, tf = m.triFace, tri = m.triIndices, V = m.meta.counts.vertices, nSkin = m.meta.counts.boundaryTriangles;
+    const first = [], count = [];
+    for (let t = 0; t < m.meta.counts.triangles; t++) {
+      const f = tf[t];
+      if (first[f] === undefined) { first[f] = t; count[f] = 1; } else count[f]++;
+    }
+    const normal = (t) => {
+      const P = m.positions, a = tri[3 * t], b = tri[3 * t + 1], c = tri[3 * t + 2];
+      const u = [P[3 * b] - P[3 * a], P[3 * b + 1] - P[3 * a + 1], P[3 * b + 2] - P[3 * a + 2]];
+      const v = [P[3 * c] - P[3 * a], P[3 * c + 1] - P[3 * a + 1], P[3 * c + 2] - P[3 * a + 2]];
+      const n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+      const l = Math.hypot(...n) || 1; return n.map((q) => q / l);
+    };
+    const normals = new Map(), edges = new Map();
+    for (const f of Object.keys(first).map(Number)) {
+      const t = first[f]; normals.set(f, normal(t));
+      if (t >= nSkin) continue;               // interior faces can be selected, but they have no neighbours for propagation
+      const ring = count[f] === 2 ? [tri[3 * t], tri[3 * t + 1], tri[3 * t + 2], tri[3 * (t + 1) + 2]] : [tri[3 * t], tri[3 * t + 1], tri[3 * t + 2]];
+      for (let i = 0; i < ring.length; i++) {
+        const a = ring[i], b = ring[(i + 1) % ring.length], key = Math.min(a, b) * V + Math.max(a, b);
+        const list = edges.get(key); if (list) list.push(f); else edges.set(key, [f]);
+      }
+    }
+    const neighbours = new Map();
+    for (const list of edges.values()) if (list.length === 2) {
+      (neighbours.get(list[0]) || neighbours.set(list[0], []).get(list[0])).push(list[1]);
+      (neighbours.get(list[1]) || neighbours.set(list[1], []).get(list[1])).push(list[0]);
+    }
+    S.faceInfo = { first, count, normals, neighbours, skinFaces: new Set(Object.keys(first).map(Number).filter((f) => first[f] < nSkin)) };
+    return S.faceInfo;
+  }
+  // Faces connected to `face` through edges where consecutive normals differ by at most `angle` degrees.
+  function connectedFaces(face, angle) {
+    const info = buildFaceInfo();
+    if (!info.skinFaces.has(face) || !(angle > 0)) return [face];
+    const limit = Math.cos(angle * Math.PI / 180), seen = new Set([face]), queue = [face];
+    while (queue.length) {
+      const f = queue.pop(), nf = info.normals.get(f);
+      for (const g of info.neighbours.get(f) || []) {
+        if (seen.has(g)) continue;
+        const ng = info.normals.get(g);
+        if (nf[0] * ng[0] + nf[1] * ng[1] + nf[2] * ng[2] >= limit) { seen.add(g); queue.push(g); }
+      }
+    }
+    return [...seen];
+  }
+  function nodeVertexMap() {
+    if (!S.nodeVertex) { S.nodeVertex = new Map(); S.model.vertexNodeId.forEach((id, v) => S.nodeVertex.set(id, v)); }
+    return S.nodeVertex;
+  }
+  function refreshSelection() {
+    const m = S.model; if (!m) return;
+    const n = m.meta.counts, tri = new Uint32Array(Math.max(1, n.triangles)), vert = new Uint32Array(Math.max(1, n.vertices));
+    if (m.canPick) {
+      if (S.pickMode === "element" && S.sel.element.size) for (let t = 0; t < n.triangles; t++) if (S.sel.element.has(m.triElementId[t])) tri[t] = 1;
+      if (S.pickMode === "face" && S.sel.face.size) for (let t = 0; t < n.triangles; t++) if (S.sel.face.has(m.triFace[t])) tri[t] = 1;
+      if (S.pickMode === "node") for (const v of S.sel.node) vert[v] = 1;
+    }
+    gl.deleteTexture(S.tex.selTri); gl.deleteTexture(S.tex.selVert);
+    S.tex.selTri = dataTexture("u1", tri, 1); S.tex.selVert = dataTexture("u1", vert, 1);
+    const label = { node: "nodi", element: "elementi", face: "facce" }[S.pickMode];
+    const count = label ? S.sel[S.pickMode].size : 0;
+    $("pickCount").textContent = count ? count + " " + label : "nessuno";
+    S.dirty = true;
+    const hook = window.OpenModelViewer && window.OpenModelViewer.onSelect;
+    if (typeof hook === "function") hook(getSelection());
+    window.dispatchEvent(new CustomEvent("openmodel-select", { detail: { mode: S.pickMode, count: S.sel[S.pickMode] ? S.sel[S.pickMode].size : 0 } }));
+  }
+  // The selection with external ids: nodes by id, elements by id, faces as {element, nodes: 3 corner ids}.
+  function getSelection() {
+    const m = S.model, mode = S.pickMode, out = { mode, nodes: [], elements: [], faces: [] };
+    if (!m || !m.canPick || mode === "off") return out;
+    if (mode === "node") for (const v of S.sel.node) out.nodes.push(m.vertexNodeId[v]);
+    if (mode === "element") out.elements = [...S.sel.element];
+    if (mode === "face") {
+      const info = buildFaceInfo();
+      for (const f of S.sel.face) {
+        const t = info.first[f]; if (t === undefined) continue;
+        out.faces.push({ element: m.triElementId[t], nodes: [0, 1, 2].map((k) => m.vertexNodeId[m.triIndices[3 * t + k]]) });
+      }
+    }
+    return out;
+  }
+  function setPickMode(mode) {
+    if (!["off", "node", "element", "face"].includes(mode)) return;
+    S.pickMode = mode; $("pickMode").value = mode;
+    S.sel = { node: new Set(), element: new Set(), face: new Set() };
+    canvas.style.cursor = mode === "off" ? "" : "crosshair";
+    refreshSelection();
+  }
+  function clearSelection() { S.sel = { node: new Set(), element: new Set(), face: new Set() }; refreshSelection(); }
+  // Replace the selection by ids coming from outside (for example the contents of a group). Returns how many were not found.
+  function setSelection(sel) {
+    const m = S.model; if (!m || !m.canPick) return { missing: -1 };
+    const mode = sel.mode || S.pickMode;
+    if (mode !== S.pickMode) { S.pickMode = mode; $("pickMode").value = mode; canvas.style.cursor = mode === "off" ? "" : "crosshair"; }
+    S.sel = { node: new Set(), element: new Set(), face: new Set() };
+    let missing = 0;
+    if (mode === "node") {
+      const map = nodeVertexMap();
+      for (const id of sel.nodes || []) { const v = map.get(id); if (v === undefined) missing++; else S.sel.node.add(v); }
+    } else if (mode === "element") {
+      const present = new Set(m.triElementId);
+      for (const id of sel.elements || []) { if (present.has(id)) S.sel.element.add(id); else missing++; }
+    } else if (mode === "face") {
+      const key = (e, a, b, c) => e + ":" + [a, b, c].sort((x, y) => x - y).join(",");
+      // A face is known by its element and any three of its corners (a quadrilateral has four such triples).
+      const byKey = new Map(), info = buildFaceInfo();
+      for (const f of Object.keys(info.first).map(Number)) {
+        const t0 = info.first[f], corners = new Set();
+        for (let t = t0; t < t0 + info.count[f]; t++) for (let k = 0; k < 3; k++) corners.add(m.vertexNodeId[m.triIndices[3 * t + k]]);
+        const c = [...corners], element = m.triElementId[t0];
+        for (let a = 0; a < c.length; a++) for (let b = a + 1; b < c.length; b++) for (let d = b + 1; d < c.length; d++) byKey.set(key(element, c[a], c[b], c[d]), f);
+      }
+      for (const f of sel.faces || []) {
+        const face = byKey.get(key(f.element, ...f.nodes));
+        if (face === undefined) missing++; else S.sel.face.add(face);
+      }
+    }
+    refreshSelection();
+    return { missing };
+  }
+  // Apply the result of a click (one triangle / vertex) or of a rectangle to the selection.
+  function applyPick(hit, additive) {
+    const m = S.model, sel = S.sel, mode = S.pickMode;
+    if (!additive) { sel.node.clear(); sel.element.clear(); sel.face.clear(); }
+    const toggle = (set, value, force) => { if (force === "add") set.add(value); else if (set.has(value)) set.delete(value); else set.add(value); };
+    if (mode === "node") {
+      if (hit.vertex >= 0) toggle(sel.node, hit.vertex, hit.add);
+      for (const v of hit.verts || []) sel.node.add(v);
+    } else if (mode === "element") {
+      if (hit.tri >= 0) toggle(sel.element, m.triElementId[hit.tri], hit.add);
+      for (const t of hit.tris || []) sel.element.add(m.triElementId[t]);
+    } else if (mode === "face") {
+      if (hit.tri >= 0) {
+        const faces = connectedFaces(m.triFace[hit.tri], S.pickAngle);
+        const removing = additive && !hit.add && sel.face.has(m.triFace[hit.tri]);
+        for (const f of faces) { if (removing) sel.face.delete(f); else sel.face.add(f); }
+      }
+      for (const t of hit.tris || []) sel.face.add(m.triFace[t]);
+    }
+    refreshSelection();
+  }
+
+  /* --------------------------------------------------------- pointer input */
+  const pointers = new Map();
+  let lastPinch = 0;
+  function rotate(dx, dy) {
+    const k = 0.006;
+    S.rot = orthonormalize(mat3mul(rotX(dy * k), mat3mul(rotY(dx * k), S.rot)));
+    S.dirty = true;
+  }
+  function pan(dx, dy) {
+    const worldPerPx = (2 * S.dist * Math.tan(0.4)) / canvas.clientHeight;
+    const R = S.rot, right = [R[0], R[1], R[2]], up = [R[3], R[4], R[5]];
+    for (let i = 0; i < 3; i++) S.target[i] += (-dx * right[i] + dy * up[i]) * worldPerPx;
+    S.dirty = true;
+  }
+  function zoom(factor) { S.dist = Math.min(Math.max(S.dist * factor, S.radius * 0.05), S.radius * 100); S.dirty = true; }
+  const canSelect = () => S.model && S.model.canPick && S.pickMode !== "off";
+  const selBox = $("selBox");
+  canvas.addEventListener("pointerdown", (e) => {
+    canvas.setPointerCapture(e.pointerId);
+    const box = canSelect() && e.button === 0 && !e.shiftKey && (S.pickBox || e.altKey);
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, button: e.button, shift: e.shiftKey, x0: e.clientX, y0: e.clientY, moved: 0, box, ctrl: e.ctrlKey || e.metaKey });
+    canvas.classList.add("drag"); lastPinch = 0;
+  });
+  canvas.addEventListener("pointermove", (e) => {
+    const p = pointers.get(e.pointerId); if (!p || !S.model) return;
+    const dx = e.clientX - p.x, dy = e.clientY - p.y;
+    p.moved += Math.abs(dx) + Math.abs(dy);
+    if (p.box && pointers.size === 1) {
+      const r = view.getBoundingClientRect();
+      selBox.hidden = false;
+      selBox.style.left = Math.min(p.x0, e.clientX) - r.left + "px"; selBox.style.top = Math.min(p.y0, e.clientY) - r.top + "px";
+      selBox.style.width = Math.abs(e.clientX - p.x0) + "px"; selBox.style.height = Math.abs(e.clientY - p.y0) + "px";
+      p.x = e.clientX; p.y = e.clientY;
+      return;
+    }
+    if (pointers.size === 1) {
+      if (p.button === 2 || p.button === 1 || p.shift) pan(dx, dy); else rotate(dx, dy);
+    } else if (pointers.size === 2) {
+      const [a, b] = [...pointers.values()];
+      const other = a === p ? b : a;
+      const before = Math.hypot(p.x - other.x, p.y - other.y), after = Math.hypot(e.clientX - other.x, e.clientY - other.y);
+      if (before > 0 && after > 0) zoom(before / after);
+      pan(dx / 2, dy / 2);
+    }
+    p.x = e.clientX; p.y = e.clientY;
+  });
+  const release = (e) => { pointers.delete(e.pointerId); if (!pointers.size) canvas.classList.remove("drag"); selBox.hidden = true; };
+  canvas.addEventListener("pointerup", (e) => {
+    const p = pointers.get(e.pointerId);
+    if (p && canSelect() && p.button === 0 && !p.shift && pointers.size === 1) {
+      const additive = p.ctrl || e.ctrlKey || e.metaKey;
+      if (p.box && p.moved > 3) {
+        const [ax, ay] = toCanvasPx(p.x0, p.y0), [bx, by] = toCanvasPx(e.clientX, e.clientY);
+        const r = pickRect(ax, ay, bx, by);
+        applyPick({ tri: -1, vertex: -1, tris: r.tris, verts: r.verts }, additive);
+      } else if (p.moved <= 3) {
+        const [cx, cy] = toCanvasPx(e.clientX, e.clientY);
+        const hit = pickAt(cx, cy);
+        if (S.pickMode === "node" ? hit.vertex < 0 : hit.tri < 0) { if (!additive) clearSelection(); }
+        else applyPick(hit, additive);
+      }
+    }
+    release(e);
+  });
+  canvas.addEventListener("pointercancel", release);
+  canvas.addEventListener("wheel", (e) => { e.preventDefault(); zoom(Math.exp(e.deltaY * 0.0012)); }, { passive: false });
+  canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+  canvas.addEventListener("dblclick", fit);
+
+  /* ------------------------------------------------------- startup / API */
+  async function loadUrl(url, label) {
+    try {
+      const r = await fetch(url, { cache: "no-store" });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      loadBuffer(await r.arrayBuffer(), label || url.split("?")[0].split("/").pop());
+    } catch (err) {
+      showMessage("Impossibile caricare " + url + ": " + err.message);
+    }
+  }
+  $("pickMode").addEventListener("change", (e) => setPickMode(e.target.value));
+  $("pickAngle").addEventListener("change", (e) => { S.pickAngle = Math.max(0, Math.min(180, Number(e.target.value) || 0)); });
+  $("pickBox").addEventListener("change", (e) => { S.pickBox = e.target.checked; });
+  $("pickClear").addEventListener("click", clearSelection);
+  window.OpenModelViewer = {
+    // Picking API. Selections carry external ids: nodes [id], elements [id], faces [{element, nodes: [id, id, id]}].
+    pick: {
+      setMode: setPickMode, clear: clearSelection, get: getSelection, set: setSelection,
+      setAngle(a) { S.pickAngle = Math.max(0, Math.min(180, Number(a) || 0)); $("pickAngle").value = S.pickAngle; },
+      setBox(on) { S.pickBox = !!on; $("pickBox").checked = S.pickBox; },
+      available() { return !!(S.model && S.model.canPick); },
+      // Test helpers: what is under a client-space point, and where a vertex / node id appears on screen.
+      at(clientX, clientY, radius) { const [x, y] = toCanvasPx(clientX, clientY); const h = pickAt(x, y, radius); return { tri: h.tri, vertex: h.vertex, node: h.vertex >= 0 ? S.model.vertexNodeId[h.vertex] : -1, element: h.tri >= 0 ? S.model.triElementId[h.tri] : -1 }; },
+      project(nodeId) { const v = nodeVertexMap().get(nodeId); return v === undefined ? null : project(v).client; },
+    },
+    load: loadBuffer,
+    loadUrl,
+    state: S,
+    set(options) {
+      if (!S.model) return;
+      if ("mode" in options) { $("colorMode").value = options.mode; S.mode = options.mode; }
+      if ("wire" in options) { $("wire").value = options.wire; S.wire = options.wire; }
+      if ("clip" in options) { S.clipOn = !!options.clip; $("clipOn").checked = S.clipOn; }
+      if ("clipAxis" in options) { S.clipAxis = options.clipAxis; $("clipAxis").value = options.clipAxis; }
+      if ("clipPos" in options) { S.clipPos = options.clipPos; $("clipPos").value = options.clipPos * 1000; }
+      if ("view" in options) setView(options.view);
+      if ("field" in options) { $("fieldSel").value = options.field; setField(options.field); }
+      if ("modeIndex" in options) setMode(options.modeIndex);
+      if ("animate" in options) { S.animate = !!options.animate; $("modeAnim").checked = S.animate; S.lastTick = 0; }
+      if ("phase" in options) S.phase = options.phase;
+      if ("deform" in options) {
+        if ("on" in options.deform) { S.defOn = !!options.deform.on; $("defOn").checked = S.defOn; }
+        if ("factor" in options.deform) { S.defFactor = options.deform.factor; $("defFactor").value = trim(S.defFactor); }
+      }
+      if ("hideGroups" in options) {
+        S.gvis.fill(1);
+        S.model.meta.groups.forEach((g, i) => { if (options.hideGroups.includes(g.name)) S.gvis[i + 1] = 0; });
+        refreshVisibility(); syncComponents();
+      }
+      refreshUi(); render();
+    },
+  };
+  const url = new URLSearchParams(location.search).get("url");
+  if (url) loadUrl(url);
+})();
+</script>
+</body>
+</html>

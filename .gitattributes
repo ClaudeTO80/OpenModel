@@ -1,0 +1,7 @@
+* text=auto
+*.sh text eol=lf
+*.py text eol=lf
+*.in text eol=lf
+*.mgmb binary
+*.mgwv binary
+*.glb binary

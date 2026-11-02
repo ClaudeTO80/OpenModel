@@ -1,0 +1,3 @@
+material E=210000 nu=0.3 rho=7.85e-9
+fix plane:x=0
+step frequency modes=6

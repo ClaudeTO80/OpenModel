@@ -1,0 +1,5 @@
+# Cantilever of the test fixture: 10 x 1 x 1, clamped at x = 0, tip load at x = 10 (mm, N, tonne, s)
+material E=210000 nu=0.3 rho=7.85e-9
+fix plane:x=0
+force plane:x=10 F=0,-100,0
+step static

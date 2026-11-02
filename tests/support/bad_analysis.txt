@@ -1,0 +1,3 @@
+material E=210000 nu=0.3
+fix plane:q=0
+force all F=1,2

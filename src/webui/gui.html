@@ -1,0 +1,741 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OpenModel Workbench</title>
+<script src="webui.js"></script>
+<style>
+:root{color-scheme:dark;--bg:#0d1219;--panel:#171f2a;--panel2:#0c1118;--line:#303d4d;--text:#e8eef6;--muted:#a9b7c9;--accent:#65b8ff;--bad:#ff8f8f;--good:#8fe0a5}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--text);font:13px/1.45 system-ui,"Segoe UI",sans-serif;display:grid;grid-template-rows:auto minmax(0,1fr);overflow:hidden}
+#shell{display:grid;grid-template-columns:minmax(300px,360px) minmax(0,1fr);min-height:0}
+aside{overflow-y:auto;padding:12px;border-right:1px solid var(--line);display:grid;gap:10px;align-content:start}
+h1{margin:0;font-size:17px}
+.sub{color:var(--muted);margin:2px 0 4px}
+section{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:11px 12px}
+h2{font-size:12px;margin:0 0 8px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}
+label{display:block;margin:8px 0 3px;color:var(--muted)}
+input,select{width:100%;padding:7px 8px;background:var(--panel2);border:1px solid var(--line);border-radius:6px;color:var(--text);font:inherit;min-height:32px}
+input[type=range]{padding:0;accent-color:var(--accent)}
+input[type=checkbox]{width:auto;min-height:0}
+.check{display:flex;gap:8px;align-items:center;margin:8px 0 3px;color:var(--text)}
+.row{display:flex;gap:6px;align-items:stretch}
+.row>input{flex:1;min-width:0}
+button{padding:8px 10px;background:#24384c;border:1px solid #405d79;color:var(--text);border-radius:7px;cursor:pointer;font:inherit;font-weight:600}
+button:hover:not(:disabled){background:#2d4b68}
+button:disabled{opacity:.5;cursor:wait}
+button.primary{background:#155a88;border-color:#2878aa}
+.full{width:100%;margin-top:8px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px}
+.grid2 button{margin:0}
+.hint{color:var(--muted);font-size:11.5px;margin:6px 0 0}
+#result{white-space:pre-wrap;overflow-wrap:anywhere;margin:0;min-height:64px;max-height:200px;overflow:auto;font:12px/1.45 ui-monospace,Consolas,monospace;color:#c9e5ff}
+#result.bad{color:var(--bad)} #result.good{color:var(--good)}
+main{position:relative;min-width:0}
+iframe{display:block;width:100%;height:100%;border:0;background:#10141b}
+[hidden]{display:none!important}
+.modal{position:fixed;inset:0;background:#000a;display:grid;place-items:center;z-index:10}
+.dialog{background:var(--panel);border:1px solid var(--line);border-radius:10px;width:min(640px,92vw);max-height:80vh;display:grid;grid-template-rows:auto auto 1fr auto;padding:12px;gap:8px}
+.dialog h3{margin:0;font-size:14px}
+#entries{list-style:none;margin:0;padding:0;overflow-y:auto;border:1px solid var(--line);border-radius:6px;background:var(--panel2);min-height:200px}
+#entries li{padding:5px 10px;cursor:pointer;display:flex;gap:8px}
+#entries li:hover{background:#1d2a39}
+#entries .d::before{content:"\1F4C1";} #entries .f::before{content:"\1F4C4";}
+/* ---- ribbon ---- */
+#ribbon{background:var(--panel);border-bottom:1px solid var(--line);user-select:none}
+.tabs{display:flex;gap:2px;padding:4px 8px 0;border-bottom:1px solid var(--line);background:var(--panel2);overflow-x:auto;overflow-y:hidden}
+.tab{background:transparent;border:1px solid transparent;border-bottom:0;border-radius:6px 6px 0 0;color:var(--muted);padding:5px 14px;font-weight:600}
+.tab:hover:not(:disabled){background:#1d2a39}
+.tab[aria-selected=true]{background:var(--panel);border-color:var(--line);color:var(--text);position:relative;top:1px}
+.panel{display:flex;gap:0;padding:6px 8px;min-height:84px;overflow-x:auto;overflow-y:hidden}
+.group{display:flex;flex-direction:column;border-right:1px solid var(--line);padding:0 10px}
+.group:last-child{border-right:0}
+.items{display:flex;gap:4px;align-items:stretch;flex:1}
+.gname{text-align:center;color:var(--muted);font-size:11px;margin-top:3px;white-space:nowrap}
+.rb{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-width:58px;padding:5px 7px;background:transparent;border:1px solid transparent;font-weight:500;font-size:12px;line-height:1.2}
+.rb .ic{font-size:21px;line-height:1.1}
+.rb:hover:not(:disabled){background:#22364a;border-color:#405d79}
+.rb.on{background:#155a88;border-color:#2878aa}
+.rb.small{min-width:44px;padding:4px 6px}
+.rb.small .ic{font-size:15px}
+.col{display:flex;flex-direction:column;gap:3px;justify-content:center}
+.col .rb{flex-direction:row;gap:6px;min-width:0;padding:3px 8px;justify-content:flex-start}
+.col .rb .ic{font-size:14px}
+#ribbon select{width:auto;min-width:150px;min-height:28px;padding:3px 6px}
+.rlabel{color:var(--muted);font-size:11.5px;align-self:center;padding:0 6px;min-width:70px;text-align:center}
+.flash{outline:2px solid var(--accent);transition:outline-color 1s}
+@media(max-width:850px){#shell{grid-template-columns:1fr;grid-template-rows:auto 1fr}aside{max-height:40vh;border-right:0;border-bottom:1px solid var(--line)}}
+</style>
+</head>
+<body>
+<header id="ribbon">
+  <nav class="tabs" role="tablist" aria-label="Barra multifunzione">
+    <button class="tab" role="tab" data-tab="file">File</button>
+    <button class="tab" role="tab" data-tab="geo">Geometria</button>
+    <button class="tab" role="tab" data-tab="mesh">Mesh</button>
+    <button class="tab" role="tab" data-tab="solve">Analisi</button>
+    <button class="tab" role="tab" data-tab="res">Risultati</button>
+    <button class="tab" role="tab" data-tab="view">Vista</button>
+    <button class="tab" role="tab" data-tab="check">Verifica</button>
+  </nav>
+
+  <div class="panel" data-panel="file" role="tabpanel">
+    <div class="group"><div class="items">
+      <button class="rb" data-act="demo" title="Carica il modello dimostrativo"><span class="ic">🧩</span>Modello demo</button>
+      <button class="rb" data-act="cad" title="Scegli un file CAD (STEP, IGES, BREP, OBJ, STL…) e triangolalo"><span class="ic">📐</span>Importa CAD…</button>
+      <button class="rb" data-act="mesh" title="Scegli una mesh .mgmb o .inp"><span class="ic">📂</span>Apri mesh…</button>
+      <button class="rb" data-act="res" data-need="mesh" title="Scegli un file di risultati (.frd, .dat, .csv)"><span class="ic">📈</span>Apri risultati…</button>
+    </div><div class="gname">Apri</div></div>
+    <div class="group"><div class="items">
+      <button class="rb" data-act="save-mgmb" data-need="mesh" title="Formato binario ottimizzato (nome base: sezione 4)"><span class="ic">💾</span>MGMB</button>
+      <button class="rb" data-act="save-inp" data-need="mesh" title="Abaqus / CalculiX"><span class="ic">📄</span>INP</button>
+      <button class="rb" data-act="save-mgwv" data-need="mesh" title="Per il viewer WebGL, con i risultati caricati"><span class="ic">🌐</span>MGWV</button>
+      <button class="rb" data-act="save-glb" data-need="cad" title="Superficie CAD"><span class="ic">🧊</span>GLB</button>
+    </div><div class="gname">Salva ed esporta</div></div>
+    <div class="group"><div class="items">
+      <button class="rb" data-act="shot" data-need="model" title="Salva il viewer come immagine"><span class="ic">🖼</span>Salva PNG</button>
+    </div><div class="gname">Immagine</div></div>
+  </div>
+
+  <div class="panel" data-panel="geo" role="tabpanel" hidden>
+    <div class="group"><div class="items">
+      <button class="rb" data-act="cad" title="Importa e triangola un file CAD"><span class="ic">📐</span>Importa CAD…</button>
+      <button class="rb" data-act="tess" data-need="cad" title="Applica le deflessioni della sezione 2"><span class="ic">🔄</span>Ritessella</button>
+      <button class="rb" data-act="focus-tess" title="Vai ai parametri di tessellazione"><span class="ic">🎚</span>Parametri…</button>
+    </div><div class="gname">CAD</div></div>
+  </div>
+
+  <div class="panel" data-panel="mesh" role="tabpanel" hidden>
+    <div class="group"><div class="items">
+      <button class="rb" data-act="gen" data-need="cad" title="Meshatore e parametri della sezione 3"><span class="ic">⚙</span>Genera mesh</button>
+      <button class="rb" data-act="focus-mesh" title="Vai ai parametri di meshatura"><span class="ic">🎚</span>Parametri…</button>
+    </div><div class="gname">Volume</div></div>
+    <div class="group"><div class="items">
+      <button class="rb" data-act="mesh" title="Carica una mesh .mgmb o .inp"><span class="ic">📂</span>Apri mesh…</button>
+      <button class="rb" data-act="save-mgmb" data-need="mesh" title="Salva in formato MGMB"><span class="ic">💾</span>Salva MGMB</button>
+      <button class="rb" data-act="save-inp" data-need="mesh" title="Esporta per Abaqus / CalculiX"><span class="ic">📄</span>Esporta INP</button>
+    </div><div class="gname">Mesh su file</div></div>
+    <div class="group"><div class="items">
+      <button class="rb" data-act="validate" data-need="mesh" title="Controlla la coerenza strutturale della mesh"><span class="ic">✔</span>Valida mesh</button>
+    </div><div class="gname">Controllo</div></div>
+  </div>
+
+  <div class="panel" data-panel="solve" role="tabpanel" hidden>
+    <div class="group"><div class="items">
+      <button class="rb" data-act="an-focus" title="Vai allo script di analisi e ai parametri del solutore"><span class="ic">📝</span>Definisci…</button>
+      <button class="rb" data-act="an-example" title="Inserisce uno script di esempio (mensola)"><span class="ic">📋</span>Esempio</button>
+    </div><div class="gname">Modello</div></div>
+    <div class="group"><div class="items">
+      <button class="rb" data-act="an-write" data-need="idle" title="Scrive il file .inp per CalculiX senza lanciare il solutore"><span class="ic">📄</span>Scrivi input</button>
+      <button class="rb" data-act="an-run" data-need="idle" title="Scrive l'input, lancia CalculiX in background e carica i risultati"><span class="ic">▶</span>Avvia solutore</button>
+      <button class="rb" data-act="an-cancel" data-need="solver" title="Interrompe il solutore in esecuzione"><span class="ic">⏹</span>Annulla</button>
+    </div><div class="gname">Solutore</div></div>
+    <div class="group"><div class="items">
+      <button class="rb" data-act="pick-node" data-on="pick:node" data-need="pick" title="Seleziona nodi nel viewer (clic; Ctrl+clic aggiunge; Alt+trascina = riquadro)"><span class="ic">•</span>Nodi</button>
+      <button class="rb" data-act="pick-element" data-on="pick:element" data-need="pick" title="Seleziona elementi (si vedono quelli con una faccia visibile)"><span class="ic">▣</span>Elementi</button>
+      <button class="rb" data-act="pick-face" data-on="pick:face" data-need="pick" title="Seleziona facce; con l'angolo > 0 si estende alle facce collegate"><span class="ic">◩</span>Facce</button>
+      <button class="rb" data-act="sel-clear" data-need="sel" title="Annulla la selezione"><span class="ic">✖</span>Nessuna</button>
+    </div><div class="gname">Selezione</div></div>
+    <div class="group"><div class="items">
+      <button class="rb" data-act="grp-make" data-need="sel" title="Crea un gruppo dalla selezione (nome: sezione 7)"><span class="ic">🗂</span>Crea gruppo</button>
+      <button class="rb" data-act="as-fix" data-need="sel" title="Crea un gruppo di nodi e aggiunge «fix» allo script (gradi di libertà: sezione 7)"><span class="ic">⚓</span>Vincola</button>
+      <button class="rb" data-act="as-force" data-need="sel" title="Crea un gruppo di nodi e aggiunge «force» allo script"><span class="ic">➡</span>Forza</button>
+      <button class="rb" data-act="as-press" data-need="selface" title="Crea un gruppo di facce e aggiunge «pressure» allo script (solo con facce selezionate)"><span class="ic">⬇</span>Pressione</button>
+    </div><div class="gname">Gruppi e carichi</div></div>
+  </div>
+
+  <div class="panel" data-panel="res" role="tabpanel" hidden>
+    <div class="group"><div class="items">
+      <button class="rb" data-act="res" data-need="mesh" title="Scegli e carica un file di risultati"><span class="ic">📈</span>Apri risultati…</button>
+      <button class="rb" data-act="res-clear" data-need="results" title="Toglie i risultati dalla mesh"><span class="ic">🗑</span>Togli risultati</button>
+    </div><div class="gname">File</div></div>
+    <div class="group"><div class="items">
+      <div class="col">
+        <select id="rbField" data-need="fields" title="Campo scalare mostrato" aria-label="Campo scalare"></select>
+        <button class="rb" data-act="mode-scalar" data-on="mode:scalar" data-need="fields" title="Colora con il campo scelto"><span class="ic">🎨</span>Colora per campo</button>
+      </div>
+    </div><div class="gname">Campo</div></div>
+    <div class="group"><div class="items">
+      <button class="rb" data-act="deform" data-on="def" data-need="disp" title="Mostra la forma deformata"><span class="ic">〰</span>Deformata</button>
+      <button class="rb" data-act="def-more" data-need="disp" title="Raddoppia il fattore di scala"><span class="ic">➕</span>Scala ×2</button>
+      <button class="rb" data-act="def-less" data-need="disp" title="Dimezza il fattore di scala"><span class="ic">➖</span>Scala ÷2</button>
+    </div><div class="gname">Deformata</div></div>
+    <div class="group"><div class="items">
+      <button class="rb small" data-act="mode-prev" data-need="modes" title="Modo precedente"><span class="ic">◀</span>Prec.</button>
+      <span class="rlabel" id="rbModeLabel">nessun modo</span>
+      <button class="rb small" data-act="mode-next" data-need="modes" title="Modo successivo"><span class="ic">▶</span>Succ.</button>
+      <button class="rb" data-act="animate" data-on="anim" data-need="modes" title="Anima l'oscillazione del modo"><span class="ic">🎞</span>Anima</button>
+    </div><div class="gname">Modi di vibrare</div></div>
+  </div>
+
+  <div class="panel" data-panel="view" role="tabpanel" hidden>
+    <div class="group"><div class="items">
+      <button class="rb small" data-act="view-x" data-need="model" title="Vista da +X"><span class="ic">X</span>+X</button>
+      <button class="rb small" data-act="view-y" data-need="model" title="Vista da +Y"><span class="ic">Y</span>+Y</button>
+      <button class="rb small" data-act="view-z" data-need="model" title="Vista da +Z"><span class="ic">Z</span>+Z</button>
+      <button class="rb small" data-act="view-iso" data-need="model" title="Vista isometrica"><span class="ic">◇</span>Iso</button>
+      <button class="rb small" data-act="fit" data-need="model" title="Inquadra il modello"><span class="ic">⛶</span>Inquadra</button>
+    </div><div class="gname">Orientamento</div></div>
+    <div class="group"><div class="items">
+      <div class="col">
+        <button class="rb" data-act="mode-block" data-on="mode:block" data-need="model"><span class="ic">▦</span>Blocchi</button>
+        <button class="rb" data-act="mode-region" data-on="mode:region" data-need="model"><span class="ic">▤</span>Componenti</button>
+      </div>
+      <div class="col">
+        <button class="rb" data-act="mode-surface" data-on="mode:surface" data-need="model"><span class="ic">▥</span>Superfici</button>
+        <button class="rb" data-act="mode-flat" data-on="mode:flat" data-need="model"><span class="ic">▭</span>Uniforme</button>
+      </div>
+      <button class="rb" data-act="mode-scalar" data-on="mode:scalar" data-need="fields" title="Colora con il campo scalare"><span class="ic">🎨</span>Campo</button>
+    </div><div class="gname">Colore</div></div>
+    <div class="group"><div class="items">
+      <div class="col">
+        <button class="rb" data-act="wire-none" data-on="wire:none" data-need="model"><span class="ic">▢</span>Nascosti</button>
+        <button class="rb" data-act="wire-skin" data-on="wire:skin" data-need="model"><span class="ic">▣</span>Superficie</button>
+        <button class="rb" data-act="wire-all" data-on="wire:all" data-need="model"><span class="ic">▩</span>Tutti</button>
+      </div>
+    </div><div class="gname">Spigoli</div></div>
+    <div class="group"><div class="items">
+      <button class="rb" data-act="clip" data-on="clip" data-need="model" title="Piano di sezione"><span class="ic">✂</span>Sezione</button>
+      <div class="col">
+        <button class="rb" data-act="axis-0" data-on="axis:0" data-need="model"><span class="ic">X</span>Asse X</button>
+        <button class="rb" data-act="axis-1" data-on="axis:1" data-need="model"><span class="ic">Y</span>Asse Y</button>
+        <button class="rb" data-act="axis-2" data-on="axis:2" data-need="model"><span class="ic">Z</span>Asse Z</button>
+      </div>
+      <button class="rb" data-act="clip-flip" data-need="model" title="Inverte il lato tagliato"><span class="ic">⇄</span>Inverti</button>
+    </div><div class="gname">Sezione</div></div>
+    <div class="group"><div class="items">
+      <button class="rb" data-act="theme" title="Chiaro / scuro"><span class="ic">◐</span>Tema viewer</button>
+    </div><div class="gname">Aspetto</div></div>
+  </div>
+
+  <div class="panel" data-panel="check" role="tabpanel" hidden>
+    <div class="group"><div class="items">
+      <button class="rb" data-act="status" title="Riepilogo del modello e dei risultati caricati"><span class="ic">ℹ</span>Riepilogo</button>
+      <button class="rb" data-act="validate" data-need="mesh" title="Controlla la coerenza strutturale della mesh"><span class="ic">✔</span>Valida mesh</button>
+    </div><div class="gname">Modello</div></div>
+  </div>
+</header>
+
+<div id="shell">
+<aside>
+  <div><h1>OpenModel Workbench</h1><div class="sub" id="version">CAD → mesh FEM → visualizzazione</div></div>
+
+  <section>
+    <h2>1 · Geometria CAD</h2>
+    <label for="cadPath">File (STEP, IGES, BREP, oppure OBJ/STL/… via Assimp)</label>
+    <div class="row"><input id="cadPath" placeholder="/percorso/parte.step"><button onclick="browse('cadPath','cad')">Sfoglia…</button></div>
+    <button class="primary full" id="btnImport" onclick="importModel()">Importa e triangola</button>
+    <button class="full" onclick="act('openmodel_create_demo')">Carica modello dimostrativo</button>
+  </section>
+
+  <section id="secTess">
+    <h2>2 · Tessellazione CAD</h2>
+    <label for="linear">Deflessione lineare: <b id="linearValue">0.100</b></label>
+    <input id="linear" type="range" min="0.001" max="2" step="0.001" value="0.1" oninput="linearValue.textContent=Number(this.value).toFixed(3)">
+    <label for="angular">Deflessione angolare (rad): <b id="angularValue">0.50</b></label>
+    <input id="angular" type="range" min="0.05" max="3.14" step="0.05" value="0.5" oninput="angularValue.textContent=Number(this.value).toFixed(2)">
+    <button class="full" onclick="retessellate()">Applica e ritessella</button>
+    <p class="hint">Determina la superficie mostrata prima della meshatura e, per TetGen, la superficie che viene riempita.</p>
+  </section>
+
+  <section id="secMesh">
+    <h2>3 · Meshatura volumetrica</h2>
+    <label for="mesher">Meshatore</label>
+    <select id="mesher" onchange="mesherChanged()"></select>
+    <label for="size">Dimensione massima elemento</label>
+    <input id="size" type="number" min="0" step="any" value="1">
+    <div data-f="min"><label for="minSize">Dimensione minima (0 = automatica)</label><input id="minSize" type="number" min="0" step="any" value="0"></div>
+    <div data-f="order"><label for="order">Ordine degli elementi</label>
+      <select id="order"><option value="1">Lineare (1° ordine)</option><option value="2">Quadratico (2° ordine)</option></select></div>
+    <label class="check" data-f="curv"><input type="checkbox" id="curv" checked> Adatta alla curvatura</label>
+    <div data-f="iface"><label for="iface">Solidi a contatto</label>
+      <select id="iface">
+        <option value="independent">Mesh indipendenti (nodi distinti)</option>
+        <option value="conformal">Mesh conforme (nodi condivisi sull'interfaccia)</option>
+      </select></div>
+    <button class="primary full" id="btnMesh" onclick="generate()">Genera mesh volumetrica</button>
+    <p class="hint" id="mesherHint"></p>
+  </section>
+
+  <section>
+    <h2>4 · Mesh su file</h2>
+    <label for="loadPath">Carica mesh esistente (.mgmb, .inp)</label>
+    <div class="row"><input id="loadPath" placeholder="/percorso/mesh.mgmb"><button onclick="browse('loadPath','mesh')">Sfoglia…</button></div>
+    <button class="full" onclick="loadMesh()">Carica e visualizza</button>
+    <label for="outBase">Salva con nome base (l'estensione viene aggiunta)</label>
+    <input id="outBase" placeholder="/percorso/modello">
+    <div class="grid2">
+      <button onclick="save('openmodel_save_mgmb','.mgmb')" title="Formato binario ottimizzato, ricaricabile">Salva MGMB</button>
+      <button onclick="save('openmodel_export_inp','.inp')" title="Abaqus / CalculiX">Esporta INP</button>
+      <button onclick="save('openmodel_export_mgwv','.mgwv')" title="Per il viewer WebGL">Esporta MGWV</button>
+      <button onclick="save('openmodel_export_glb','.glb')" title="Superficie CAD">Esporta GLB</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>5 · Risultati FEM</h2>
+    <label for="resPath">Risultati del solutore (.frd, .dat CalculiX, .csv; più file separati da «;» vengono uniti)</label>
+    <div class="row"><input id="resPath" placeholder="/percorso/run.frd; /percorso/run.dat"><button onclick="browse('resPath','results')">Sfoglia…</button></div>
+    <label for="resStep">Passo (vuoto = ultimo; file di soli modi = tutti i modi)</label>
+    <input id="resStep" type="number" min="0" step="1" placeholder="ultimo">
+    <div class="grid2"><button class="primary" onclick="loadResults()">Carica risultati</button><button onclick="act('openmodel_clear_results')">Rimuovi</button></div>
+    <p class="hint">I valori sono associati ai nodi della mesh corrente tramite il numero di nodo; se il file non appartiene alla mesh viene rifiutato. Campi e deformata compaiono nel viewer.</p>
+  </section>
+
+  <section id="secSolve">
+    <h2>6 · Analisi e solver</h2>
+    <label for="anScript">Script di analisi (materiale, vincoli, carichi, passo)</label>
+    <textarea id="anScript" rows="9" spellcheck="false" style="width:100%;font-family:monospace;font-size:12px"></textarea>
+    <label for="anJob">File di lavoro (cartella o .inp; vuoto = ./openmodel_job/job.inp)</label>
+    <input id="anJob" placeholder="/percorso/lavoro/job.inp">
+    <label for="anSolver">Solutore CalculiX (vuoto = «ccx» nel PATH)</label>
+    <input id="anSolver" placeholder="/usr/bin/ccx">
+    <div class="grid2"><button id="btnWrite" onclick="analysisWrite()">Scrivi input</button><button id="btnRun" class="primary" onclick="analysisRun()">Avvia solutore</button></div>
+    <div class="grid2"><button id="btnCancel" onclick="analysisCancel()" disabled>Annulla</button><button onclick="analysisExample()">Esempio</button></div>
+    <pre id="solverLog" style="max-height:180px;overflow:auto;font-size:11px;margin-top:6px" aria-live="polite">Nessuna analisi avviata.</pre>
+    <p class="hint">Comandi: <code>material E= nu= rho=</code>, <code>fix plane:x=0 [dof=1,2,3]</code>, <code>force plane:x=10 F=fx,fy,fz</code>, <code>pressure group:NOME p=</code>, <code>gravity g=gx,gy,gz</code>, <code>step static</code> o <code>step frequency modes=N</code>. Selettori: <code>all</code>, <code>group:NOME</code>, <code>plane:x|y|z=VALORE</code>. Unità coerenti a scelta dell'utente. Al termine i risultati si caricano da soli.</p>
+  </section>
+
+  <section id="secSel">
+    <h2>7 · Selezione e gruppi</h2>
+    <label for="selMode">Seleziona nel viewer</label>
+    <select id="selMode" onchange="setPickMode(this.value)">
+      <option value="off">Disattivata</option><option value="node">Nodi</option><option value="element">Elementi</option><option value="face">Facce</option>
+    </select>
+    <div class="grid2"><div><label for="selAngle">Angolo facce (°)</label><input id="selAngle" type="number" min="0" max="180" step="1" value="0" onchange="setPickAngle(this.value)"></div>
+      <div><label for="selBoxOn">Riquadro</label><input id="selBoxOn" type="checkbox" onchange="setPickBox(this.checked)"></div></div>
+    <p class="hint" id="selInfo">Selezione: nessuna.</p>
+    <label for="grpName">Nome del gruppo (vuoto = automatico; lettere, cifre, _ - .)</label>
+    <input id="grpName" placeholder="Appoggio">
+    <div class="grid2"><button id="btnGrpNode" onclick="makeGroup('node')">Gruppo nodi</button><button id="btnGrpElem" onclick="makeGroup('element')">Gruppo elementi</button></div>
+    <button id="btnGrpFace" onclick="makeGroup('face')" style="margin-top:6px">Gruppo facce</button>
+    <label for="asDof">Vincolo: gradi di libertà (1,2,3 = x,y,z)</label>
+    <input id="asDof" value="1,2,3">
+    <label for="asForce">Forza totale Fx,Fy,Fz</label>
+    <input id="asForce" value="0,0,-100">
+    <label for="asPress">Pressione (positiva = verso il corpo)</label>
+    <input id="asPress" value="1">
+    <div class="grid2"><button id="btnAsFix" onclick="assign('fix')">Vincola</button><button id="btnAsForce" onclick="assign('force')">Forza</button></div>
+    <button id="btnAsPress" onclick="assign('press')" style="margin-top:6px">Pressione</button>
+    <p class="hint">Ogni assegnazione crea un gruppo dalla selezione e aggiunge la riga allo script della sezione 6.</p>
+    <label>Gruppi della mesh</label>
+    <ul id="grpList" style="list-style:none;margin:0;padding:0;font-size:12px"></ul>
+  </section>
+
+  <section>
+    <h2>Verifica</h2>
+    <div class="grid2" style="margin-top:0"><button onclick="act('openmodel_status')">Stato</button><button onclick="act('openmodel_validate')">Valida mesh</button></div>
+  </section>
+
+  <section><h2>Messaggi</h2><pre id="result">Pronto. Importa un modello CAD, carica una mesh o prova il modello dimostrativo.</pre></section>
+</aside>
+
+<main><iframe id="viewer" src="viewer.html" title="Viewer FEM"></iframe></main>
+</div>
+
+<div class="modal" id="modal" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-label="Scegli file">
+    <h3>Scegli un file</h3>
+    <div class="row"><button onclick="goUp()">↑ Su</button><input id="dirPath" onkeydown="if(event.key==='Enter')window.list(this.value)"><button onclick="list(dirPath.value)">Vai</button></div>
+    <ul id="entries"></ul>
+    <div class="row" style="justify-content:flex-end"><button onclick="closeModal()">Annulla</button></div>
+  </div>
+</div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+let meshers = [], viewVersion = -1, pendingView = false, defaults = {cwd: ""};
+let busy = false, noMesher = false;
+
+function show(text, kind) {
+  const el = $("result"); el.textContent = text; el.className = kind || "";
+}
+// Calls a native handler. Every handler answers with JSON {ok, message, view, ...}.
+// The WebUI bridge loads and connects its WebSocket asynchronously: wait for it.
+async function bridgeReady() {
+  for (let i = 0; i < 150; i++) {
+    if (typeof webui !== "undefined" && (typeof webui.isConnected !== "function" || webui.isConnected())) return;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw new Error("bridge WebUI non connesso");
+}
+async function call(name, ...args) {
+  try {
+    await bridgeReady();
+    const raw = await webui.call(name, ...args);
+    return JSON.parse(raw);
+  } catch (e) {
+    return {ok: false, message: "Comunicazione con OpenModel non riuscita (" + name + "): " + e};
+  }
+}
+function setBusy(on) {
+  busy = on;
+  document.querySelectorAll("button").forEach((b) => { b.disabled = on; });
+  if (!on && noMesher) $("btnMesh").disabled = true;
+  if (!on) syncRibbon();
+}
+async function act(name, ...args) {
+  if (busy) return null;
+  setBusy(true);
+  show("Operazione in corso…");
+  const r = await call(name, ...args);
+  setBusy(false);
+  show(r.message || "", r.ok ? "good" : "bad");
+  if (r.view !== undefined && r.view !== viewVersion) { viewVersion = r.view; loadView(r.viewLabel || ""); }
+  if (r.groups) renderGroups(r.groups);
+  else if (r.ok && ["openmodel_load_mesh", "openmodel_create_demo", "openmodel_generate_volume"].includes(name)) refreshGroups();
+  return r;
+}
+function loadView(label) {
+  const w = $("viewer").contentWindow;
+  if (!w || !w.OpenModelViewer) { pendingView = true; return; }
+  pendingView = false;
+  if (viewVersion < 0) return;
+  w.OpenModelViewer.loadUrl("model.mgwv?v=" + viewVersion, label);
+}
+$("viewer").addEventListener("load", () => { if (pendingView || viewVersion >= 0) loadView(); });
+
+const importModel = () => act("openmodel_import_model", $("cadPath").value.trim(), $("linear").value, $("angular").value);
+const retessellate = () => act("openmodel_retessellate", $("linear").value, $("angular").value);
+const generate = () => act("openmodel_generate_volume", $("mesher").value, $("size").value, $("minSize").value, $("order").value, $("curv").checked ? "1" : "0", $("iface").value);
+const loadMesh = () => act("openmodel_load_mesh", $("loadPath").value.trim());
+const loadResults = () => act("openmodel_load_results", $("resPath").value.trim(), $("resStep").value.trim());
+const save = (fn, ext) => act(fn, $("outBase").value.trim(), ext);
+
+function mesherChanged() {
+  const m = meshers.find((x) => x.id === $("mesher").value);
+  if (!m) return;
+  document.querySelectorAll("[data-f]").forEach((el) => { el.hidden = !m.fields.includes(el.dataset.f); });
+  $("mesherHint").textContent = m.hint;
+}
+
+/* ---- server-side file browser (a web page cannot read local paths itself) ---- */
+let browseTarget = null, browseKind = "cad";
+const FILTERS = {cad: ".step,.stp,.iges,.igs,.brep,.brp,.obj,.stl,.ply,.fbx,.gltf,.glb,.dae,.3ds", mesh: ".mgmb,.inp", results: ".frd,.dat,.csv,.tsv,.txt"};
+let afterPick = null;
+async function browse(inputId, kind, then) {
+  browseTarget = inputId; browseKind = kind; afterPick = then || null;
+  const current = $(inputId).value.trim();
+  const start = current ? current.replace(/[\\/][^\\/]*$/, "") : defaults.cwd;
+  $("modal").hidden = false;
+  await list(start || defaults.cwd);
+}
+async function list(path) {
+  const r = await call("openmodel_list_dir", path, FILTERS[browseKind]);
+  if (!r.ok) { $("entries").innerHTML = ""; const li = document.createElement("li"); li.textContent = r.message; $("entries").appendChild(li); return; }
+  $("dirPath").value = r.path; $("dirPath").dataset.parent = r.parent;
+  $("entries").innerHTML = "";
+  for (const e of r.entries) {
+    const li = document.createElement("li");
+    li.className = e.dir ? "d" : "f"; li.textContent = e.name;
+    li.onclick = () => e.dir ? list(r.path + r.sep + e.name) : pick(r.path + r.sep + e.name);
+    $("entries").appendChild(li);
+  }
+}
+const goUp = () => list($("dirPath").dataset.parent || $("dirPath").value);
+function pick(path) { $(browseTarget).value = path; const next = afterPick; closeModal(); if (next) next(); }
+function closeModal() { $("modal").hidden = true; afterPick = null; }
+window.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
+
+
+/* ---- ribbon ----
+ * The ribbon holds the main actions. Parameters (paths, sizes, tolerances) stay in the side panel; an action that needs a
+ * file opens the file browser first and runs when a file is chosen. Viewer actions drive the embedded viewer through its
+ * public API (OpenModelViewer.set), so they never touch the native side. */
+const viewerApi = () => {
+  const w = $("viewer").contentWindow;
+  return w && w.OpenModelViewer && w.OpenModelViewer.state && w.OpenModelViewer.state.model ? w : null;
+};
+function vset(options) {
+  const w = viewerApi();
+  if (!w) { show("Nessun modello nel viewer: importa o genera prima una mesh.", "bad"); return; }
+  w.OpenModelViewer.set(options);
+  syncRibbon();
+}
+const viewerClick = (selector) => { const w = viewerApi(); const el = w && w.document.querySelector(selector); if (el) el.click(); };
+function focusSection(id) {
+  const el = $(id); if (!el) return;
+  el.scrollIntoView({behavior: "smooth", block: "nearest"});
+  el.classList.add("flash"); setTimeout(() => el.classList.remove("flash"), 1200);
+}
+var RIBBON_EXTRA = {};
+RIBBON_EXTRA["pick-node"] = () => setPickMode("node");
+RIBBON_EXTRA["pick-element"] = () => setPickMode("element");
+RIBBON_EXTRA["pick-face"] = () => setPickMode("face");
+RIBBON_EXTRA["sel-clear"] = () => { const pk = pickApi(); if (pk) pk.clear(); syncRibbon(); };
+RIBBON_EXTRA["grp-make"] = () => { const sel = currentSelection(); if (sel) makeGroup(sel.mode); else show("Seleziona prima nodi, elementi o facce nel viewer.", "bad"); };
+RIBBON_EXTRA["as-fix"] = () => assign("fix");
+RIBBON_EXTRA["as-force"] = () => assign("force");
+RIBBON_EXTRA["as-press"] = () => assign("press");
+const RIBBON_ACTIONS = {
+  demo: () => act("openmodel_create_demo"),
+  cad: () => browse("cadPath", "cad", importModel),
+  mesh: () => browse("loadPath", "mesh", loadMesh),
+  res: () => browse("resPath", "results", loadResults),
+  "res-clear": () => act("openmodel_clear_results"),
+  "save-mgmb": () => save("openmodel_save_mgmb", ".mgmb"),
+  "save-inp": () => save("openmodel_export_inp", ".inp"),
+  "save-mgwv": () => save("openmodel_export_mgwv", ".mgwv"),
+  "save-glb": () => save("openmodel_export_glb", ".glb"),
+  tess: retessellate,
+  gen: generate,
+  "focus-tess": () => focusSection("secTess"),
+  "focus-mesh": () => focusSection("secMesh"),
+  validate: () => act("openmodel_validate"),
+  status: () => act("openmodel_status"),
+  shot: () => viewerClick("#shotBtn"),
+  theme: () => viewerClick("#themeBtn"),
+  fit: () => viewerClick("#fitBtn"),
+  "view-x": () => vset({view: "x"}), "view-y": () => vset({view: "y"}), "view-z": () => vset({view: "z"}), "view-iso": () => vset({view: "iso"}),
+  "mode-block": () => vset({mode: "block"}), "mode-region": () => vset({mode: "region"}), "mode-surface": () => vset({mode: "surface"}),
+  "mode-flat": () => vset({mode: "flat"}), "mode-scalar": () => vset({mode: "scalar"}),
+  "wire-none": () => vset({wire: "none"}), "wire-skin": () => vset({wire: "skin"}), "wire-all": () => vset({wire: "all"}),
+  clip: () => { const w = viewerApi(); if (w) vset({clip: !w.OpenModelViewer.state.clipOn}); },
+  "clip-flip": () => { const w = viewerApi(); if (w) { const c = w.document.getElementById("clipFlip"); c.checked = !c.checked; c.dispatchEvent(new Event("change")); syncRibbon(); } },
+  "axis-0": () => vset({clipAxis: 0}), "axis-1": () => vset({clipAxis: 1}), "axis-2": () => vset({clipAxis: 2}),
+  deform: () => { const w = viewerApi(); if (w) vset({deform: {on: !w.OpenModelViewer.state.defOn}}); },
+  "def-more": () => { const w = viewerApi(); if (w) vset({deform: {on: true, factor: w.OpenModelViewer.state.defFactor * 2}}); },
+  "def-less": () => { const w = viewerApi(); if (w) vset({deform: {on: true, factor: w.OpenModelViewer.state.defFactor / 2}}); },
+  animate: () => { const w = viewerApi(); if (w) vset({animate: !w.OpenModelViewer.state.animate}); },
+  "mode-prev": () => stepMode(-1), "mode-next": () => stepMode(1),
+};
+
+/* ---------------------------------------------------------------- analysis and solver */
+let solverRunning = false, solverTimer = null;
+const logEl = () => $("solverLog");
+function logLines(lines, reset) {
+  const el = logEl();
+  if (reset) el.textContent = "";
+  if (!lines.length) return;
+  el.textContent += (el.textContent ? "\n" : "") + lines.join("\n");
+  const all = el.textContent.split("\n");
+  if (all.length > 2000) el.textContent = all.slice(-2000).join("\n");
+  el.scrollTop = el.scrollHeight;
+}
+async function analysisExample() {
+  const r = await call("openmodel_default_analysis");
+  if (r.ok) $("anScript").value = r.message;
+}
+const analysisWrite = () => act("openmodel_write_input", $("anScript").value, $("anJob").value.trim());
+async function analysisRun() {
+  if (busy || solverRunning) return;
+  const r = await act("openmodel_run_solver", $("anScript").value, $("anJob").value.trim(), $("anSolver").value.trim());
+  if (!r || !r.ok) return;
+  solverRunning = true;
+  logLines(["— solutore avviato —"], true);
+  syncRibbon();
+  solverTimer = setInterval(pollSolver, 500);
+}
+async function pollSolver() {
+  const r = await call("openmodel_solver_status");
+  logLines(r.lines || []);
+  if (r.state === "running" || r.state === "idle" && solverRunning && !r.message) return;
+  clearInterval(solverTimer); solverTimer = null; solverRunning = false;
+  logLines(["— " + (r.state === "done" ? "terminato" : r.state === "cancelled" ? "annullato" : "errore") + " —"]);
+  show(r.message || "", r.ok ? "good" : "bad");
+  if (r.view !== undefined && r.view !== viewVersion) { viewVersion = r.view; loadView(r.viewLabel || ""); }
+  syncRibbon();
+}
+async function analysisCancel() {
+  const r = await call("openmodel_solver_cancel");
+  show(r.message || "", r.ok ? "good" : "bad");
+}
+Object.assign(RIBBON_EXTRA, {
+  "an-focus": () => focusSection("secSolve"),
+  "an-example": analysisExample,
+  "an-write": analysisWrite,
+  "an-run": analysisRun,
+  "an-cancel": analysisCancel,
+});
+
+/* ---------------------------------------------------------------- selection and groups */
+const pickApi = () => { const w = viewerApi(); return w && w.OpenModelViewer && w.OpenModelViewer.pick && w.OpenModelViewer.pick.available() ? w.OpenModelViewer.pick : null; };
+function setPickMode(mode) { const pk = pickApi(); if (pk) pk.setMode(mode); syncRibbon(); }
+function setPickAngle(v) { const pk = pickApi(); if (pk) pk.setAngle(v); }
+function setPickBox(on) { const pk = pickApi(); if (pk) pk.setBox(on); }
+function selectionText(sel) {
+  if (sel.mode === "node") return sel.nodes.join(",");
+  if (sel.mode === "element") return sel.elements.join(",");
+  return sel.faces.map((f) => f.element + ":" + f.nodes.join(",")).join(";");
+}
+function selectionFromText(mode, text) {
+  const out = { mode, nodes: [], elements: [], faces: [] };
+  if (mode === "node") out.nodes = text.split(",").filter(Boolean).map(Number);
+  else if (mode === "element") out.elements = text.split(",").filter(Boolean).map(Number);
+  else if (mode === "face") out.faces = text.split(";").filter(Boolean).map((t) => { const [e, n] = t.split(":"); return { element: Number(e), nodes: n.split(",").map(Number) }; });
+  return out;
+}
+function currentSelection() {
+  const pk = pickApi(); if (!pk) return null;
+  const sel = pk.get();
+  const n = sel.mode === "node" ? sel.nodes.length : sel.mode === "element" ? sel.elements.length : sel.mode === "face" ? sel.faces.length : 0;
+  return n ? sel : null;
+}
+const esc2 = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+function renderGroups(groups) {
+  const label = { node: "nodi", element: "elementi", face: "facce" };
+  $("grpList").innerHTML = groups.length ? groups.map((g, i) =>
+    `<li style="display:flex;gap:6px;align-items:center;margin:2px 0"><span style="flex:1" title="group:${esc2(g.name)}"><b>${esc2(g.name)}</b> · ${g.count} ${label[g.kind]}</span><button data-group="${i}" style="padding:2px 8px">Mostra</button></li>`).join("")
+    : '<li style="color:var(--muted)">Nessun gruppo.</li>';
+  $("grpList").querySelectorAll("button[data-group]").forEach((b) => b.addEventListener("click", () => showGroup(groups[+b.dataset.group].name)));
+}
+async function refreshGroups() { const r = await call("openmodel_list_groups"); if (r.groups) renderGroups(r.groups); }
+async function showGroup(name) {
+  const r = await act("openmodel_show_group", name);
+  if (!r || !r.ok || !r.selMode) return;
+  const pk = pickApi();
+  if (!pk) { show("Il viewer non offre la selezione per questo modello.", "bad"); return; }
+  const res = pk.set(selectionFromText(r.selMode, r.selection));
+  show((r.message ? r.message + "\n" : "") + "Gruppo «" + name + "» mostrato nel viewer" + (res.missing ? " (" + res.missing + " voci non visibili: interne o nascoste)" : "") + ".", "good");
+  syncRibbon();
+}
+async function makeGroup(kind, name, prefix) {
+  const sel = currentSelection();
+  if (!sel) { show("Seleziona prima nodi, elementi o facce nel viewer (sezione 7 o scheda Analisi).", "bad"); return null; }
+  const r = await act("openmodel_create_group", name === undefined ? $("grpName").value.trim() : name, kind, sel.mode, selectionText(sel), prefix || "");
+  if (r && r.ok) { $("grpName").value = ""; }
+  return r;
+}
+function appendScript(line) {
+  const box = $("anScript");
+  box.value = box.value.replace(/\s*$/, "") + "\n" + line + "\n";
+  box.scrollTop = box.scrollHeight;
+}
+const numList = (t, n) => { const p = t.split(",").map((x) => x.trim()); return p.length === n && p.every((x) => x !== "" && Number.isFinite(Number(x))) ? p.map(Number) : null; };
+async function assign(type) {
+  const sel = currentSelection();
+  if (!sel) { show("Seleziona prima nodi, elementi o facce nel viewer.", "bad"); return; }
+  let line, kind = "node";
+  if (type === "fix") {
+    const dofs = $("asDof").value.split(",").map((x) => x.trim()).filter(Boolean);
+    if (!dofs.length || !dofs.every((d) => ["1", "2", "3"].includes(d))) { show("Gradi di libertà non validi: usa 1, 2, 3 separati da virgole.", "bad"); return; }
+    line = (g) => "fix group:" + g + (dofs.length === 3 && new Set(dofs).size === 3 ? "" : " dof=" + [...new Set(dofs)].join(","));
+  } else if (type === "force") {
+    const f = numList($("asForce").value, 3);
+    if (!f) { show("La forza richiede tre numeri Fx,Fy,Fz separati da virgole.", "bad"); return; }
+    line = (g) => "force group:" + g + " F=" + f.join(",");
+  } else {
+    const p = Number($("asPress").value);
+    if (!Number.isFinite(p) || $("asPress").value.trim() === "") { show("La pressione deve essere un numero.", "bad"); return; }
+    if (sel.mode !== "face") { show("La pressione agisce sulle facce: seleziona facce nel viewer.", "bad"); return; }
+    kind = "face";
+    line = (g) => "pressure group:" + g + " p=" + p;
+  }
+  const prefix = { fix: "FIX", force: "FORZA", press: "PRESS" }[type];
+  const r = await makeGroup(kind, undefined, prefix);
+  if (!r || !r.ok || !r.created) return;
+  appendScript(line(r.created));
+  show(r.message + "\nRiga aggiunta allo script: " + line(r.created), "good");
+}
+function stepMode(delta) {
+  const w = viewerApi(); if (!w) return;
+  const S = w.OpenModelViewer.state, n = S.model.modes.length;
+  if (n) vset({modeIndex: (S.modeIndex + delta + n) % n});
+}
+document.querySelectorAll("#ribbon [data-act]").forEach((b) => b.addEventListener("click", () => {
+  const f = RIBBON_ACTIONS[b.dataset.act] || RIBBON_EXTRA[b.dataset.act];
+  if (f && !busy) f();
+}));
+$("rbField").addEventListener("change", (e) => vset({field: +e.target.value, mode: "scalar"}));
+
+function selectTab(name) {
+  document.querySelectorAll("#ribbon .tab").forEach((t) => t.setAttribute("aria-selected", String(t.dataset.tab === name)));
+  document.querySelectorAll("#ribbon .panel").forEach((p) => { p.hidden = p.dataset.panel !== name; });
+  try { localStorage.setItem("openmodel.ribbonTab", name); } catch (e) { /* storage may be unavailable */ }
+  syncRibbon();
+}
+document.querySelectorAll("#ribbon .tab").forEach((t) => {
+  t.addEventListener("click", () => selectTab(t.dataset.tab));
+  t.addEventListener("keydown", (e) => {
+    const tabs = [...document.querySelectorAll("#ribbon .tab")], i = tabs.indexOf(t);
+    if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+      const next = tabs[(i + (e.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length];
+      next.focus(); selectTab(next.dataset.tab);
+    }
+  });
+});
+
+let fieldSignature = "";
+function syncRibbon() {
+  const w = viewerApi(), V = w && w.OpenModelViewer, S = V && V.state, M = S && S.model;
+  const has = {
+    model: !!M, mesh: !!M, cad: true,
+    fields: !!(M && M.fields.length), disp: !!(M && M.disp), modes: !!(M && M.modes && M.modes.length),
+    results: !!(M && M.meta && M.meta.results),
+    idle: !!M && !solverRunning, solver: solverRunning,
+    pick: !!(M && M.canPick), sel: false, selface: false,
+  };
+  let selText = "nessuna", pickMode = "off";
+  if (M && M.canPick) {
+    pickMode = S.pickMode;
+    const n = pickMode === "off" ? 0 : S.sel[pickMode].size;
+    has.sel = n > 0; has.selface = n > 0 && pickMode === "face";
+    selText = n ? n + " " + { node: "nodi", element: "elementi", face: "facce" }[pickMode] : "nessuna" + (pickMode === "off" ? " (selezione disattivata)" : "");
+  }
+  $("selInfo").textContent = "Selezione: " + selText + ".";
+  if (document.activeElement !== $("selMode")) $("selMode").value = pickMode;
+  $("selMode").disabled = busy || !has.pick;
+  const on = M ? {
+    def: S.defOn && !!M.disp, anim: !!S.animate, clip: S.clipOn,
+  } : {};
+  document.querySelectorAll("#ribbon [data-need]").forEach((el) => {
+    if (busy) return;                                  // setBusy owns the disabled state while a command runs
+    el.disabled = !has[el.dataset.need] || (noMesher && el.dataset.act === "gen");
+  });
+  document.querySelectorAll("#ribbon [data-on]").forEach((el) => {
+    const [key, value] = el.dataset.on.split(":");
+    let active = false;
+    if (M) {
+      if (key === "mode") active = S.mode === value;
+      else if (key === "wire") active = S.wire === value;
+      else if (key === "pick") active = S.pickMode === value;
+      else if (key === "axis") active = S.clipOn && String(S.clipAxis) === value;
+      else active = !!on[key];
+    }
+    el.classList.toggle("on", active);
+    el.setAttribute("aria-pressed", String(active));
+  });
+  // Field list and mode label follow what the viewer holds.
+  const sig = M ? M.fields.map((f) => f.name + (f.element ? "@e" : "")).join("|") : "";
+  if (sig !== fieldSignature) {
+    fieldSignature = sig;
+    $("rbField").innerHTML = M ? M.fields.map((f, i) => `<option value="${i}">${f.name.replace(/&/g, "&amp;").replace(/</g, "&lt;")}${f.element ? " [elemento]" : ""}</option>`).join("") : "";
+  }
+  if (M && M.fields.length && document.activeElement !== $("rbField")) $("rbField").value = String(S.fieldIndex);
+  $("rbField").disabled = busy || !has.fields;
+  $("btnGrpNode").disabled = busy || !has.sel;
+  $("btnGrpElem").disabled = busy || !has.sel || pickMode === "node";
+  $("btnGrpFace").disabled = busy || !has.selface;
+  for (const id of ["btnAsFix", "btnAsForce"]) $(id).disabled = busy || !has.sel;
+  $("btnAsPress").disabled = busy || !has.selface;
+  $("btnRun").disabled = busy || !M || solverRunning;
+  $("btnWrite").disabled = busy || !M || solverRunning;
+  $("btnCancel").disabled = !solverRunning;
+  $("rbModeLabel").textContent = has.modes ? `modo ${S.modeIndex + 1} / ${M.modes.length}` : "nessun modo";
+}
+setInterval(syncRibbon, 700);
+(() => {
+  let tab = "file";
+  try { tab = localStorage.getItem("openmodel.ribbonTab") || "file"; } catch (e) { /* ignore */ }
+  if (!document.querySelector(`#ribbon .tab[data-tab="${tab}"]`)) tab = "file";
+  selectTab(tab);
+})();
+
+(async () => {
+  const d = await call("openmodel_defaults");
+  if (d.ok) {
+    defaults = d; $("outBase").value = d.outBase; $("version").textContent = "v" + d.version + " · CAD → mesh FEM → visualizzazione";
+    meshers = d.meshers;
+    $("mesher").innerHTML = meshers.map((m) => `<option value="${m.id}"${m.available ? "" : " disabled"}>${m.name}${m.available ? "" : " (non compilato)"}</option>`).join("");
+    const first = meshers.find((m) => m.available);
+    if (first) $("mesher").value = first.id; else { noMesher = true; $("btnMesh").disabled = true; }
+    mesherChanged();
+    analysisExample();
+  } else show(d.message, "bad");
+})();
+</script>
+</body>
+</html>
