@@ -10,9 +10,9 @@ namespace Fatigue {
  * Read-only adapter from the current OpenModel::FemResults representation.
  *
  * FemResults must outlive this object and must not be mutated concurrently.
- * The current core model supports nodal and element records. Integration-point
- * requests are rejected until the importer/storage layer preserves individual
- * integration-point records; an element average is never substituted.
+ * Nodal, element and native integration-point records are supported. Field
+ * tensor, frame, unit and provenance metadata are forwarded without guessing;
+ * an element average is never substituted for an integration-point value.
  */
 class OpenModelFemResultsSource final : public IResultSource {
 public:
