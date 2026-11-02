@@ -1,6 +1,5 @@
 #include <OpenModel/Fatigue/StrainLifeDamageModel.hpp>
 
-#include <algorithm>
 #include <cmath>
 #include <limits>
 
@@ -84,12 +83,6 @@ FatigueDamageResult StrainLifeDamageModel::evaluate(const StrainLifeDamageInput&
         result.diagnostic = "CMB material constants and reversal search bounds are invalid.";
         return result;
     }
-    if (!sameUnit(m.stressUnit, input.stressUnit)) {
-        result.status = FatigueDamageStatus::IncompatibleUnit;
-        result.diagnostic = "Stress units do not match.";
-        return result;
-    }
-
     double sum = 0.0, compensation = 0.0;
     for (const auto& cycle : *input.cycles) {
         if (!std::isfinite(cycle.strainAmplitude) || cycle.strainAmplitude < 0.0 ||
@@ -118,8 +111,6 @@ FatigueDamageResult StrainLifeDamageModel::evaluate(const StrainLifeDamageInput&
 
         // Morrow's mean stress is cycle-specific; keep the solver stateless by
         // solving this cycle inline through a local copy of its input.
-        double reversals = 0.0;
-        std::string diagnostic;
         const double lo = std::log10(input.minimumReversals);
         const double hi = std::log10(input.maximumReversals);
         const bool swt = input.meanStressModel == StrainLifeMeanStressModel::SmithWatsonTopper;
@@ -147,7 +138,7 @@ FatigueDamageResult StrainLifeDamageModel::evaluate(const StrainLifeDamageInput&
             if (value > target) a = mid;
             else b = mid;
         }
-        reversals = std::pow(10.0, 0.5 * (a + b));
+        const double reversals = std::pow(10.0, 0.5 * (a + b));
         const double lifeCycles = 0.5 * reversals;
         const double increment = cycle.count / lifeCycles;
         if (!std::isfinite(increment) || increment < 0.0) {
