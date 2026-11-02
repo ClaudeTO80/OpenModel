@@ -62,7 +62,7 @@ enum class ResultQuantityKind {
 };
 
 /** Shape of the stored component tuple. */
-enum class ResultComponentKind { Unknown, Scalar, Vector, SymmetricTensor, FullTensor };
+enum class ResultComponentKind { Unknown, Scalar, Vector, SymmetricTensor, Matrix };
 
 /** Coordinate frame in which components are expressed. */
 enum class ResultCoordinateFrame { Unknown, Global, Local, Material };
