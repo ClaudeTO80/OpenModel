@@ -279,7 +279,7 @@ The 1993 paper associates the normal-strain excursion with a reversal of maximum
 `WangBrownRelativeStrain` adds the first reusable geometric primitive for the original Wang-Brown multiaxial reversal procedure. For two strain tensors A and B it evaluates the relative Mises strain:
 
 \[
-\\varepsilon_{R,Mises}=\\frac{\\sqrt{(\\Delta\\varepsilon_x-\\Delta\\varepsilon_y)^2+(\\Delta\\varepsilon_x-\\Delta\\varepsilon_z)^2+(\\Delta\\varepsilon_y-\\Delta\\varepsilon_z)^2+6(\\Delta\\varepsilon_{xy}^2+\\Delta\\varepsilon_{xz}^2+\\Delta\\varepsilon_{yz}^2)}}{\\sqrt{2(1+\\bar\\nu)}}.
+\\varepsilon_{R,Mises}=\\frac{\\sqrt{(\\Delta\\varepsilon_x-\\Delta\\varepsilon_y)^2+(\\Delta\\varepsilon_x-\\Delta\\varepsilon_z)^2+(\\Delta\\varepsilon_y-\\Delta\\varepsilon_z)^2+6(\\Delta\\varepsilon_{xy}^2+\\Delta\\varepsilon_{xz}^2+\\Delta\\varepsilon_{yz}^2)}}{\\sqrt{2}(1+\\bar\\nu)}.
 \]
 
 The tensor stores tensorial shear strains, so the factor 6 is the engineering-shear expression 1.5 times gamma squared after substituting gamma = 2 epsilon_xy. The effective Poisson ratio is an explicit input and must lie strictly between -1 and 0.5. The method returns NaN for invalid tensors or parameters rather than silently manufacturing a range.
