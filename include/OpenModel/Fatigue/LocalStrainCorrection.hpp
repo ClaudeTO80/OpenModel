@@ -1,6 +1,6 @@
 #pragma once
 
-#include <OpenModel/Fatigue/StrainLifeDamageModel.hpp>
+#include <OpenModel/Fatigue/StrainLifeDamageModel.hpp>\n#include <OpenModel/Fatigue/CycleCounting.hpp>
 
 #include <string>
 #include <vector>
