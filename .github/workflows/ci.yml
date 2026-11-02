@@ -50,8 +50,15 @@ jobs:
       - name: Build
         run: cmake --build build --config ${{ matrix.build_type }} --parallel 4
 
-      - name: Test
+      - name: Test (Linux)
+        if: runner.os == 'Linux'
         run: ctest --test-dir build --build-config ${{ matrix.build_type }} --output-on-failure --parallel 4
+
+      # ProcessRunner currently has no Windows implementation. Keep all other
+      # unit, CLI, fixture and FEM/fatigue tests active on Windows.
+      - name: Test (Windows)
+        if: runner.os == 'Windows'
+        run: ctest --test-dir build --build-config ${{ matrix.build_type }} --output-on-failure --parallel 4 --exclude-regex "^solver_cli_"
 
       - name: Install and consume the CMake package
         shell: bash
