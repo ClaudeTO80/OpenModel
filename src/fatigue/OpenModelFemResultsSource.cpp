@@ -108,7 +108,11 @@ bool OpenModelFemResultsSource::readSample(
             }
         }
         if (record == count) return false;
-        if (!matched->coordinateTransforms.empty() && !validTransform(matched->coordinateTransforms[record])) return false;
+        if (!matched->coordinateTransforms.empty() && matched->coordinateTransforms[record].available &&
+            !validTransform(matched->coordinateTransforms[record])) return false;
+        if (matched->semantics.frame != ReferenceFrame::Global &&
+            matched->semantics.components != ComponentKind::Scalar &&
+            (matched->coordinateTransforms.empty() || !matched->coordinateTransforms[record].available)) return false;
         ResultSample candidate;
         candidate.position = position;
         candidate.step = convertStep(results_.steps[stepIndex], stepIndex);
@@ -164,7 +168,11 @@ bool OpenModelFemResultsSource::readSample(
         }
     }
     if (record == recordCount) return false;
-    if (!matched->coordinateTransforms.empty() && !validTransform(matched->coordinateTransforms[record])) return false;
+    if (!matched->coordinateTransforms.empty() && matched->coordinateTransforms[record].available &&
+        !validTransform(matched->coordinateTransforms[record])) return false;
+    if (matched->semantics.frame != ReferenceFrame::Global &&
+        matched->semantics.components != ComponentKind::Scalar &&
+        (matched->coordinateTransforms.empty() || !matched->coordinateTransforms[record].available)) return false;
     ResultSample candidate;
     candidate.position = position;
     candidate.step = convertStep(results_.steps[stepIndex], stepIndex);
