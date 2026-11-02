@@ -2,6 +2,9 @@
 
 #include <OpenModel/Fatigue/StressHistory.hpp>
 
+#include <cstddef>
+#include <optional>
+
 namespace OpenModel {
 namespace Fatigue {
 
@@ -31,6 +34,23 @@ public:
     static double magnitude(
         const Tensor3& value,
         double effectivePoissonRatio) noexcept;
+
+    /** Index of the sample with the largest absolute relative-Mises magnitude. */
+    static std::optional<std::size_t> maximumMagnitudeIndex(
+        const StressHistory& history,
+        double effectivePoissonRatio);
+
+    /**
+     * Index of the largest relative-Mises distance from one reference sample.
+     * The inspected interval is [beginIndex, endIndex); invalid ranges return
+     * std::nullopt. Ties are resolved in favour of the earliest sample.
+     */
+    static std::optional<std::size_t> maximumRelativeIndex(
+        const StressHistory& history,
+        std::size_t referenceIndex,
+        double effectivePoissonRatio,
+        std::size_t beginIndex,
+        std::size_t endIndex);
 
     /**
      * Return original sample indices at which at least one of the six
