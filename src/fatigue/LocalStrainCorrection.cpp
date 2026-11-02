@@ -69,15 +69,27 @@ LocalStrainCorrectionResult LocalStrainCorrection::convert(
     const CyclicStressStrainParameters& material,
     LocalStrainCorrectionMethod method) {
     LocalStrainCorrectionResult result;
-    if (!sameUnit(material.stressUnit, material.stressUnit) ||
-        !material.stressUnit.dimension.known ||
+    if (!material.stressUnit.dimension.known ||
         material.stressUnit.dimension.length != -1 ||
         material.stressUnit.dimension.mass != 1 ||
         material.stressUnit.dimension.time != -2 ||
+        material.stressUnit.dimension.current != 0 ||
+        material.stressUnit.dimension.temperature != 0 ||
+        material.stressUnit.dimension.amount != 0 ||
+        material.stressUnit.dimension.luminousIntensity != 0 ||
+        material.stressUnit.symbol.empty() || !std::isfinite(material.stressUnit.scaleToSI) ||
+        material.stressUnit.scaleToSI <= 0.0 || material.stressUnit.offsetToSI != 0.0 ||
         !material.strainUnit.dimension.known ||
         material.strainUnit.dimension.length != 0 ||
         material.strainUnit.dimension.mass != 0 ||
         material.strainUnit.dimension.time != 0 ||
+        material.strainUnit.dimension.current != 0 ||
+        material.strainUnit.dimension.temperature != 0 ||
+        material.strainUnit.dimension.amount != 0 ||
+        material.strainUnit.dimension.luminousIntensity != 0 ||
+        material.strainUnit.symbol.empty() || !std::isfinite(material.strainUnit.scaleToSI) ||
+        material.strainUnit.scaleToSI <= 0.0 || material.strainUnit.offsetToSI != 0.0 ||
+        (method != LocalStrainCorrectionMethod::Neuber && method != LocalStrainCorrectionMethod::Glinka) ||
         !std::isfinite(material.youngsModulus) || material.youngsModulus <= 0.0 ||
         !std::isfinite(material.cyclicStrengthCoefficient) ||
         material.cyclicStrengthCoefficient <= 0.0 ||
