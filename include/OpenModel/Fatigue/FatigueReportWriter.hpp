@@ -2,6 +2,7 @@
 
 #include <OpenModel/Fatigue/FatigueReport.hpp>
 #include <OpenModel/Fatigue/FatigueSpectrumReport.hpp>
+#include <OpenModel/Fatigue/FatigueDamageMap.hpp>
 
 #include <iosfwd>
 #include <string>
@@ -39,6 +40,11 @@ public:
     static FatigueReportWriteResult writeSpectrumJson(
         const FatigueSpectrumReport& report, std::ostream& output,
         bool includeCycles = false);
+
+    static FatigueReportWriteResult writeDamageMapCsv(
+        const FatigueDamageMap& map, std::ostream& output);
+    static FatigueReportWriteResult writeDamageMapJson(
+        const FatigueDamageMap& map, std::ostream& output);
 };
 
 } // namespace Fatigue
