@@ -82,3 +82,65 @@ These corrections are uniaxial cycle-level methods. They are not applied to
 multiaxial tensor paths or Wang-Brown reversals, and they do not replace a
 critical-plane mean-stress treatment. The resulting corrected amplitude is
 passed to the existing S-N curve; Palmgren-Miner accumulation remains linear.
+
+
+## Strain-life damage: Coffin-Manson-Basquin, Morrow and SWT
+
+The strain-life implementation is a separate uniaxial pipeline. It does not
+reinterpret a stress Rainflow cycle as a strain cycle. The caller supplies a
+cycle with total strain amplitude, signed mean stress, maximum stress and
+Rainflow count, all associated with the same physical cycle.
+
+The material model uses the Coffin-Manson-Basquin constants
+\\(E,\\sigma_f',b,\\varepsilon_f',c\\), with
+\\(E>0\\), \\(\\sigma_f'>0\\), \\(\\varepsilon_f'>0\\),
+\\(b<0\\) and \\(c<0\\). The independent variable is reversals to
+failure \\(2N_f\\), while Miner damage uses cycles to failure
+\\(N_f=(2N_f)/2\\).
+
+Baseline fully reversed relation:
+
+\\[
+\\varepsilon_a=\\frac{\\sigma_f'}{E}(2N_f)^b+
+\\varepsilon_f'(2N_f)^c.
+\\]
+
+Morrow modifies the elastic Basquin term using the measured cycle mean stress:
+
+\\[
+\\varepsilon_a=\\frac{\\sigma_f'-\\sigma_m}{E}(2N_f)^b+
+\\varepsilon_f'(2N_f)^c.
+\\]
+
+SWT uses the measured maximum stress and total strain amplitude as its
+cycle parameter:
+
+\\[
+P_{SWT}=\\sigma_{max}\\varepsilon_a,
+\\qquad
+P_{SWT}(2N_f)=
+\\frac{(\\sigma_f')^2}{E}(2N_f)^{2b}
++\\sigma_f'\\varepsilon_f'(2N_f)^{b+c}.
+\\]
+
+The inverse equation is solved by bisection in log10(reversals), over the
+explicit interval `minimumReversals` to `maximumReversals` (defaults 1
+to 1e16). No life extrapolation outside that interval is allowed. The
+material stress unit must match the cycle stress unit exactly; the strain
+unit must be dimensionless and match exactly. There is no implicit conversion.
+
+### Important modelling boundaries
+
+- The caller must provide stabilized cycle values. The model does not derive
+  \\(\\sigma_m\\) or \\(\\sigma_{max}\\) from an elastic FE stress
+  history and does not perform cyclic plasticity, Neuber/Glinka correction,
+  or hysteresis-loop reconstruction.
+- Morrow rejects cycles for which \\(\\sigma_f'-\\sigma_m\\leq0\\).
+- SWT requires \\(\\sigma_{max}>0\\). It is a strain-life damage
+  parameter, not the stress-life equivalent-amplitude approximation.
+- The damage sum is linear Palmgren-Miner. Sequence effects and multiaxial
+  critical-plane processing are outside this model.
+- Morrow and SWT constants are material-condition dependent; temperature,
+  environment and material direction must be represented by separately
+  calibrated parameter sets until temperature-dependent parameter families
+  are introduced.
