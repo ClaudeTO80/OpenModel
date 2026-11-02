@@ -1,0 +1,110 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="C++ integration workflow — OpenModel fatigue analysis technical documentation."><title>C++ integration workflow · OpenModel Fatigue</title><link rel="stylesheet" href="assets/fatigue.css"><script>window.MathJax={tex:{inlineMath:[['\(','\)']],displayMath:[['\[','\]']],processEscapes:true},options:{skipHtmlTags:['script','noscript','style','textarea','pre','code']},chtml:{scale:1}};</script><script defer src="https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-chtml.js"></script></head><body><header class="top"><div class="brand">OpenModel · Fatigue Analysis <small>Technical and mathematical reference · feature/fatigue-result-contract</small></div></header><div class="layout"><aside class="side"><strong>Fatigue documentation</strong><div class="navlinks"><a href="index.html" class="active">Overview & contents</a><a href="data-contract.html">FEM data contract</a><a href="tensor-history.html">Tensor history & counting</a><a href="stress-life.html">Stress-life (S–N)</a><a href="strain-life.html">Strain-life (ε–N)</a><a href="multiaxial.html">Multiaxial contract</a><a href="reports.html">Spectra, reports & maps</a></div><hr><a href="../index.html">OpenModel documentation</a><a href="https://github.com/ClaudeTO80/OpenModel/tree/feature/fatigue-result-contract">Feature branch source ↗</a></aside><main class="content"><div class="crumb"><a href="index.html">Fatigue documentation</a> / C++ integration workflow</div><div class="eyebrow">C++17 · solver-neutral fatigue module</div>
+<h1>C++ integration workflow</h1><p class="lead">This page connects the mathematical stages to the public C++ API. The snippets assume that an upstream importer has already populated an immutable <code>FemResults</code> object with the required time-dependent field and metadata.</p>
+<h2>1. Create a result source adapter</h2><pre><code>#include &lt;OpenModel/Fatigue/OpenModelFemResultsSource.hpp&gt;
+#include &lt;OpenModel/Fatigue/FatigueAnalysis.hpp&gt;
+
+using namespace OpenModel;
+using namespace OpenModel::Fatigue;
+
+// results must be populated by a supported result importer and must outlive source.
+FemResults results;
+ResultSourceMetadata metadata;
+metadata.solverName = "CalculiX";
+metadata.resultFormat = "FRD";
+metadata.sourceName = "bracket.frd";
+
+OpenModelFemResultsSource source(results, metadata);</code></pre>
+<p>The adapter forwards the field semantics and record identity already stored in <code>FemResults</code>. It does not invent a unit scale, component convention or local coordinate transform.</p>
+<h2>2. Declare a fatigue curve and material</h2><p>The example below uses MPa as the stress unit. The physical dimension exponents are \(M^1L^{-1}T^{-2}\); the scale converts MPa to Pa.</p><pre><code>PhysicalUnit MPa{
+    PhysicalDimension{true, -1, 1, -2, 0, 0, 0, 0},
+    "MPa", 1.0e6, 0.0
+};
+
+FatigueCurveSlice roomTemperature;
+roomTemperature.temperatureKelvin = 293.15;
+roomTemperature.points = {
+    {300.0, 1.0e6},
+    {400.0, 2.0e5},
+    {500.0, 5.0e4},
+    {600.0, 1.0e4}
+};
+
+FatigueCurve sn;
+std::string diagnostic;
+if (!FatigueCurve::create(
+        FatigueCurveKind::StressLifeSN, MPa,
+        {roomTemperature}, sn, diagnostic)) {
+    // Reject the material definition and inspect diagnostic.
+}
+
+FatigueMaterial steel;
+steel.name = "Example steel";
+steel.materialId = "STEEL-01";
+steel.curves.push_back(std::move(sn));</code></pre>
+<p>The numbers are illustrative only, not recommended design data. The curve ordinates are cycles to failure and the abscissae are stress amplitudes, not ranges. Real material data must be traceable to its source and test condition.</p>
+<h2>3. Run one S–N analysis at one FEM position</h2><pre><code>ResultPosition position;
+position.location = ResultLocation::IntegrationPoint;
+position.entityId = 1204;        // external element ID
+position.integrationPoint = 3;   // 1-based solver integration point
+
+StressProjection projection;
+projection.direction = {{1.0, 0.0, 0.0}};
+
+const auto analysis = FatigueAnalysis::run(
+    source, "STRESS", position, steel,
+    projection, 293.15,
+    ReferenceFrame::Global);
+
+if (!analysis) {
+    // Inspect analysis.status and analysis.diagnostic.
+} else {
+    const double damage = analysis.damage.damage;
+    const auto& cycles = analysis.cycleCounting.cycles;
+    const auto& history = analysis.history;
+}</code></pre>
+<p>The integration-point lookup is exact. If the source cannot supply that IP for every time step, the analysis fails; it does not fall back to an element average.</p>
+<h2>4. Use a mean-stress correction explicitly</h2><p>The convenience orchestration method above currently uses the default <code>MeanStressCorrectionKind::None</code>. To choose Goodman, Gerber, Soderberg, Morrow or the stress-life SWT equivalent amplitude, construct <code>FatigueDamageInput</code> and call <code>PalmgrenMiner::evaluate</code> directly.</p><pre><code>FatigueDamageInput input;
+input.cycles = &amp;cycles;
+input.curve = steel.findCurve(FatigueCurveKind::StressLifeSN);
+input.amplitudeUnit = history.unit();
+input.temperatureKelvin = 293.15;
+input.meanStressCorrection = MeanStressCorrectionKind::Goodman;
+input.meanStressParameters.ultimateTensileStrength = 900.0; // MPa
+
+PalmgrenMiner miner;
+const auto damage = miner.evaluate(input);</code></pre>
+<p>The example assumes the curve and history both use exactly the same MPa unit metadata. The library checks unit identity; it does not convert values.</p>
+<h2>5. Run a strain-life analysis</h2><p>The strain-life orchestrator accepts cyclic Ramberg–Osgood parameters and CMB parameters. Both records must use identical stress and strain units and exactly the same Young's modulus. The stress unit must also match the FEM history.</p><pre><code>#include &lt;OpenModel/Fatigue/StrainLifeAnalysis.hpp&gt;
+
+PhysicalUnit strainUnit{
+    PhysicalDimension{true, 0, 0, 0, 0, 0, 0, 0},
+    "1", 1.0, 0.0
+};
+
+CyclicStressStrainParameters cyclic;
+cyclic.stressUnit = MPa;
+cyclic.strainUnit = strainUnit;
+cyclic.youngsModulus = 210000.0;
+cyclic.cyclicStrengthCoefficient = 1000.0;
+cyclic.cyclicStrainHardeningExponent = 0.15;
+
+StrainLifeMaterialParameters en;
+en.stressUnit = MPa;
+en.strainUnit = strainUnit;
+en.youngsModulus = 210000.0;
+en.fatigueStrengthCoefficient = 1000.0;
+en.fatigueStrengthExponent = -0.10;
+en.fatigueDuctilityCoefficient = 0.20;
+en.fatigueDuctilityExponent = -0.50;
+
+const auto strainLife = StrainLifeAnalysis::run(
+    source, "STRESS", position, projection,
+    cyclic, en,
+    StrainLifeMeanStressModel::Morrow,
+    LocalStrainCorrectionMethod::Neuber,
+    293.15);</code></pre>
+<p>Again, constants are illustrative. The local correction keeps the elastic cycle mean stress as an approximation; it does not solve cyclic plasticity or reconstruct hysteresis loops.</p>
+<h2>6. Interpret outputs and preserve audit data</h2><p>Analysis results retain the original history, source metadata, scalar cycles and damage evaluation. Do not discard the diagnostic or collapse failed rows into zero. For multi-position and spectrum reports, see <a href="reports.html">Reports and damage maps</a>.</p>
+<h2>7. Include the module</h2><p>The fatigue headers are under <code>include/OpenModel/Fatigue/</code> and implementation sources under <code>src/fatigue/</code>. Link the OpenModel core target as documented by the branch's CMake package. The project uses C++17; no C++20/23 language feature is required by this module.</p>
+<div class="prevnext"><a href="index.html">← Overview</a><a href="data-contract.html">FEM data contract →</a></div>
+</main></div><footer class="footer">Documentation targets <code>feature/fatigue-result-contract</code>. Mathematical descriptions are tied to the implementation in this branch and distinguish implemented algorithms from extension contracts.</footer></body></html>
