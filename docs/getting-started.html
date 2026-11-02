@@ -1,0 +1,33 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Build OpenModel, use the command-line interface, and link the installed C++ library into an application."><title>Getting started · OpenModel</title><link rel="stylesheet" href="assets/site.css"></head><body><div class="top"><div class="brand">OpenModel <small>Finite-element mesh, results and visualization toolkit · User & Technical Manual</small></div></div><div class="layout"><aside class="side"><strong>Manual contents</strong><div class="navlinks"><a href="index.html">Documentation home</a><a href="getting-started.html".class="active">Getting started</a><a href="data-model.html">Mesh data model</a><a href="mesh-mathematics.html">Mesh mathematics</a><a href="meshing-cad.html">CAD & meshing</a><a href="fem-results.html">FEM results</a><a href="analysis.html">Analysis & CalculiX</a><a href="formats.html">File formats</a><a href="architecture.html">API & architecture</a></div><hr><a href="https://github.com/ClaudeTO80/OpenModel">GitHub repository ↗</a></aside><main class="content"><div class="crumb"><a href="index.html">Documentation</a> / Getting started</div><div class="eyebrow">OpenModel · 0.1.x series</div><h1>Getting started</h1><p class="lead">Build OpenModel, use the command-line interface, and link the installed C++ library into an application.</p>
+<h2>Requirements</h2><ul><li>A C++17 compiler.</li><li>CMake 3.20 or newer.</li><li>POSIX threads.</li><li>Optional: Python 3 for fixture-generation tests; Node.js and Playwright for browser tests; native SDKs for optional backends.</li></ul>
+<h2>Build from source</h2><pre><code>git clone https://github.com/ClaudeTO80/OpenModel.git
+cd OpenModel
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
+  -DOPENMODEL_BUILD_TESTS=ON
+cmake --build build --parallel
+ctest --test-dir build --output-on-failure</code></pre>
+<p>On multi-configuration generators such as Visual Studio, omit <code>CMAKE_BUILD_TYPE</code> and select the configuration at build time, for example <code>cmake --build build --config Release</code>.</p>
+<h2>CMake options</h2><table><tr><th>Option</th><th>Default / purpose</th></tr><tr><td><code>OPENMODEL_BUILD_TESTS</code></td><td>ON; build CTest suite.</td></tr><tr><td><code>OPENMODEL_BUILD_CLI</code></td><td>ON; build <code>openmodel</code>.</td></tr><tr><td><code>OPENMODEL_BUILD_SHARED</code></td><td>ON; build shared library in addition to static core.</td></tr><tr><td><code>OPENMODEL_BUILD_WEBUI</code></td><td>OFF; desktop workbench, requires WebUI SDK.</td></tr><tr><td><code>OPENMODEL_BUILD_BENCHMARKS</code></td><td>OFF; build synthetic benchmarks.</td></tr><tr><td><code>OPENMODEL_BUILD_GMSH_BACKEND</code></td><td>OFF; Gmsh mesher.</td></tr><tr><td><code>OPENMODEL_BUILD_OCC_BACKEND</code></td><td>OFF; Open CASCADE CAD backend.</td></tr><tr><td><code>OPENMODEL_BUILD_ASSIMP_BACKEND</code></td><td>OFF; Assimp model importer.</td></tr><tr><td><code>OPENMODEL_BUILD_TETGEN_BACKEND</code></td><td>OFF; TetGen backend.</td></tr><tr><td><code>OPENMODEL_BUILD_NETGEN_BACKEND</code></td><td>OFF; Netgen backend.</td></tr><tr><td><code>OPENMODEL_BUILD_MFEM_BACKEND</code></td><td>OFF; MFEM adapter.</td></tr></table>
+<p>Optional backends are separate build targets and require their own SDK/library installations. They are not part of the minimal core dependency set.</p>
+<h2>Try the CLI</h2><pre><code>openmodel info
+openmodel validate-demo
+openmodel demo-inp demo.inp
+openmodel demo-web demo.mgwv 12
+openmodel export-web beam.inp beam.mgwv --results beam.frd --results beam.dat
+openmodel results-info beam.frd
+openmodel write-input beam.inp analysis.txt job.inp
+openmodel solve beam.inp analysis.txt job-directory --solver /path/to/ccx</code></pre>
+<p><code>demo-web</code> creates a viewer-oriented sample. Open <code>examples/webgl-fem-viewer/index.html</code> in a browser and load the resulting MGWV file. The viewer is a separate HTML/JavaScript application; it does not execute the finite-element solution.</p>
+<h2>Use the installed CMake package</h2><pre><code>cmake --install build --prefix /opt/openmodel</code></pre><p>Consumer <code>CMakeLists.txt</code>:</p><pre><code>find_package(OpenModel 0.1 CONFIG REQUIRED)
+target_link_libraries(my_app PRIVATE OpenModel::Core)</code></pre><p>Minimal C++ example:</p><pre><code>#include &lt;OpenModel/MeshData.hpp&gt;
+#include &lt;OpenModel/MeshImporter.hpp&gt;
+
+int main() {
+    OpenModel::MeshData mesh;
+    OpenModel::AbaqusInpImporter reader;
+    const auto result = reader.read("model.inp", mesh);
+    if (!result) return 1;
+    return mesh.validate().empty() ? 0 : 2;
+}</code></pre><p>Set <code>CMAKE_PREFIX_PATH</code> or <code>OpenModel_DIR</code> if the installation prefix is non-standard. See <code>examples/cmake-consumer</code>.</p>
+<h2>Desktop workbench</h2><p>Configure with <code>-DOPENMODEL_BUILD_WEBUI=ON -DOPENMODEL_WEBUI_ROOT=/path/to/webui-sdk</code>. The WebUI SDK is not vendored. A Chromium-based browser is required at runtime. The workbench's visible interface strings are currently Italian; the public library and this manual are not tied to that UI language.</p>
+<h2>Build and verification caveats</h2><p>The repository's README reports Linux as the latest tested environment. The solver process runner is POSIX-only and reports an error on Windows. Optional geometry/meshing adapters are not necessarily compiled in the default CI/test environment. Do not infer backend availability merely because its public header exists.</p><div class="prevnext"><a href="index.html">← Documentation home</a><a href="architecture.html">API & architecture →</a></div></main></div><div class="footer">Documentation describes the repository <code>main</code> branch as inspected on 2 November 2026. OpenModel is early-stage software; see each page for implementation limits. · <a href="https://github.com/ClaudeTO80/OpenModel">Source code</a></div></body></html>
