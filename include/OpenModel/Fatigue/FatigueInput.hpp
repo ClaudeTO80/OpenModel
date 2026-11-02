@@ -29,6 +29,7 @@ using ReferenceFrame = OpenModel::ResultCoordinateFrame;
 using QuantityKind = OpenModel::ResultQuantityKind;
 using PhysicalDimension = OpenModel::PhysicalDimension;
 using PhysicalUnit = OpenModel::PhysicalUnit;
+using CoordinateTransform = OpenModel::ResultCoordinateTransform;
 
 /** Optional model-wide unit-system labels; field-level units remain authoritative. */
 struct UnitSystem {
@@ -82,6 +83,7 @@ struct ResultSample {
     ReferenceFrame frame = ReferenceFrame::Unknown;
     ShearStrainConvention shearConvention = ShearStrainConvention::Unknown;
     PhysicalUnit unit;
+    CoordinateTransform coordinateTransform;
 
     // Provenance flags. False means "not reported", not necessarily "never happened".
     bool derived = false;
