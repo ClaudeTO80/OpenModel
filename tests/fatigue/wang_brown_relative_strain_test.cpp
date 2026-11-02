@@ -40,7 +40,7 @@ int main() {
         (0.01 - (-0.005)) * (0.01 - (-0.005)) +
         (0.01 - 0.0) * (0.01 - 0.0) +
         ((-0.005) - 0.0) * ((-0.005) - 0.0) +
-        6.0 * 0.002 * 0.002) / std::sqrt(2.0 * (1.0 + nu));
+        6.0 * 0.002 * 0.002) / (std::sqrt(2.0) * (1.0 + nu));
     assert(std::fabs(relative - expected) < 1e-14);
     assert(std::fabs(relative - WangBrownRelativeStrain::between(b, a, nu)) < 1e-14);
     assert(WangBrownRelativeStrain::magnitude(b, nu) == relative);
