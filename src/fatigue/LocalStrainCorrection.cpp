@@ -124,8 +124,7 @@ LocalStrainCorrectionResult LocalStrainCorrection::convert(
         if (!std::isfinite(cycle.elasticStressAmplitude) ||
             cycle.elasticStressAmplitude < 0.0 ||
             !std::isfinite(cycle.elasticMeanStress) ||
-            !std::isfinite(cycle.count) || cycle.count <= 0.0 ||
-            cycle.startSampleIndex > cycle.endSampleIndex) {
+            !std::isfinite(cycle.count) || cycle.count <= 0.0) {
             result.diagnostic = "Elastic cycles require finite non-negative amplitude, finite mean, positive count and ordered sample indices.";
             return result;
         }
