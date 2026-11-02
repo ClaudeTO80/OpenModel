@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <optional>
 
 namespace OpenModel {
 namespace Fatigue {
@@ -50,6 +51,63 @@ double WangBrownRelativeStrain::magnitude(
     double effectivePoissonRatio) noexcept {
     const Tensor3 zero{};
     return between(zero, value, effectivePoissonRatio);
+}
+
+
+std::optional<std::size_t> WangBrownRelativeStrain::maximumMagnitudeIndex(
+    const StressHistory& history,
+    double effectivePoissonRatio) {
+    if (history.quantity() != QuantityKind::Strain || history.empty() ||
+        !std::isfinite(effectivePoissonRatio) ||
+        effectivePoissonRatio <= -1.0 || effectivePoissonRatio >= 0.5) {
+        return std::nullopt;
+    }
+
+    std::optional<std::size_t> maximumIndex;
+    double maximumValue = -1.0;
+    const auto& samples = history.samples();
+    for (std::size_t i = 0; i < samples.size(); ++i) {
+        if (!samples[i].prepared) continue;
+        const double value = magnitude(samples[i].prepared.tensor, effectivePoissonRatio);
+        if (!std::isfinite(value)) continue;
+        if (!maximumIndex || value > maximumValue) {
+            maximumIndex = i;
+            maximumValue = value;
+        }
+    }
+    return maximumIndex;
+}
+
+std::optional<std::size_t> WangBrownRelativeStrain::maximumRelativeIndex(
+    const StressHistory& history,
+    std::size_t referenceIndex,
+    double effectivePoissonRatio,
+    std::size_t beginIndex,
+    std::size_t endIndex) {
+    if (history.quantity() != QuantityKind::Strain ||
+        referenceIndex >= history.size() ||
+        beginIndex >= endIndex || endIndex > history.size() ||
+        !history.samples()[referenceIndex].prepared ||
+        !std::isfinite(effectivePoissonRatio) ||
+        effectivePoissonRatio <= -1.0 || effectivePoissonRatio >= 0.5) {
+        return std::nullopt;
+    }
+
+    const Tensor3& reference = history.samples()[referenceIndex].prepared.tensor;
+    std::optional<std::size_t> maximumIndex;
+    double maximumValue = -1.0;
+    const auto& samples = history.samples();
+    for (std::size_t i = beginIndex; i < endIndex; ++i) {
+        if (!samples[i].prepared) continue;
+        const double value = between(reference, samples[i].prepared.tensor,
+                                     effectivePoissonRatio);
+        if (!std::isfinite(value)) continue;
+        if (!maximumIndex || value > maximumValue) {
+            maximumIndex = i;
+            maximumValue = value;
+        }
+    }
+    return maximumIndex;
 }
 
 std::vector<std::size_t> WangBrownRelativeStrain::componentTurningPoints(
