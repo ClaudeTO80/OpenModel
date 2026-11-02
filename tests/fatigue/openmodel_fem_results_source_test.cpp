@@ -3,6 +3,7 @@
 #include <cassert>
 #include <cmath>
 #include <limits>
+#include <sstream>
 
 using namespace OpenModel;
 using namespace OpenModel::Fatigue;
@@ -67,6 +68,32 @@ int main() {
     element.entityId = 9001;
     element.integrationPoint = 1;
     assert(!source.readSample("STRESS", element, 0, sample));
+
+    // CalculiX DAT integration-point records are retained independently of
+    // the per-element mean generated for viewer compatibility.
+    const std::string dat =
+        "stresses (elem, integ.pnt., sxx, syy, szz, sxy, sxz, syz) for set EALL and time 1.0\\n"
+        "\\n"
+        "9001 1 10 20 30 4 5 6\\n"
+        "9001 2 30 40 50 6 7 8\\n"
+        "\\n";
+    std::istringstream datInput(dat);
+    FemResults datResults;
+    const ResultImportResult datImport = CalculixDatImporter{}.parse(datInput, datResults);
+    assert(datImport);
+    assert(datResults.integrationPointFields.size() == 1);
+    assert(datResults.integrationPointFields[0].recordCount() == 2);
+    assert(datResults.integrationPointFields[0].elementIds[0] == 9001);
+    assert(datResults.integrationPointFields[0].integrationPointIds[1] == 2);
+    OpenModelFemResultsSource datSource(datResults);
+    ResultPosition ip;
+    ip.location = ResultLocation::IntegrationPoint;
+    ip.entityId = 9001;
+    ip.integrationPoint = 2;
+    assert(datSource.readSample("STRESS", ip, 0, sample));
+    assert(sample.components[0] == 30.0 && sample.components[5] == 8.0);
+    ip.integrationPoint = 3;
+    assert(!datSource.readSample("STRESS", ip, 0, sample));
 
     // Non-finite values and duplicate IDs are rejected.
     results.fields[0].values[0] = (std::numeric_limits<double>::quiet_NaN)();
