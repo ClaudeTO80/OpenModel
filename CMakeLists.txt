@@ -60,7 +60,8 @@ set(OPENMODEL_CORE_SOURCES
     src/fatigue/FatigueSpectrumReport.cpp
     src/fatigue/FatigueSpectrumReportWriter.cpp
     src/fatigue/FatigueDamageMap.cpp
-    src/fatigue/FatigueDamageMapWriter.cpp)
+    src/fatigue/FatigueDamageMapWriter.cpp
+    src/fatigue/FatigueDamageMapWebViewAdapter.cpp)
 
 function(openmodel_configure_core_target target export_name)
     target_include_directories(${target} PUBLIC
@@ -190,11 +191,12 @@ if(OPENMODEL_BUILD_TESTS)
     openmodel_add_test(fatigue_spectrum_report_test tests/fatigue/fatigue_spectrum_report_test.cpp)
     openmodel_add_test(fatigue_damage_map_test tests/fatigue/fatigue_damage_map_test.cpp)
     openmodel_add_test(fatigue_damage_map_writer_test tests/fatigue/fatigue_damage_map_writer_test.cpp)
+    openmodel_add_test(fatigue_damage_map_webview_adapter_test tests/fatigue/fatigue_damage_map_webview_adapter_test.cpp)
     openmodel_add_test(analysis_setup_test tests/analysis_setup_test.cpp)
     openmodel_add_test(mesh_selection_test tests/mesh_selection_test.cpp)
     set(_openmodel_core_test_names core_smoke_test mesh_validation_test abaqus_writer_test physical_groups_test
         mesh_topology_test surface_mesher_test gltf_writer_test surface_refiner_test
-        web_view_writer_test mesh_binary_io_test mesh_importer_test fem_results_test fatigue_result_source_test fatigue_tensor_normalizer_test fatigue_sample_preparer_test fatigue_stress_history_test fatigue_cycle_counting_test fatigue_multiaxial_cycle_contract_test fatigue_material_test fatigue_damage_model_test fatigue_analysis_test fatigue_report_test fatigue_report_writer_test fatigue_spectrum_report_test fatigue_damage_map_test fatigue_damage_map_writer_test analysis_setup_test mesh_selection_test)
+        web_view_writer_test mesh_binary_io_test mesh_importer_test fem_results_test fatigue_result_source_test fatigue_tensor_normalizer_test fatigue_sample_preparer_test fatigue_stress_history_test fatigue_cycle_counting_test fatigue_multiaxial_cycle_contract_test fatigue_material_test fatigue_damage_model_test fatigue_analysis_test fatigue_report_test fatigue_report_writer_test fatigue_spectrum_report_test fatigue_damage_map_test fatigue_damage_map_writer_test fatigue_damage_map_webview_adapter_test analysis_setup_test mesh_selection_test)
     if(OPENMODEL_BUILD_CLI)
         list(APPEND _openmodel_core_test_names openmodel_cli_info openmodel_cli_validate_demo)
     endif()
