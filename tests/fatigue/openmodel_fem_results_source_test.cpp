@@ -18,7 +18,7 @@ int main() {
     stress.name = "STRESS";
     stress.components = {"SXX", "SYY", "SZZ", "SXY", "SXZ", "SYZ"};
     stress.step = 0;
-    stress.location = OpenModel::Fatigue::ResultLocation::Element;
+    stress.location = OpenModel::ResultLocation::Element;
     stress.ids = {101, 9001};
     stress.values = {10, 20, 30, 4, 5, 6, 100, 200, 300, 40, 50, 60};
     results.fields.push_back(stress);
@@ -27,7 +27,7 @@ int main() {
     displacement.name = "DISP";
     displacement.components = {"U1", "U2", "U3"};
     displacement.step = 0;
-    displacement.location = OpenModel::Fatigue::ResultLocation::Node;
+    displacement.location = OpenModel::ResultLocation::Node;
     displacement.ids = {77};
     displacement.values = {1.0, 2.0, 3.0};
     results.fields.push_back(displacement);
