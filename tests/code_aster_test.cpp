@@ -128,6 +128,9 @@ void testStaticExport() {
     CHECK(contains(comm, "MODELISATION='3D'"));
     CHECK(contains(comm, "E=210000.0, NU=0.3, RHO=7.85e-09"));
     CHECK(contains(comm, "_F(GROUP_NO='OM_FIX1', DX=0.0, DY=0.0, DZ=0.0)"));
+    const auto prescribedModel = parseOk("material E=210000 nu=0.3\nfix group:Bottom dof=3 value=0,0,-1.75\n");
+    const auto prescribedCase = writeCodeAsterCase(mesh, prescribedModel, dir, options);
+    CHECK(prescribedCase.success && contains(slurp(prescribedCase.commFile), "DZ=-1.75"));
     CHECK(contains(comm, "_F(GROUP_NO='OM_FIX2', DX=0.0)"));
     CHECK(contains(comm, "FY=-25.0"));                                          // 100 N shared by 4 nodes
     CHECK(!contains(comm, "FX="));
@@ -175,6 +178,8 @@ void testExportErrors() {
     };
     fails("material E=1 nu=0.3\nforce all F=1,0,0\n", "needs at least one support");
     fails("material E=1 nu=0.3\nfix group:Nope\n", "Unknown group");
+    fails("material E=1 nu=0.3\nfix all dof=1 value=0,0,0\nfix plane:x=0 dof=1 value=1,0,0\n",
+          "conflicting prescribed displacements");
     fails("material E=1 nu=0.3\nfix all\npressure group:Body p=1\n", "not a surface group");
     fails("material E=1 nu=0.3\nfix all\npressure group:Missing p=1\n", "unknown surface group");
     fails("material E=1 nu=0.3\nfix all\ngravity g=0,0,-1\n", "density");
