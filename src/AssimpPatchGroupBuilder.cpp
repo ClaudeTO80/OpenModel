@@ -10,12 +10,6 @@
 #include <unordered_set>
 
 namespace {
-std::string blockName(std::size_t index, const std::string& name) {
-    std::ostringstream out;
-    out << "ASSIMP_SURFACE_" << index;
-    if (!name.empty()) out << "_" << name;
-    return out.str();
-}
 double dot3(const std::array<double,3>& a,const std::array<double,3>& b) {
     return a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
 }
@@ -38,20 +32,10 @@ bool matchesFilter(const AssimpSurfacePatch& patch,const AssimpPatchFilter& filt
         return false;
     return true;
 }
-double triangleArea2(const RenderSubMesh& part, std::size_t triangle) {
-    const auto ia=static_cast<std::size_t>(part.indices[3*triangle]);
-    const auto ib=static_cast<std::size_t>(part.indices[3*triangle+1]);
-    const auto ic=static_cast<std::size_t>(part.indices[3*triangle+2]);
-    const auto coord=[&](std::size_t i,std::size_t a){return part.vertices[3*i+a];};
-    const double abx=coord(ib,0)-coord(ia,0), aby=coord(ib,1)-coord(ia,1), abz=coord(ib,2)-coord(ia,2);
-    const double acx=coord(ic,0)-coord(ia,0), acy=coord(ic,1)-coord(ia,1), acz=coord(ic,2)-coord(ia,2);
-    const double nx=aby*acz-abz*acy, ny=abz*acx-abx*acz, nz=abx*acy-aby*acx;
-    return std::sqrt(nx*nx+ny*ny+nz*nz);
-}
-}
 
 bool AssimpPatchGroupBuilder::apply(const std::vector<RenderSubMesh>& parts,
     const std::vector<AssimpSurfacePatch>& patches,
+    const std::vector<std::vector<ElementId>>& sourceTriangleElementIds,
     const std::vector<AssimpPatchGroupDefinition>& definitions,
     MeshData& mesh, std::vector<std::string>& diagnostics) {
     diagnostics.clear();
@@ -125,39 +109,14 @@ bool AssimpPatchGroupBuilder::apply(const std::vector<RenderSubMesh>& parts,
         resolvedPatchIndices.push_back(std::move(selected));
     }
 
-    // Build source-triangle -> generated ElementId maps. The importer preserves
-    // source triangle order and skips only degenerate triangles.
-    std::vector<std::vector<ElementId>> sourceElementIds(parts.size());
+    if (sourceTriangleElementIds.size()!=parts.size()) {
+        diagnostics.push_back("Source triangle-to-element mapping does not match the Assimp parts.");
+        return false;
+    }
     for (std::size_t pi=0;pi<parts.size();++pi) {
-        const auto& part=parts[pi];
-        if (part.vertices.empty() || part.vertices.size()%3 || part.indices.empty() || part.indices.size()%3) {
-            diagnostics.push_back("Malformed source part "+std::to_string(pi)+".");
-            return false;
-        }
-        const auto blockIt=std::find_if(mesh.getElementBlocks().begin(),mesh.getElementBlocks().end(),
-            [&](const ElementBlock& block){return block.name==blockName(pi,part.name);});
-        if (blockIt==mesh.getElementBlocks().end() || blockIt->type!=ElementType::Triangle3) {
-            diagnostics.push_back("Missing Triangle3 element block for Assimp part "+std::to_string(pi)+".");
-            return false;
-        }
-        sourceElementIds[pi].assign(part.indices.size()/3,0);
-        std::size_t blockElement=0;
-        for (std::size_t ti=0;ti<part.indices.size()/3;++ti) {
-            for (std::size_t k=0;k<3;++k)
-                if (part.indices[3*ti+k]>=part.vertices.size()/3) {
-                    diagnostics.push_back("Invalid source triangle index in part "+std::to_string(pi)+".");
-                    return false;
-                }
-            const double twiceArea=triangleArea2(part,ti);
-            if (!std::isfinite(twiceArea) || twiceArea<=1e-18) continue;
-            if (blockElement>=blockIt->ids.size()) {
-                diagnostics.push_back("Source triangle count does not match imported element block.");
-                return false;
-            }
-            sourceElementIds[pi][ti]=blockIt->ids[blockElement++];
-        }
-        if (blockElement!=blockIt->ids.size()) {
-            diagnostics.push_back("Imported element block contains elements not accounted for by source triangles.");
+        if (parts[pi].indices.size()%3!=0 ||
+            sourceTriangleElementIds[pi].size()!=parts[pi].indices.size()/3) {
+            diagnostics.push_back("Source triangle mapping has an invalid size for part "+std::to_string(pi)+".");
             return false;
         }
     }
@@ -199,12 +158,12 @@ bool AssimpPatchGroupBuilder::apply(const std::vector<RenderSubMesh>& parts,
                 return false;
             }
             for (const auto triangle:patch.triangleIndices) {
-                if (triangle>=sourceElementIds[patch.partIndex].size() ||
-                    sourceElementIds[patch.partIndex][triangle]==0) {
+                if (triangle>=sourceTriangleElementIds[patch.partIndex].size() ||
+                    sourceTriangleElementIds[patch.partIndex][triangle]==0) {
                     diagnostics.push_back("Patch refers to a missing or degenerate imported triangle.");
                     return false;
                 }
-                elements.insert(sourceElementIds[patch.partIndex][triangle]);
+                elements.insert(sourceTriangleElementIds[patch.partIndex][triangle]);
             }
         }
         if (elements.empty()) {
