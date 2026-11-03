@@ -17,7 +17,7 @@
  * writeCodeAsterCase() turns a MeshData and an AnalysisModel (the same model that drives the CalculiX writer) into three files
  * in a folder: `<job>.mail` (mesh in the code_aster text format "ASTER"), `<job>.comm` (command file) and `<job>.export`
  * (the file given to `run_aster` / `as_run`). Node `N<id>` and element `M<id>` carry the external ids of the mesh, so results
- * map back to the mesh by id. Physical groups become `GROUP_MA`, node sets become `GROUP_NO`; the analysis adds `OM_VOLUME`
+ * map back to the mesh by id. Physical groups and generic mesh-group element memberships become `GROUP_MA`, node sets and generic mesh-group node memberships become `GROUP_NO`; generic group node memberships use `<name>_NODES`. The analysis adds `OM_VOLUME`
  * (all volume elements), `OM_FIX<i>` and `OM_LOAD<i>`.
  *
  * ### Results
