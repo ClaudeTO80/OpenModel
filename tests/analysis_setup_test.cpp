@@ -210,9 +210,9 @@ void testWriterStatic() {
     CHECK(contains(t, "*NSET, NSET=MG_FIX1\n11, 12, 13, 14\n"));
     CHECK(contains(t, "*NSET, NSET=BLADEROOT_NODES\n11, 14, 15, 18\n"));
     CHECK(contains(t, "MG_FIX1, 1, 1, 0.") && contains(t, "MG_FIX1, 3, 3, 0.") &&
-          contains(t, "MG_FIX2, 1, 1, 0.") && contains(t, "MG_FIX3, 1, 1, 0.") &&
-          contains(t, "MG_FIX3, 3, 3, 0."));
-    CHECK(!contains(t, "MG_FIX2, 2, 2") && !contains(t, "MG_FIX2, 3, 3"));
+          contains(t, "MG_FIX2, 1, 1, 0.") && contains(t, "MG_FIX2, 3, 3, 0.") &&
+          contains(t, "MG_FIX3, 1, 1, 0."));
+    CHECK(!contains(t, "MG_FIX3, 2, 2") && !contains(t, "MG_FIX3, 3, 3"));
     CHECK(contains(t, "*STATIC"));
     CHECK(contains(t, "MG_LOAD1, 3, -10"));              // -40 shared by 4 nodes
     // Independent derivation of the CalculiX face numbers (P1 = nodes 1-2-3-4, P2 = 5-6-7-8, P4 = 2-3-7-6):
