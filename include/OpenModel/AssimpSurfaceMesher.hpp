@@ -61,6 +61,10 @@ class AssimpSurfaceMesher final : public Mesher {
 public:
     std::string getName() const override;
     const std::vector<std::string>& diagnostics() const override { return m_diagnostics; }
+    // One entry per source triangle; zero denotes a skipped degenerate triangle.
+    const std::vector<std::vector<ElementId>>& sourceTriangleElementIds() const noexcept {
+        return m_sourceTriangleElementIds;
+    }
 
     bool buildMesh(const std::shared_ptr<CADModel>& cadModel,
                    const MeshingOptions& options,
@@ -78,4 +82,5 @@ public:
 
 private:
     std::vector<std::string> m_diagnostics;
+    std::vector<std::vector<ElementId>> m_sourceTriangleElementIds;
 };
