@@ -473,6 +473,7 @@ SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& mo
             }
             if (!groupElements) return failed(r, "pressure: unknown surface group '" + p.group + "'");
             if (groupDimension != 2) return failed(r, "pressure: group '" + p.group + "' is not a surface group (dimension " + std::to_string(groupDimension) + ")");
+            if (groupElements->empty()) return failed(r, "pressure: surface group '" + p.group + "' has no surface elements");
             std::size_t unmatched = 0, shared = 0;
             for (const ElementId id : *groupElements) {
                 const auto at = location.find(id);
