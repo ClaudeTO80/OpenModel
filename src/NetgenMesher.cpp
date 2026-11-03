@@ -133,23 +133,35 @@ bool NetgenMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Me
                 if (nodeCount == 0) throw std::runtime_error("Netgen surface element topology is unsupported");
                 std::vector<NodeIndex> connectivity;
                 connectivity.reserve(nodeCount);
-                std::array<double, 3> centroid{{0.0, 0.0, 0.0}};
+                std::set<int> commonFaces;
+                bool firstCorner = true;
                 for (std::size_t local = 0; local < nodeCount; ++local) {
                     if (pointIds[local] < 1 || pointIds[local] > pointCount)
                         throw std::runtime_error("Netgen surface element references an invalid point number");
                     const auto index = static_cast<NodeIndex>(pointIds[local] - 1);
                     connectivity.push_back(index);
                     if (local < cornerCount) {
+                        // Surface mesh corner nodes lie on the CAD support surface.
+                        // Intersecting their face candidates is more reliable than
+                        // testing a chord centroid on curved geometry.
                         const auto xyz = candidate.nodeCoordinates(index);
-                        for (int k = 0; k < 3; ++k)
-                            centroid[static_cast<std::size_t>(k)] += xyz[static_cast<std::size_t>(k)] /
-                                                                      static_cast<double>(cornerCount);
+                        const auto hitsVector = cadModel->facesContainingPoint(xyz, mappingTolerance);
+                        const std::set<int> hits(hitsVector.begin(), hitsVector.end());
+                        if (firstCorner) {
+                            commonFaces = hits;
+                            firstCorner = false;
+                        } else {
+                            std::set<int> intersection;
+                            std::set_intersection(commonFaces.begin(), commonFaces.end(),
+                                                  hits.begin(), hits.end(),
+                                                  std::inserter(intersection, intersection.begin()));
+                            commonFaces = std::move(intersection);
+                        }
                     }
                 }
                 const ElementId surfaceId = static_cast<ElementId>(elementCount) + static_cast<ElementId>(i);
                 candidate.addElement("Netgen_Surface", type, surfaceId, connectivity);
-                const auto faceHits = cadModel->facesContainingPoint(centroid, mappingTolerance);
-                for (const int faceId : faceHits) {
+                for (const int faceId : commonFaces) {
                     elementsByCadFace[faceId].push_back(surfaceId);
                     auto& faceNodes = nodesByCadFace[faceId];
                     faceNodes.insert(faceNodes.end(), connectivity.begin(), connectivity.end());
