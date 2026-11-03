@@ -171,8 +171,12 @@ bool OCCModel::loadFromFile(const std::string& filepath)  {
         m_groups.clear();
         m_solidMap.Clear();
         m_faceMap.Clear();
+        m_edgeMap.Clear();
+        m_vertexMap.Clear();
         m_solidBoxes.clear();
         m_faceBoxes.clear();
+        m_edgeBoxes.clear();
+        m_vertexBoxes.clear();
 
         const auto ext = lowercaseExtension(filepath);
         TopoDS_Shape loaded;
