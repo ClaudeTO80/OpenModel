@@ -65,7 +65,7 @@ struct CADGroup {
     std::string name;             ///< Name as written in the CAD file.
     CADGroupKind kind = CADGroupKind::Layer;
     int dimension = 2;            ///< 0 = vertex ids, 1 = edge ids, 2 = face ids, 3 = solid ids.
-    std::vector<int> ids;         ///< Face ids (dimension 2) or solid ids (dimension 3), sorted, unique.
+    std::vector<int> ids;         ///< Entity IDs for the selected topological dimension, sorted and unique.
 };
 
 class CADModel {
