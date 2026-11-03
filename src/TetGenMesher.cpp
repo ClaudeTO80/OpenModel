@@ -320,6 +320,7 @@ bool TetGenMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Me
                     const std::string name = group.name;
                     if (!usedNames.insert(name).second)
                         throw std::runtime_error("Duplicate CAD group name across dimensions: " + name);
+                    outMesh.addNodeSet(name + "_NODES", nodes);
                     outMesh.addMeshGroup(MeshGroup{name, group.dimension, MeshGroupSource::CAD,
                                                   std::vector<int>(requested.begin(), requested.end()),
                                                   {}, std::move(nodes)});
