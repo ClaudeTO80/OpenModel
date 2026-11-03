@@ -97,7 +97,7 @@ bool NetgenMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Me
 
             // Export Netgen's boundary elements as first-class OpenModel
             // elements. The C API does not expose a stable CAD face ID for
-            // each surface element, so map element centroids through CADModel.
+            // each surface element, so map its corner nodes through CADModel.
             const int surfaceCount = Ng_GetNSE(mesh);
             if (surfaceCount < 0) throw std::runtime_error("Netgen returned a negative surface-element count");
             std::map<int, std::vector<ElementId>> elementsByCadFace;
