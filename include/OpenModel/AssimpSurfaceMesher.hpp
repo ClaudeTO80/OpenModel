@@ -4,18 +4,45 @@
 #include <OpenModel/Mesher.hpp>
 
 #include <array>
+#include <limits>
 #include <memory>
 #include <string>
 #include <vector>
 
-/**
- * A mesh-based surface selection. It deliberately describes geometry rather
- * than a CAD face identifier, because Assimp does not preserve B-Rep topology.
- *
- * A triangle is selected only when all three corner vertices lie within
- * tolerance of the plane and its normal is sufficiently aligned with the
- * requested plane normal.
- */
+/** Geometric selector operating on the imported triangle mesh, never on B-Rep IDs. */
+enum class AssimpSurfaceSelectorKind {
+    Plane,          ///< Triangle vertices lie on a plane within tolerance.
+    AxisAlignedBox, ///< All triangle vertices lie inside the supplied AABB.
+    CylinderSide    ///< All triangle vertices lie on the lateral cylinder within tolerance.
+};
+
+struct AssimpSurfaceSelector {
+    std::string name;
+    AssimpSurfaceSelectorKind kind = AssimpSurfaceSelectorKind::Plane;
+
+    // Plane: a point on the plane. Cylinder: a point on the cylinder axis.
+    std::array<double, 3> point{{0.0, 0.0, 0.0}};
+    // Plane: plane normal. Cylinder: cylinder axis direction.
+    std::array<double, 3> direction{{0.0, 0.0, 1.0}};
+
+    // Axis-aligned box limits in model coordinates.
+    std::array<double, 3> boundsMin{{0.0, 0.0, 0.0}};
+    std::array<double, 3> boundsMax{{0.0, 0.0, 0.0}};
+
+    // Cylinder lateral surface.
+    double radius = 1.0;
+    double axialMin = -std::numeric_limits<double>::max();
+    double axialMax = std::numeric_limits<double>::max();
+
+    // Absolute distance tolerance, in the source model's units.
+    double tolerance = 1e-5;
+
+    // Optional normal filter. For planes it is enabled by default.
+    bool constrainNormal = true;
+    double minNormalAlignment = 0.95;
+};
+
+/** Backward-compatible plane selector used by the first Assimp implementation. */
 struct AssimpPlaneSurfaceGroup {
     std::string name;
     std::array<double, 3> point{{0.0, 0.0, 0.0}};
@@ -25,12 +52,9 @@ struct AssimpPlaneSurfaceGroup {
 };
 
 /**
- * Imports Assimp's already-triangulated geometry into MeshData.
- *
- * This adapter is intentionally surface-only: Assimp supplies polygonal
- * triangles, not a watertight CAD boundary representation from which a
- * reliable volume mesh can be generated. It can create imported surface
- * groups and corresponding node sets using geometric plane selectors.
+ * Imports Assimp's already-triangulated geometry into MeshData and optionally
+ * builds geometric surface groups plus matching node sets. This is a surface
+ * mesh adapter; it does not create tetrahedra or infer CAD topology.
  */
 class AssimpSurfaceMesher final : public Mesher {
 public:
@@ -44,6 +68,11 @@ public:
     bool buildMesh(const std::shared_ptr<AssimpModel>& model,
                    const MeshingOptions& options,
                    const std::vector<AssimpPlaneSurfaceGroup>& surfaceGroups,
+                   MeshData& outMesh);
+
+    bool buildMesh(const std::shared_ptr<AssimpModel>& model,
+                   const MeshingOptions& options,
+                   const std::vector<AssimpSurfaceSelector>& selectors,
                    MeshData& outMesh);
 
 private:
