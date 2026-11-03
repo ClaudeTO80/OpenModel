@@ -43,8 +43,8 @@ bool AssimpSurfacePatchAnalyzer::analyze(const std::vector<RenderSubMesh>& parts
     if(!std::isfinite(weldTolerance)||weldTolerance<=0.0){
         diagnostics.push_back("Weld tolerance must be finite and positive."); return false;
     }
-    if(!std::isfinite(maxDihedralAngleDegrees)||maxDihedralAngleDegrees<0.0||maxDihedralAngleDegrees>180.0){
-        diagnostics.push_back("Maximum dihedral angle must be in [0, 180] degrees."); return false;
+    if(!std::isfinite(maxDihedralAngleDegrees)||maxDihedralAngleDegrees<0.0||maxDihedralAngleDegrees>90.0){
+        diagnostics.push_back("Maximum winding-independent dihedral angle must be in [0, 90] degrees."); return false;
     }
     const double minNormalDot=std::cos(maxDihedralAngleDegrees*3.14159265358979323846/180.0);
     try {
