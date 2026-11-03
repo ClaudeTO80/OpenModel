@@ -89,11 +89,13 @@ jobs:
             cmake_package: mingw-w64-x86_64-cmake
             ninja_package: mingw-w64-x86_64-ninja
             python_package: mingw-w64-x86_64-python
+            node_package: mingw-w64-x86_64-nodejs
           - msystem: UCRT64
             gcc_package: mingw-w64-ucrt-x86_64-gcc
             cmake_package: mingw-w64-ucrt-x86_64-cmake
             ninja_package: mingw-w64-ucrt-x86_64-ninja
             python_package: mingw-w64-ucrt-x86_64-python
+            node_package: mingw-w64-ucrt-x86_64-nodejs
         build_type:
           - Release
           - Debug
@@ -116,6 +118,7 @@ jobs:
             ${{ matrix.cmake_package }}
             ${{ matrix.ninja_package }}
             ${{ matrix.python_package }}
+            ${{ matrix.node_package }}
 
       - name: Show toolchain
         run: |
@@ -173,6 +176,7 @@ jobs:
             cmake_package: mingw-w64-x86_64-cmake
             ninja_package: mingw-w64-x86_64-ninja
             python_package: mingw-w64-x86_64-python
+            node_package: mingw-w64-x86_64-nodejs
           - platform: Windows UCRT64
             runner: windows-latest
             toolchain: ucrt64
@@ -181,6 +185,7 @@ jobs:
             cmake_package: mingw-w64-ucrt-x86_64-cmake
             ninja_package: mingw-w64-ucrt-x86_64-ninja
             python_package: mingw-w64-ucrt-x86_64-python
+            node_package: mingw-w64-ucrt-x86_64-nodejs
 
     steps:
       - name: Checkout
@@ -197,6 +202,7 @@ jobs:
             ${{ matrix.cmake_package }}
             ${{ matrix.ninja_package }}
             ${{ matrix.python_package }}
+            ${{ matrix.node_package }}
 
       - name: Set up Python
         if: matrix.toolchain != 'mingw64' && matrix.toolchain != 'ucrt64'
