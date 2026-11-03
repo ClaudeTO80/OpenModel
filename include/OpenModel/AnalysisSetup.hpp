@@ -22,6 +22,7 @@
  * @code
  * material E=210000 nu=0.3 rho=7.85e-9 [name=STEEL]
  * fix plane:x=0 [dof=1,2,3] [tol=1e-6]          # default: all three translations
+ * fix group:BladeRoot_NODES dof=1,2,3           # Node Set generated from a CAD face group
  * force plane:x=10 F=0,-100,0                   # total force, shared equally by the selected nodes
  * pressure group:Top p=2.5                      # on a surface group; positive = pushing into the body
  * gravity g=0,0,-9810                           # acceleration vector (needs rho)
