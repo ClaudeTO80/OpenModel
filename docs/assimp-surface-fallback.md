@@ -189,3 +189,17 @@ if (!model.setImportOptions(importOptions, &error) || !model.loadFromFile("part.
 ```
 
 Assimp does not provide a reliable universal unit convention across all supported file formats. `coordinateScale` is explicit and defaults to 1.0; the importer does not guess source units. It is uniform scaling, not a general anisotropic transform. Normals are transformed by the inverse transpose of the node transform, and triangle winding is corrected for negative-determinant (mirrored) node transforms.
+
+
+A successful analytic fit can be converted directly into a geometric selector. The helper derives the cylinder/cone axial interval from the source patch and orients a cone selector from its apex into the fitted surface:
+
+```cpp
+AssimpSurfaceSelector selector;
+std::string diagnostic;
+if (!AssimpSurfaceGeometryFitter::makeSelector(
+        fits[i], assimpModel->getRenderMeshes(), patches[i],
+        "FITTED_SURFACE", 1e-4, selector, diagnostic))
+    throw std::runtime_error(diagnostic);
+```
+
+`Freeform` results cannot be converted to analytic selectors. The generated selectors still use vertex-based whole-triangle tests; they do not clip or subdivide triangles.
