@@ -32,6 +32,7 @@ bool matchesFilter(const AssimpSurfacePatch& patch,const AssimpPatchFilter& filt
         return false;
     return true;
 }
+} // namespace
 
 bool AssimpPatchGroupBuilder::apply(const std::vector<RenderSubMesh>& parts,
     const std::vector<AssimpSurfacePatch>& patches,
