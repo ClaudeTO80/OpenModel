@@ -269,6 +269,47 @@ bool TetGenMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Me
                                                std::vector<int>(uniqueFaces.begin(), uniqueFaces.end()),
                                                std::move(elements), std::move(nodes)});
             }
+            // Edge and vertex groups are transferred as geometric node
+            // memberships in TetGen/Netgen. These C adapters do not currently
+            // expose stable 1D CAD-curve element ownership.
+            if (options.importCadGroups) {
+                for (const auto& group : cadModel->getGroups()) {
+                    if ((group.dimension != 1 && group.dimension != 0) || group.ids.empty()) continue;
+                    const std::set<int> requested(group.ids.begin(), group.ids.end());
+                    std::map<int, std::vector<NodeIndex>> nodesByEntity;
+                    for (NodeIndex node = 0; node < outMesh.getNumNodes(); ++node) {
+                        const auto point = outMesh.nodeCoordinates(node);
+                        const auto hits = group.dimension == 1
+                            ? cadModel->edgesContainingPoint(point, mappingTolerance)
+                            : cadModel->verticesContainingPoint(point, mappingTolerance);
+                        for (const int id : hits)
+                            if (requested.count(id)) nodesByEntity[id].push_back(node);
+                    }
+                    std::vector<NodeIndex> nodes;
+                    std::vector<int> missing;
+                    for (const int id : requested) {
+                        const auto found = nodesByEntity.find(id);
+                        if (found == nodesByEntity.end() || found->second.empty()) missing.push_back(id);
+                        else nodes.insert(nodes.end(), found->second.begin(), found->second.end());
+                    }
+                    if (!missing.empty()) {
+                        std::string message = "Could not completely map CAD " +
+                            std::string(group.dimension == 1 ? "edge" : "vertex") +
+                            " group '" + group.name + "'. Missing entity IDs:";
+                        for (const int id : missing) message += " " + std::to_string(id);
+                        throw std::runtime_error(message);
+                    }
+                    std::sort(nodes.begin(), nodes.end());
+                    nodes.erase(std::unique(nodes.begin(), nodes.end()), nodes.end());
+                    const std::string name = group.name;
+                    if (!usedNames.insert(name).second)
+                        throw std::runtime_error("Duplicate CAD group name across dimensions: " + name);
+                    outMesh.addMeshGroup(MeshGroup{name, group.dimension, MeshGroupSource::CAD,
+                                                  std::vector<int>(requested.begin(), requested.end()),
+                                                  {}, std::move(nodes)});
+                }
+            }
+
             if (!requestedFaceGroups.empty() && cadFaceToMarker.empty())
                 throw std::runtime_error("TetGen input tessellation has no sourceFaceId metadata; CAD face groups cannot be mapped.");
 
