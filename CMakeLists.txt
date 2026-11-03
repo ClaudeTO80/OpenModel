@@ -363,7 +363,9 @@ endif()
 
 if(OPENMODEL_BUILD_ASSIMP_BACKEND)
     find_package(assimp CONFIG REQUIRED)
-    add_library(openmodel_assimp STATIC src/AssimpModel.cpp)
+    add_library(openmodel_assimp STATIC
+        src/AssimpModel.cpp
+        src/AssimpSurfaceMesher.cpp)
     target_link_libraries(openmodel_assimp PUBLIC OpenModel::Core)
     if(TARGET assimp::assimp)
         target_link_libraries(openmodel_assimp PUBLIC assimp::assimp)
@@ -376,7 +378,11 @@ if(OPENMODEL_BUILD_ASSIMP_BACKEND)
         add_executable(assimp_model_test tests/assimp_model_test.cpp)
         target_link_libraries(assimp_model_test PRIVATE openmodel_assimp)
         add_test(NAME assimp_model_test COMMAND assimp_model_test)
-        set_tests_properties(assimp_model_test PROPERTIES LABELS "integration;assimp")
+        add_executable(assimp_surface_mesher_test tests/assimp_surface_mesher_test.cpp)
+        target_link_libraries(assimp_surface_mesher_test PRIVATE openmodel_assimp)
+        add_test(NAME assimp_surface_mesher_test COMMAND assimp_surface_mesher_test)
+        set_tests_properties(assimp_model_test assimp_surface_mesher_test
+            PROPERTIES LABELS "integration;assimp")
     endif()
 endif()
 
