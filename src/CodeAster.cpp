@@ -558,7 +558,8 @@ CodeAsterExportResult writeCodeAsterCase(const MeshData& mesh, const AnalysisMod
     for (std::size_t i = 0; i < model.supports.size(); ++i) {
         c << "    _F(GROUP_NO='" << extra[supportGroup[i]].name << "'";
         const char* dof[3] = {"DX", "DY", "DZ"};
-        for (int d = 0; d < 3; ++d) if (model.supports[i].dof[static_cast<std::size_t>(d)]) c << ", " << dof[d] << "=0.0";
+        for (int d = 0; d < 3; ++d) if (model.supports[i].dof[static_cast<std::size_t>(d)])
+            c << ", " << dof[d] << "=" << pyReal(model.supports[i].displacement[static_cast<std::size_t>(d)]);
         c << "),\n";
     }
     c << "))\n\n";
