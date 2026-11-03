@@ -118,7 +118,7 @@ void testParser() {
         "# comment\n"
         "material E=210000 nu=0.3 rho=7.85e-9 name=steel   # trailing\n"
         "fix plane:x=0\n"
-        "fix group:Bottom dof=3\n"
+        "fix group:Bottom dof=3 value=0,0,-2.5\n"
         "force plane:x=10 F=0,-100,0\r\n"
         "pressure group:Top p=2.5\n"
         "gravity g=0,0,-9810\n"
@@ -259,10 +259,16 @@ void testWriterStatic() {
     // Order: the keyword data of the step comes after *STEP.
     CHECK(t.find("*STEP") < t.find("*STATIC") && t.find("*STATIC") < t.find("*NODE FILE"));
 
-    auto prescribed = parseOk("material E=210000 nu=0.3\\nfix group:Bottom dof=3 value=0,0,-1.25\\nforce all F=0,0,0\\n");
+    auto prescribed = parseOk("material E=210000 nu=0.3\nfix group:Bottom dof=3 value=0,0,-1.25\nforce all F=0,0,0\n");
     const auto rp = writeSolverInput(hex, prescribed, dir / "prescribed.inp");
     CHECK(rp.success);
     CHECK(contains(slurp(dir / "prescribed.inp"), "MG_FIX1, 3, 3, -1.25"));
+    const auto conflicting = parseOk("material E=210000 nu=0.3\nfix all dof=1 value=0,0,0\nfix plane:x=0 dof=1 value=1,0,0\n");
+    const auto conflictResult = writeSolverInput(hex, conflicting, dir / "conflict.inp");
+    CHECK(!conflictResult.success && contains(conflictResult.error, "conflicting prescribed displacements") &&
+          contains(conflictResult.error, "node 11") && contains(conflictResult.error, "degree of freedom 1"));
+    const auto compatible = parseOk("material E=210000 nu=0.3\nfix all dof=1 value=0,0,0\nfix plane:x=0 dof=1 value=0,0,0\n");
+    CHECK(writeSolverInput(hex, compatible, dir / "compatible.inp").success);
 
     model.elementPrint = 0;
     const auto r2 = writeSolverInput(hex, model, dir / "noprint.inp");
