@@ -242,12 +242,12 @@ bool saveCADFaceGroups(const std::string& source, const std::vector<UserCADFaceG
     {
         std::ofstream out(temporary, std::ios::trunc);
         if (!out) { error = "Impossibile creare il sidecar dei gruppi CAD: " + temporary.string(); return false; }
-        out << "OPENMODEL_CAD_FACE_GROUPS 1\\n" << std::quoted(source) << ' ' << size << ' ' << modified << '\\n';
-        out << groups.size() << '\\n';
+        out << "OPENMODEL_CAD_FACE_GROUPS 1\n" << std::quoted(source) << ' ' << size << ' ' << modified << '\n';
+        out << groups.size() << '\n';
         for (const auto& group : groups) {
             out << std::quoted(group.name) << ' ' << group.faceIds.size();
             for (const int id : group.faceIds) out << ' ' << id;
-            out << '\\n';
+            out << '\n';
         }
         if (!out) { error = "Scrittura del sidecar dei gruppi CAD fallita."; return false; }
     }
