@@ -165,3 +165,27 @@ if (!AssimpSurfaceGeometryFitter::fit(
 ```
 
 The fitter tries PCA-derived candidate axes, algebraic circle/sphere least-squares fits and a linear radius-versus-axial-coordinate cone fit. A minimum of eight unique vertices is required for non-planar primitive fitting by default to reduce overfitting of tiny patches. Residual thresholds and angular coverage are explicit acceptance criteria. This remains a mesh approximation: it does not recover exact CAD analytic surfaces, trim curves, parameterizations or B-Rep face IDs. Use it to classify/select mesh patches, not as a substitute for OpenCASCADE.
+
+
+## Import options and coordinate units
+
+`AssimpModel` exposes `AssimpImportOptions` for common post-processing controls:
+
+- `coordinateScale`: positive finite uniform scale applied after the complete Assimp node transform. Use it to convert source coordinates into the working unit system (for example, metres to millimetres).
+- `generateNormals`: request generated smooth normals when the source does not provide them.
+- `joinIdenticalVertices`: enable Assimp vertex joining.
+- `flipUVs`: request vertical texture-coordinate flipping.
+
+Set options before loading:
+
+```cpp
+AssimpModel model;
+AssimpImportOptions importOptions;
+importOptions.coordinateScale = 1000.0; // m -> mm
+importOptions.flipUVs = true;
+std::string error;
+if (!model.setImportOptions(importOptions, &error) || !model.loadFromFile("part.glb"))
+    throw std::runtime_error(error.empty() ? model.getLastError() : error);
+```
+
+Assimp does not provide a reliable universal unit convention across all supported file formats. `coordinateScale` is explicit and defaults to 1.0; the importer does not guess source units. It is uniform scaling, not a general anisotropic transform. Normals are transformed by the inverse transpose of the node transform, and triangle winding is corrected for negative-determinant (mirrored) node transforms.
