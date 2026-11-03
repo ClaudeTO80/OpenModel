@@ -19,10 +19,12 @@ ctest --test-dir build-assimp -R 'assimp_(model|surface_mesher)_test' --output-o
 
 All coordinates and tolerances use the source model's coordinate system and units.
 
-- **Plane**: all three vertices of a triangle must lie within the absolute plane-distance tolerance. The normal constraint compares the absolute dot product of the triangle normal and selector direction.
+- **Plane**: all three vertices of a triangle must lie within the absolute plane-distance tolerance. The optional normal constraint compares the absolute dot product of the triangle normal and selector direction. It is disabled by default; the `Normal` selector always applies it.
 - **Normal**: selects triangles by normal direction alone. The absolute dot product accepts either triangle winding; use a high alignment threshold to restrict the angular deviation.
 - **AxisAlignedBox**: all three vertices must lie inside the axis-aligned box, expanded by the tolerance. This is a spatial patch/region selector; use a thin box and optionally a normal constraint to isolate a particular side.
 - **CylinderSide**: all three vertices must lie within the radial tolerance of the cylinder radius and between the axial limits. It selects the lateral cylindrical patch, not the end caps. Use plane selectors for caps.
+- **SphereSurface**: all three vertices must lie within the radial tolerance of a sphere centered at `point` with the supplied `radius`.
+- **ConeSide**: all three vertices must lie within tolerance of a right circular cone. `point` is the apex, `direction` points from the apex into the cone, `coneHalfAngleRadians` is measured from that axis, and the axial interval is non-negative.
 
 A triangle is included as a whole. The implementation does not clip triangles at selector boundaries or create new nodes.
 
