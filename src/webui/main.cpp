@@ -273,9 +273,15 @@ void updateView() {
     }
     // Colours stored in the CAD file for the components whose group exists in the mesh being shown.
     WebViewOptions viewOptions;
-    if (g.cad && (source == &surfaceMesh || g.origin == MeshOrigin::Generated))
-        for (const auto& component : g.cad->getComponents())
-            if (component.hasColor && !component.isAssembly) viewOptions.groupColors[component.path] = component.color;
+    if (g.cad && (source == &surfaceMesh || g.origin == MeshOrigin::Generated)) {
+        for (const auto& component : g.cad->getComponents()) {
+            if (!component.hasColor || component.isAssembly) continue;
+            viewOptions.groupColors[component.path] = component.color;
+            if (source == &surfaceMesh)
+                for (const int faceId : component.faceIds)
+                    viewOptions.groupColors.emplace("__openmodel_cad_face_" + std::to_string(faceId), component.color);
+        }
+    }
     if (source == &g.mesh) attachResults(*source, viewOptions);
     else g.resultsNote.clear();
     const auto result = WebViewWriter::build(*source, viewOptions, g.view);
