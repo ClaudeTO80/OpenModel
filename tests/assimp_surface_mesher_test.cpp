@@ -151,6 +151,27 @@ int main() {
         require(foldedPatches.front().normalCoherence < 0.9,
                 "Folded patch normal coherence did not detect the fold.");
 
+        // Welding must inspect neighbouring spatial-hash cells and must not
+        // depend on source triangle winding.
+        RenderSubMesh nearWeld;
+        nearWeld.vertices = {
+            0.99e-6,0,0, 0.99e-6,1,0, 1,0,0,
+            1.01e-6,0,0, 1.01e-6,1,0
+        };
+        nearWeld.indices = {0,1,2, 3,2,4};
+        std::vector<AssimpSurfacePatch> weldedPatches;
+        std::vector<std::string> weldedDiagnostics;
+        require(AssimpSurfacePatchAnalyzer::analyze({nearWeld}, 1e-6,
+                    weldedPatches, weldedDiagnostics, 45.0),
+                "Tolerance-aware welding analysis failed.");
+        require(weldedPatches.size() == 1 &&
+                weldedPatches.front().triangleIndices.size() == 2,
+                "Vertices within weld tolerance across cell boundaries were not connected.");
+        require(weldedPatches.front().kind == AssimpSurfacePatchKind::Planar,
+                "Inconsistent source winding incorrectly changed planar classification.");
+        require(weldedPatches.front().normalCoherence > 0.999,
+                "Winding-independent normal coherence is incorrect.");
+
         // Keep the original plane-only API working for existing callers.
         AssimpPlaneSurfaceGroup legacyPlane;
         legacyPlane.name = "LEGACY_PLANE";
