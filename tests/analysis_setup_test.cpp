@@ -256,6 +256,13 @@ void testTetFaces() {
     CHECK(contains(t, "1, P3, 3\n"));    // slanted : 2-4-3
     CHECK(contains(t, "1, P4, 4\n"));    // x = 0 : 3-4-1
     CHECK(contains(t, "*ELEMENT, TYPE=C3D4"));
+
+    MeshData genericTet = tet;
+    genericTet.addMeshGroup({"CAD_F1", 2, MeshGroupSource::CAD, {51}, {11}, {0, 1, 2}});
+    const auto genericModel = parseOk("material E=1000 nu=0.25\\nfix plane:z=0\\npressure group:CAD_F1 p=7\\n");
+    const auto genericResult = writeSolverInput(genericTet, genericModel, dir / "generic-face.inp");
+    CHECK(genericResult.success && genericResult.pressureFaces == 1);
+    CHECK(contains(slurp(dir / "generic-face.inp"), "1, P1, 7"));
     fs::remove_all(dir);
 }
 
