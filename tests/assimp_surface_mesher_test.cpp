@@ -263,6 +263,11 @@ int main() {
         AssimpSurfaceFitOptions fitOptions;
         std::vector<AssimpSurfaceFit> fits;
         std::vector<std::string> fitDiagnostics;
+        require(AssimpSurfaceGeometryFitter::fit({folded}, foldedPatches,
+                    fitOptions, fits, fitDiagnostics),
+                "Small-patch geometry fitting failed.");
+        require(fits.size() == 1 && fits.front().type == AssimpFittedSurfaceType::Freeform,
+                "A four-point folded patch was overfitted to an analytic primitive.");
         const auto cylinderPart = makeCylinder(2.0, 3.0, 24);
         std::vector<AssimpSurfacePatch> cylinderPatches;
         require(AssimpSurfacePatchAnalyzer::analyze({cylinderPart}, 1e-6,
