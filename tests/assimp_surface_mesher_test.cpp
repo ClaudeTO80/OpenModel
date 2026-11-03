@@ -1,5 +1,6 @@
 #include <OpenModel/AssimpSurfaceMesher.hpp>
 #include <OpenModel/AssimpSurfacePatchAnalyzer.hpp>
+#include <OpenModel/AssimpPatchGroupBuilder.hpp>
 #include <OpenModel/GltfWriter.hpp>
 
 #include <algorithm>
@@ -171,6 +172,40 @@ int main() {
                 "Inconsistent source winding incorrectly changed planar classification.");
         require(weldedPatches.front().normalCoherence > 0.999,
                 "Winding-independent normal coherence is incorrect.");
+
+        const auto connectedPatchIndex = static_cast<std::size_t>(
+            std::distance(patches.begin(), connected));
+        std::vector<AssimpPatchGroupDefinition> patchGroups = {
+            {"CONNECTED_PATCH", {connectedPatchIndex}, "STEEL"},
+            {"COMBINED_PATCHES", {0, 1}, ""}
+        };
+        std::vector<std::string> groupDiagnostics;
+        require(AssimpPatchGroupBuilder::apply(model->getRenderMeshes(), patches,
+                    patchGroups, mesh, groupDiagnostics),
+                "Assimp patch-to-FEM group conversion failed.");
+        const auto* connectedGroup = mesh.getMeshGroupRegistry().find("CONNECTED_PATCH");
+        require(connectedGroup && connectedGroup->elementIds.size() == 2 &&
+                connectedGroup->nodeIndices.size() == 4,
+                "Connected patch FEM group has incorrect memberships.");
+        require(mesh.getNodeSets().count("CONNECTED_PATCH_NODES") == 1 &&
+                mesh.getNodeSets().at("CONNECTED_PATCH_NODES").size() == 4,
+                "Connected patch node set was not created.");
+        const auto physical = std::find_if(mesh.getPhysicalGroups().begin(),
+            mesh.getPhysicalGroups().end(), [](const MeshPhysicalGroup& group) {
+                return group.name == "CONNECTED_PATCH";
+            });
+        require(physical != mesh.getPhysicalGroups().end() && physical->materialName == "STEEL",
+                "Patch physical group metadata was not preserved.");
+        const auto* combinedGroup = mesh.getMeshGroupRegistry().find("COMBINED_PATCHES");
+        require(combinedGroup && combinedGroup->elementIds.size() == 2,
+                "Combining multiple analyzed patches into one FEM group failed.");
+
+        std::vector<std::string> invalidGroupDiagnostics;
+        require(!AssimpPatchGroupBuilder::apply(model->getRenderMeshes(), patches,
+                    {{"INVALID_PATCH", {patches.size()}, ""}}, mesh, invalidGroupDiagnostics),
+                "Invalid patch references must be rejected.");
+        require(mesh.getMeshGroupRegistry().find("INVALID_PATCH") == nullptr,
+                "Invalid patch conversion partially modified the mesh.");
 
         // Keep the original plane-only API working for existing callers.
         AssimpPlaneSurfaceGroup legacyPlane;
