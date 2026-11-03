@@ -16,7 +16,8 @@ TetGen is invoked with `-f` to return boundary triangles and propagated markers.
 The adapter then:
 
 1. Imports tetrahedra as 3D elements.
-2. Imports marked output boundary triangles as 2D elements.
+2. Imports marked output boundary triangles as 2D elements (Triangle3 or Triangle6
+   for second-order meshes, using TetGen's `o2facelist`).
 3. Resolves each marker to its original CAD face ID.
 4. Builds generic groups from CAD face groups and user-defined additional groups.
 5. Derives node membership from the boundary triangles.
