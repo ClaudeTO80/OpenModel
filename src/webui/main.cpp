@@ -578,6 +578,8 @@ void createDemo(webui_event_t* e) {
     if (!lock.ok()) { replyBusy(e); return; }
     g.cad.reset();
     g.surface = SurfaceMesh{};
+    g.cadFaceGroups.clear();
+    g.cadGroupsNote.clear();
     clearResults();
     g.mesh = makeDemoGrid(10);
     g.origin = MeshOrigin::Demo;
@@ -791,6 +793,8 @@ void loadMesh(webui_event_t* e) {
     }
     g.cad.reset();
     g.surface = SurfaceMesh{};
+    g.cadFaceGroups.clear();
+    g.cadGroupsNote.clear();
     clearResults();
     g.mesh = std::move(loaded);
     g.origin = MeshOrigin::Loaded;
