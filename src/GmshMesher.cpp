@@ -342,6 +342,25 @@ void GmshMesher::mapCadGroups(const CADModel& cad, MeshData& mesh,
         return ids;
     };
 
+    // Resolve element membership to node membership without making node tags
+    // the canonical CAD mapping: a node may belong to several face groups.
+    auto collectNodes = [&](const std::vector<ElementId>& elementIds) {
+        const std::unordered_set<ElementId> wanted(elementIds.begin(), elementIds.end());
+        std::unordered_set<NodeIndex> seen;
+        std::vector<NodeIndex> nodes;
+        for (const auto& block : mesh.getElementBlocks()) {
+            for (std::size_t e = 0; e < block.ids.size(); ++e) {
+                if (!wanted.count(block.ids[e])) continue;
+                const auto begin = e * block.nodesPerElement;
+                for (std::size_t n = 0; n < block.nodesPerElement; ++n) {
+                    const auto index = block.connectivity[begin + n];
+                    if (seen.insert(index).second) nodes.push_back(index);
+                }
+            }
+        }
+        return nodes;
+    };
+
     // Component groups: leaf components only. Sub-assemblies stay implicit in the "A/B/C" path of the name,
     // so groups of one dimension do not overlap each other.
     std::size_t componentGroups = 0;
@@ -354,7 +373,10 @@ void GmshMesher::mapCadGroups(const CADModel& cad, MeshData& mesh,
                 if (solids.count(s)) { volumeTags.insert(volumeTag); break; }
         const auto ids = collect(3, volumeTags);
         if (ids.empty()) continue;
-        mesh.addPhysicalGroup(uniqueName(component.path, 3), 3, nextTag(3), ids);
+        const auto groupName = uniqueName(component.path, 3);
+        mesh.addPhysicalGroup(groupName, 3, nextTag(3), ids);
+        mesh.addMeshGroup(MeshGroup{groupName, 3, MeshGroupSource::CAD,
+                                    std::vector<int>(solids.begin(), solids.end()), ids, collectNodes(ids)});
         ++componentGroups;
     }
 
@@ -369,7 +391,10 @@ void GmshMesher::mapCadGroups(const CADModel& cad, MeshData& mesh,
                 if (solids.count(s)) { volumeTags.insert(volumeTag); break; }
         const auto ids = collect(3, volumeTags);
         if (ids.empty()) continue;
-        mesh.addPhysicalGroup(uniqueName(group.name, 3), 3, nextTag(3), ids);
+        const auto groupName = uniqueName(group.name, 3);
+        mesh.addPhysicalGroup(groupName, 3, nextTag(3), ids);
+        mesh.addMeshGroup(MeshGroup{groupName, 3, MeshGroupSource::CAD,
+                                    group.ids, ids, collectNodes(ids)});
         ++solidGroups;
     }
 
@@ -442,7 +467,10 @@ void GmshMesher::mapCadGroups(const CADModel& cad, MeshData& mesh,
                 m_diagnostics.push_back("CAD face group '" + group.name + "' matched no mesh surface (not created).");
                 continue;
             }
-            mesh.addPhysicalGroup(uniqueName(group.name, 2), 2, nextTag(2), ids);
+            const auto groupName = uniqueName(group.name, 2);
+            mesh.addPhysicalGroup(groupName, 2, nextTag(2), ids);
+            mesh.addMeshGroup(MeshGroup{groupName, 2, MeshGroupSource::CAD,
+                                        group.ids, ids, collectNodes(ids)});
             ++faceGroups;
         }
 
@@ -478,7 +506,10 @@ void GmshMesher::mapCadGroups(const CADModel& cad, MeshData& mesh,
                 m_diagnostics.push_back("User CAD face group '" + group.name + "' matched no boundary elements.");
                 continue;
             }
-            mesh.addPhysicalGroup(uniqueName(group.name, 2), 2, nextTag(2), ids);
+            const auto groupName = uniqueName(group.name, 2);
+            mesh.addPhysicalGroup(groupName, 2, nextTag(2), ids);
+            mesh.addMeshGroup(MeshGroup{groupName, 2, MeshGroupSource::CAD,
+                                        group.ids, ids, collectNodes(ids)});
             ++faceGroups;
         }
     }
