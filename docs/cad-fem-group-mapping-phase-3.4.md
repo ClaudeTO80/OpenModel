@@ -57,6 +57,8 @@ entities in addition to the existing 2D and 3D entities.
 - Edge groups are also represented as Gmsh physical groups of dimension 1.
   Vertex groups are stored in the generic registry because a 0D physical
   element group is not required to express a nodal boundary condition.
+- Edge and vertex groups also create `<group>_NODES` node sets for solver
+  workflows that express supports and loads through nodes.
 
 ## TetGen and Netgen adapters
 
