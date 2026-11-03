@@ -1,6 +1,7 @@
 #include <OpenModel/TetGenMesher.hpp>
 #include <OpenModel/MeshValidator.hpp>
 
+#include <array>
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
