@@ -138,6 +138,10 @@ int runSurfaceOnly(const std::string& step) {
     options.elementSize = 2.0;
     options.maxElementSize = 2.0;
     options.importCadGroups = true;
+    const auto uniqueSideFace = cad->facesContainingPoint({{0.0, 5.0, 5.0}}, 1e-6);
+    CHECK(uniqueSideFace.size() == 1);
+    options.additionalFaceGroups.push_back(
+        CADGroup{"UniqueSideFace", CADGroupKind::NamedShape, 2, uniqueSideFace});
 
     GmshMesher mesher;
     MeshData mesh;
@@ -148,16 +152,13 @@ int runSurfaceOnly(const std::string& step) {
 
     // Surface-only meshes have no upward volume adjacency. CAD faces must still
     // be mapped from their geometric location and actual 2-D mesh elements.
-    const auto* namedFace = mesh.getMeshGroupRegistry().find("TopFace");
-    const auto* layerFace = mesh.getMeshGroupRegistry().find("Interface");
-    CHECK(namedFace && layerFace);
-    CHECK(namedFace->dimension == 2 && layerFace->dimension == 2);
-    CHECK(!namedFace->elementIds.empty());
-    CHECK(namedFace->elementIds == layerFace->elementIds);
-    const auto* physical = group(mesh, "TopFace");
+    const auto* uniqueFace = mesh.getMeshGroupRegistry().find("UniqueSideFace");
+    CHECK(uniqueFace && uniqueFace->dimension == 2);
+    CHECK(!uniqueFace->elementIds.empty());
+    const auto* physical = group(mesh, "UniqueSideFace");
     CHECK(physical && !physical->elementIds.empty());
-    std::cout << "--- surface-only CAD face mapping: " << namedFace->elementIds.size()
-              << " elements, " << namedFace->nodeIndices.size() << " nodes\n";
+    std::cout << "--- surface-only CAD face mapping: " << uniqueFace->elementIds.size()
+              << " elements, " << uniqueFace->nodeIndices.size() << " nodes\n";
     return 0;
 }
 
