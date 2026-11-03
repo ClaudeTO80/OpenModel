@@ -170,8 +170,10 @@ bool NetgenMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Me
             }
 
             std::vector<CADGroup> requestedFaceGroups;
-            for (const auto& group : cadModel->getGroups())
-                if (group.dimension == 2) requestedFaceGroups.push_back(group);
+            if (options.importCadGroups) {
+                for (const auto& group : cadModel->getGroups())
+                    if (group.dimension == 2) requestedFaceGroups.push_back(group);
+            }
             requestedFaceGroups.insert(requestedFaceGroups.end(),
                                        options.additionalFaceGroups.begin(),
                                        options.additionalFaceGroups.end());
