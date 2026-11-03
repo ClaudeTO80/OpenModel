@@ -77,3 +77,18 @@ field `ux,uy,uz`, in the model's length units. The value is included in
 the generated `fix` command both for a viewer selection and for a saved CAD
 face group transferred to a FEM node set. The existing default remains
 `0,0,0`, so the previous fixed-support workflow is unchanged.
+
+
+## Phase 4.1 — Workbench condition list
+
+The analysis panel now builds a live list of recognised script commands:
+`material`, `fix`, `force`, `pressure`, `gravity`, `step` and
+`output`. Each listed row can be edited or removed. Editing replaces only
+that source line and requires the command kind to remain unchanged; removal
+deletes only the selected line. The script remains the authoritative input
+passed to the existing solver actions.
+
+This is an incremental GUI editing layer, not yet a persistent condition
+object model. Row identity is derived from the current script line position;
+stable condition IDs, project-level persistence, geometric highlighting and
+undo/redo are not implemented in this increment.
