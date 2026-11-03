@@ -10,6 +10,7 @@
 #include <iostream>
 #include <iterator>
 #include <stdexcept>
+#include <utility>
 
 namespace {
 void require(bool value, const std::string& message) {
