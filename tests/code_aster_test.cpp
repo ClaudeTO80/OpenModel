@@ -213,6 +213,28 @@ void testExportErrors() {
     fs::remove_all(dir);
 }
 
+void testGenericMeshGroupExport() {
+    MeshData mesh;
+    const auto n1 = mesh.addNode(1, 0, 0, 0);
+    const auto n2 = mesh.addNode(2, 1, 0, 0);
+    const auto n3 = mesh.addNode(3, 1, 1, 0);
+    mesh.addElement("cad_edges", ElementType::Line2, 101, {n1, n2});
+    mesh.addElement("cad_vertices", ElementType::Point1, 102, {n3});
+    mesh.addMeshGroup({"CAD_EDGE", 1, MeshGroupSource::CAD, {4}, {101}, {n1, n2}});
+    mesh.addMeshGroup({"CAD_VERTEX", 0, MeshGroupSource::CAD, {8}, {}, {n3}});
+
+    const auto dir = tempDir();
+    const auto error = writeCodeAsterMesh(dir / "groups.mail", mesh);
+    CHECK(error.empty());
+    if (error.empty()) {
+        const auto mail = slurp(dir / "groups.mail");
+        CHECK(contains(mail, "GROUP_MA NOM = CAD_EDGE\\n M101\\nFINSF"));
+        CHECK(contains(mail, "GROUP_NO NOM = CAD_EDGE_NODES\\n N1 N2\\nFINSF"));
+        CHECK(contains(mail, "GROUP_NO NOM = CAD_VERTEX_NODES\\n N3\\nFINSF"));
+    }
+    fs::remove_all(dir);
+}
+
 void testMeshRoundTrip() {
     const auto dir = tempDir();
     // Hexahedron mesh with groups.
@@ -425,6 +447,7 @@ void testBindToMesh() {
 int main() {
     testStaticExport();
     testFrequencyExport();
+    testGenericMeshGroupExport();
     testExportErrors();
     testMeshRoundTrip();
     testTables();
