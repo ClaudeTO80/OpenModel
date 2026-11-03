@@ -82,6 +82,27 @@ void radialMetrics(const std::vector<double>& residuals,double scale,
     relativeRms=rms/scale;relativeMaximum=maximum/scale;
 }
 
+void planeResidualMetrics(const std::vector<V>& points,const AssimpSurfacePatch& patch,
+                          AssimpSurfaceFit& result) {
+    V normal=patch.meanNormal;
+    result.center=patch.centroid;
+    if(!normalize(normal)) {
+        result.axis={{0,0,1}};
+        result.rmsError=result.maxError=std::numeric_limits<double>::infinity();
+        result.relativeRmsError=result.relativeMaxError=std::numeric_limits<double>::infinity();
+        return;
+    }
+    result.axis=normal;
+    std::vector<double> errors;errors.reserve(points.size());
+    for(const auto& point:points)
+        errors.push_back(std::abs(dot(sub(point,patch.centroid),normal)));
+    radialMetrics(errors,1.0,result.rmsError,result.maxError,
+                  result.relativeRmsError,result.relativeMaxError);
+    const double scale=std::max(norm(sub(patch.boundsMax,patch.boundsMin)),1e-30);
+    result.relativeRmsError=result.rmsError/scale;
+    result.relativeMaxError=result.maxError/scale;
+}
+
 double angularCoverage(const std::vector<double>& angles){
     if(angles.size()<2)return 0.0;
     auto sorted=angles;std::sort(sorted.begin(),sorted.end());
