@@ -1,6 +1,7 @@
 #pragma once
 
 #include <OpenModel/AssimpSurfacePatchAnalyzer.hpp>
+#include <OpenModel/AssimpSurfaceMesher.hpp>
 
 #include <array>
 #include <cstddef>
@@ -49,4 +50,12 @@ public:
                     const AssimpSurfaceFitOptions& options,
                     std::vector<AssimpSurfaceFit>& results,
                     std::vector<std::string>& diagnostics);
+
+    static bool makeSelector(const AssimpSurfaceFit& fit,
+                             const std::vector<RenderSubMesh>& parts,
+                             const AssimpSurfacePatch& patch,
+                             const std::string& name,
+                             double tolerance,
+                             AssimpSurfaceSelector& selector,
+                             std::string& diagnostic);
 };
