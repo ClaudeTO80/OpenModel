@@ -38,11 +38,15 @@ struct DSU {
 
 bool AssimpSurfacePatchAnalyzer::analyze(const std::vector<RenderSubMesh>& parts,
     double weldTolerance, std::vector<AssimpSurfacePatch>& patches,
-    std::vector<std::string>& diagnostics) {
+    std::vector<std::string>& diagnostics, double maxDihedralAngleDegrees) {
     patches.clear(); diagnostics.clear();
     if(!std::isfinite(weldTolerance)||weldTolerance<=0.0){
         diagnostics.push_back("Weld tolerance must be finite and positive."); return false;
     }
+    if(!std::isfinite(maxDihedralAngleDegrees)||maxDihedralAngleDegrees<0.0||maxDihedralAngleDegrees>180.0){
+        diagnostics.push_back("Maximum dihedral angle must be in [0, 180] degrees."); return false;
+    }
+    const double minNormalDot=std::cos(maxDihedralAngleDegrees*3.14159265358979323846/180.0);
     try {
         for(std::size_t pi=0;pi<parts.size();++pi){
             const auto& part=parts[pi];
@@ -72,8 +76,14 @@ bool AssimpSurfacePatchAnalyzer::analyze(const std::vector<RenderSubMesh>& parts
             }
             if(tris.empty()) continue;
             DSU dsu(tris.size());
-            for(const auto& entry:edgeOwners)
-                for(std::size_t j=1;j<entry.second.size();++j) dsu.join(entry.second[0],entry.second[j]);
+            for(const auto& entry:edgeOwners) {
+                const auto& owners=entry.second;
+                for(std::size_t a=0;a<owners.size();++a)
+                    for(std::size_t b=a+1;b<owners.size();++b) {
+                        const double alignment=std::abs(dot(tris[owners[a]].normal,tris[owners[b]].normal));
+                        if(alignment+1e-12>=minNormalDot) dsu.join(owners[a],owners[b]);
+                    }
+            }
 
             std::map<std::size_t,std::vector<std::size_t>> components;
             for(std::size_t i=0;i<tris.size();++i) components[dsu.find(i)].push_back(i);
@@ -115,6 +125,6 @@ bool AssimpSurfacePatchAnalyzer::analyze(const std::vector<RenderSubMesh>& parts
     std::sort(patches.begin(),patches.end(),[](const auto& a,const auto& b){
         return std::tie(a.partIndex,a.triangleIndices.front())<std::tie(b.partIndex,b.triangleIndices.front());
     });
-    diagnostics.push_back("Detected "+std::to_string(patches.size())+" edge-connected surface patch(es).");
+    diagnostics.push_back("Detected "+std::to_string(patches.size())+" edge-connected patch(es) with a maximum dihedral angle of "+std::to_string(maxDihedralAngleDegrees)+" degrees.");
     return true;
 }
