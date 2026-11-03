@@ -193,7 +193,7 @@ bool GmshMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Mesh
                 candidate.addPhysicalGroup(name, dim, tag, groupElementIds);
             }
 
-            if (options.importCadGroups && meshDimension == 3)
+            if (options.importCadGroups)
                 mapCadGroups(*cadModel, candidate, nodeTagToIndex, elementIdsByEntity, usedPhysicalNames,
                              options.additionalFaceGroups);
 
