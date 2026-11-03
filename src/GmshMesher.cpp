@@ -475,14 +475,21 @@ void GmshMesher::mapCadGroups(const CADModel& cad, MeshData& mesh,
             }
             const std::size_t requiredVotes =
                 std::max<std::size_t>(1, (probes.size() * 4 + 4) / 5);
-            for (const auto& vote : faceVotes) {
-                if (vote.second < requiredVotes) continue;
-                const int faceId = vote.first;
+            std::vector<int> candidates;
+            for (const auto& vote : faceVotes)
+                if (vote.second >= requiredVotes) candidates.push_back(vote.first);
+
+            // Without volume adjacency, coincident CAD faces cannot be
+            // distinguished reliably from position alone. Refuse the mapping
+            // rather than attaching one Gmsh surface to several CAD instances.
+            if (adjacentSolids.empty() && candidates.size() > 1) {
+                m_diagnostics.push_back("Gmsh surface " + std::to_string(surface.second) +
+                    " matches multiple coincident CAD faces in a surface-only mesh; mapping skipped as ambiguous.");
+                continue;
+            }
+
+            for (const int faceId : candidates) {
                 const auto owners = ownersOfFace.find(faceId);
-                // In a volume mesh, adjacency to the matched CAD solid is the
-                // strongest discriminator for coincident faces of separate parts.
-                // A surface-only mesh has no upward volumes: in that case accept
-                // geometrically unique ownership, but do not guess among instances.
                 if (owners == ownersOfFace.end()) {
                     if (components.empty()) facesOfSurface[surface.second].insert(faceId);
                     continue;
