@@ -97,7 +97,11 @@ AbaqusWriteResult AbaqusInpWriter::writeFile(const std::string& path,
                     physical.elementIds == group.elementIds) { representedByPhysicalGroup = true; break; }
             if (!group.elementIds.empty() && !representedByPhysicalGroup && !exportedSetNames.insert(base).second)
                 result.errors.push_back("Mesh group element-set name collides after Abaqus name sanitization: '" + group.name + "'");
-            if (!group.nodeIndices.empty()) {
+            bool representedByNodeSet = false;
+            const auto existingNodeSet = mesh.getNodeSets().find(group.name + "_NODES");
+            if (existingNodeSet != mesh.getNodeSets().end() && existingNodeSet->second == group.nodeIndices)
+                representedByNodeSet = true;
+            if (!group.nodeIndices.empty() && !representedByNodeSet) {
                 const auto nodeName = sanitizeName(group.name + "_NODES");
                 if (nodeName.empty()) result.errors.push_back("Mesh group node-set name has no valid Abaqus set-name characters: '" + group.name + "'");
                 else if (!exportedNodeSetNames.insert(nodeName).second)
@@ -143,6 +147,9 @@ AbaqusWriteResult AbaqusInpWriter::writeFile(const std::string& path,
         }
         for (const auto& group : mesh.getMeshGroupRegistry().groups()) {
             if (group.nodeIndices.empty()) continue;
+            const auto existingNodeSet = mesh.getNodeSets().find(group.name + "_NODES");
+            if (existingNodeSet != mesh.getNodeSets().end() && existingNodeSet->second == group.nodeIndices)
+                continue;
             content << "** MESH_GROUP, DIMENSION=" << group.dimension << ", SOURCE="
                     << (group.source == MeshGroupSource::CAD ? "CAD" :
                         group.source == MeshGroupSource::Imported ? "IMPORTED" : "USER_DEFINED") << "\n";
