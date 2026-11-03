@@ -34,6 +34,8 @@ public:
         }
         groups_.push_back(CADGroup{"Face_10", CADGroupKind::NamedShape, 2, {10}});
         groups_.push_back(CADGroup{"All_Faces", CADGroupKind::Layer, 2, {10, 11, 12, 13}});
+        groups_.push_back(CADGroup{"Edge_10", CADGroupKind::NamedShape, 1, {20}});
+        groups_.push_back(CADGroup{"Vertex_10", CADGroupKind::NamedShape, 0, {30}});
     }
     bool loadFromFile(const std::string& path) override { path_ = path; return !path.empty(); }
     void tessellate(double = 0.1) override {}
@@ -52,12 +54,7 @@ public:
 private:
     std::string path_ = "in-memory-tetrahedron";
     std::vector<RenderSubMesh> meshes_;
-    std::vector<CADGroup> groups_{
-        {"Face_10", CADGroupKind::NamedShape, 2, {10}},
-        {"All_Faces", CADGroupKind::Layer, 2, {10, 11, 12, 13}},
-        {"Edge_10", CADGroupKind::NamedShape, 1, {20}},
-        {"Vertex_10", CADGroupKind::NamedShape, 0, {30}}
-    };
+    std::vector<CADGroup> groups_;
 };
 bool hasType(const MeshData& mesh, ElementType type) {
     for (const auto& block : mesh.getElementBlocks())
