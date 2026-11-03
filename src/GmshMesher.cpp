@@ -402,6 +402,9 @@ void GmshMesher::mapCadGroups(const CADModel& cad, MeshData& mesh,
     // ---- Surfaces -> CAD faces -------------------------------------------------------------------
     bool anyFaceGroup = !additionalFaceGroups.empty();
     for (const auto& group : cadGroups) anyFaceGroup = anyFaceGroup || group.dimension == 2;
+    // Audit all imported CAD faces even when the file has no named face groups.
+    for (const auto& component : components)
+        anyFaceGroup = anyFaceGroup || !component.faceIds.empty();
     if (anyFaceGroup) {
         // Which leaf components own each CAD face, to tell apart coincident faces of different solids.
         std::map<int, std::vector<const CADComponent*>> ownersOfFace;
@@ -536,6 +539,15 @@ void GmshMesher::mapCadGroups(const CADModel& cad, MeshData& mesh,
             }
             m_faceMappingReport.push_back(std::move(mapping));
         }
+        std::size_t mappedSurfaces = 0, unmatchedSurfaces = 0, ambiguousSurfaces = 0;
+        for (const auto& record : m_faceMappingReport) {
+            if (record.ambiguous) ++ambiguousSurfaces;
+            else if (!record.cadFaceIds.empty()) ++mappedSurfaces;
+            else ++unmatchedSurfaces;
+        }
+        m_diagnostics.push_back("CAD face mapping audit: " + std::to_string(mappedSurfaces) +
+            " mapped, " + std::to_string(unmatchedSurfaces) + " unmatched, " +
+            std::to_string(ambiguousSurfaces) + " ambiguous Gmsh surface(s).");
         for (const auto& group : cadGroups) {
             if (group.dimension != 2) continue;
             const std::set<int> faces(group.ids.begin(), group.ids.end());
