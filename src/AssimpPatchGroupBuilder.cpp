@@ -16,6 +16,28 @@ std::string blockName(std::size_t index, const std::string& name) {
     if (!name.empty()) out << "_" << name;
     return out.str();
 }
+double dot3(const std::array<double,3>& a,const std::array<double,3>& b) {
+    return a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
+}
+double norm3(const std::array<double,3>& a) { return std::sqrt(dot3(a,a)); }
+bool finite3(const std::array<double,3>& a) {
+    return std::isfinite(a[0]) && std::isfinite(a[1]) && std::isfinite(a[2]);
+}
+bool matchesFilter(const AssimpSurfacePatch& patch,const AssimpPatchFilter& filter,
+                   const std::array<double,3>& unitDirection) {
+    if (filter.planarOnly && patch.kind!=AssimpSurfacePatchKind::Planar) return false;
+    if (patch.area<filter.minArea || patch.area>filter.maxArea ||
+        patch.maxPlanarityDeviation>filter.maxPlanarityDeviation ||
+        patch.normalCoherence<filter.minNormalCoherence) return false;
+    if (filter.constrainCentroid)
+        for (std::size_t axis=0;axis<3;++axis)
+            if (patch.centroid[axis]<filter.centroidMin[axis] ||
+                patch.centroid[axis]>filter.centroidMax[axis]) return false;
+    if (filter.constrainNormal &&
+        std::abs(dot3(patch.meanNormal,unitDirection))+1e-12<filter.minNormalAlignment)
+        return false;
+    return true;
+}
 double triangleArea2(const RenderSubMesh& part, std::size_t triangle) {
     const auto ia=static_cast<std::size_t>(part.indices[3*triangle]);
     const auto ib=static_cast<std::size_t>(part.indices[3*triangle+1]);
@@ -43,19 +65,64 @@ bool AssimpPatchGroupBuilder::apply(const std::vector<RenderSubMesh>& parts,
     for (const auto& group:mesh.getPhysicalGroups()) existingNames.insert(group.name);
     for (const auto& item:mesh.getNodeSets()) existingNames.insert(item.first);
     std::unordered_set<std::string> reservedNames;
+    std::vector<std::vector<std::size_t>> resolvedPatchIndices;
+    resolvedPatchIndices.reserve(definitions.size());
     for (const auto& definition:definitions) {
-        if (definition.name.empty() || definition.patchIndices.empty() ||
-            existingNames.count(definition.name) || existingNames.count(definition.name+"_NODES") ||
+        if (definition.name.empty() || existingNames.count(definition.name) ||
+            existingNames.count(definition.name+"_NODES") ||
             !reservedNames.insert(definition.name).second ||
-            !reservedNames.insert(definition.name+"_NODES").second) {
+            !reservedNames.insert(definition.name+"_NODES").second ||
+            (definition.selectByFilter && !definition.patchIndices.empty()) ||
+            (!definition.selectByFilter && definition.patchIndices.empty())) {
             diagnostics.push_back("Invalid, empty, or conflicting patch group name/definition: '"+definition.name+"'.");
             return false;
         }
-        for (const auto index:definition.patchIndices)
-            if (index>=patches.size()) {
-                diagnostics.push_back("Patch index outside analysis result for group '"+definition.name+"'.");
+        std::vector<std::size_t> selected;
+        if (definition.selectByFilter) {
+            const auto& filter=definition.filter;
+            if (!std::isfinite(filter.minArea) || filter.minArea<0.0 ||
+                std::isnan(filter.maxArea) || filter.maxArea<filter.minArea ||
+                std::isnan(filter.maxPlanarityDeviation) || filter.maxPlanarityDeviation<0.0 ||
+                !std::isfinite(filter.minNormalCoherence) || filter.minNormalCoherence<0.0 ||
+                filter.minNormalCoherence>1.0 ||
+                !std::isfinite(filter.minNormalAlignment) || filter.minNormalAlignment<0.0 ||
+                filter.minNormalAlignment>1.0) {
+                diagnostics.push_back("Invalid geometric patch filter for group '"+definition.name+"'.");
                 return false;
             }
+            std::array<double,3> direction=filter.direction;
+            if (filter.constrainNormal) {
+                if (!finite3(direction) || norm3(direction)<=1e-14) {
+                    diagnostics.push_back("Invalid normal direction in patch filter '"+definition.name+"'.");
+                    return false;
+                }
+                const double n=norm3(direction);
+                for (double& value:direction) value/=n;
+            }
+            if (filter.constrainCentroid) {
+                if (!finite3(filter.centroidMin) || !finite3(filter.centroidMax) ||
+                    filter.centroidMin[0]>filter.centroidMax[0] ||
+                    filter.centroidMin[1]>filter.centroidMax[1] ||
+                    filter.centroidMin[2]>filter.centroidMax[2]) {
+                    diagnostics.push_back("Invalid centroid bounds in patch filter '"+definition.name+"'.");
+                    return false;
+                }
+            }
+            for (std::size_t i=0;i<patches.size();++i)
+                if (matchesFilter(patches[i],filter,direction)) selected.push_back(i);
+        } else {
+            selected=definition.patchIndices;
+            for (const auto index:selected)
+                if (index>=patches.size()) {
+                    diagnostics.push_back("Patch index outside analysis result for group '"+definition.name+"'.");
+                    return false;
+                }
+        }
+        if (selected.empty()) {
+            diagnostics.push_back("Patch filter for group '"+definition.name+"' matched no patches.");
+            return false;
+        }
+        resolvedPatchIndices.push_back(std::move(selected));
     }
 
     // Build source-triangle -> generated ElementId maps. The importer preserves
@@ -117,9 +184,10 @@ bool AssimpPatchGroupBuilder::apply(const std::vector<RenderSubMesh>& parts,
     };
     std::vector<Prepared> prepared;
     prepared.reserve(definitions.size());
-    for (const auto& definition:definitions) {
+    for (std::size_t definitionIndex=0;definitionIndex<definitions.size();++definitionIndex) {
+        const auto& definition=definitions[definitionIndex];
         std::set<ElementId> elements;
-        for (const auto patchIndex:definition.patchIndices) {
+        for (const auto patchIndex:resolvedPatchIndices[definitionIndex]) {
             const auto& patch=patches[patchIndex];
             if (patch.partIndex>=parts.size()) {
                 diagnostics.push_back("Patch refers to an unknown Assimp part.");
