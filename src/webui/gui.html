@@ -609,9 +609,10 @@ async function refreshGroups() { const r = await call("openmodel_list_groups"); 
 
 function renderCADFaceGroups(groups) {
   $("cadGrpList").innerHTML = groups.length ? groups.map((g, i) =>
-    `<li style="display:flex;gap:6px;align-items:center;margin:3px 0"><span style="flex:1"><b>${esc2(g.name)}</b> · ${g.faceCount} facce</span><button data-cad-show="${i}" style="padding:2px 7px">Mostra</button><button data-cad-delete="${i}" style="padding:2px 7px">Elimina</button></li>`).join("")
+    `<li style="display:flex;gap:6px;align-items:center;margin:3px 0"><span style="flex:1"><b>${esc2(g.name)}</b> · ${g.faceCount} facce</span><button data-cad-show="${i}" style="padding:2px 7px">Mostra</button><button data-cad-update="${i}" style="padding:2px 7px">Aggiorna</button><button data-cad-delete="${i}" style="padding:2px 7px">Elimina</button></li>`).join("")
     : '<li style="color:var(--muted)">Nessun gruppo CAD.</li>';
   $("cadGrpList").querySelectorAll("button[data-cad-show]").forEach((b) => b.addEventListener("click", () => showCADFaceGroup(groups[+b.dataset.cadShow])));
+  $("cadGrpList").querySelectorAll("button[data-cad-update]").forEach((b) => b.addEventListener("click", () => updateCADFaceGroup(groups[+b.dataset.cadUpdate].name)));
   $("cadGrpList").querySelectorAll("button[data-cad-delete]").forEach((b) => b.addEventListener("click", () => deleteCADFaceGroup(groups[+b.dataset.cadDelete].name)));
 }
 async function refreshCADFaceGroups() {
@@ -624,6 +625,11 @@ async function createCADFaceGroup() {
   if (!selectedCadFaceIds.length) { show("Seleziona prima una o più facce CAD nel viewer.", "bad"); return; }
   const r = await act("openmodel_create_cad_face_group", name, selectedCadFaceIds.join(","));
   if (r && r.ok) $("cadGrpName").value = "";
+}
+async function updateCADFaceGroup(name) {
+  if (!selectedCadFaceIds.length) { show("Seleziona prima le facce CAD che devono sostituire i membri del gruppo.", "bad"); return; }
+  if (!confirm("Sostituire tutte le facce del gruppo «" + name + "» con la selezione corrente?")) return;
+  await act("openmodel_update_cad_face_group", name, selectedCadFaceIds.join(","));
 }
 async function deleteCADFaceGroup(name) {
   if (!confirm("Eliminare il gruppo CAD «" + name + "»?")) return;
