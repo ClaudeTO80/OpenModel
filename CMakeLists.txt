@@ -368,6 +368,8 @@ if(OPENMODEL_BUILD_ASSIMP_BACKEND)
         src/AssimpSurfaceMesher.cpp
         src/AssimpSurfacePatchAnalyzer.cpp
         src/AssimpPatchGroupBuilder.cpp)
+    add_library(OpenModel::Assimp ALIAS openmodel_assimp)
+    set_target_properties(openmodel_assimp PROPERTIES EXPORT_NAME Assimp)
     target_link_libraries(openmodel_assimp PUBLIC OpenModel::Core)
     if(TARGET assimp::assimp)
         target_link_libraries(openmodel_assimp PUBLIC assimp::assimp)
@@ -742,6 +744,9 @@ include(CMakePackageConfigHelpers)
 set(OPENMODEL_INSTALL_CMAKEDIR "${CMAKE_INSTALL_LIBDIR}/cmake/OpenModel")
 
 set(OPENMODEL_INSTALL_TARGETS openmodel_core)
+if(OPENMODEL_BUILD_ASSIMP_BACKEND)
+    list(APPEND OPENMODEL_INSTALL_TARGETS openmodel_assimp)
+endif()
 if(OPENMODEL_BUILD_SHARED)
     list(APPEND OPENMODEL_INSTALL_TARGETS openmodel_shared)
 endif()
