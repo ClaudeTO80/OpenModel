@@ -3,6 +3,15 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+- **code_aster support** ([`docs/CODE_ASTER.md`](docs/CODE_ASTER.md)): `writeCodeAsterCase` writes `.mail`, `.comm` and `.export` from a mesh and an analysis script (static and frequency);
+  `CodeAsterMeshImporter` reads `.mail` meshes; `CodeAsterTableImporter` reads the `.tab` result tables (displacements, stresses, strains, modes); launcher helpers.
+- CLI: `export-aster`, `solve-aster`, `export-mail`; `.mail` accepted wherever a mesh is read; `.tab` accepted as result file.
+- Desktop workbench: solver selector (CalculiX / code_aster), `.mail` mesh loading, `.tab` results.
+- Tests `code_aster_test`, `aster_cli_*` with a stand-in solver. **Not verified against a real code_aster.**
+
 ## [0.1.0.0] - 2026-11-02
 
 First release under the name **OpenModel**. The project was previously called MeshGen (development phases 8–50, last CMake

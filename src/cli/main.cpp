@@ -1,5 +1,6 @@
 #include <OpenModel/AbaqusInpWriter.hpp>
 #include <OpenModel/AnalysisSetup.hpp>
+#include <OpenModel/CodeAster.hpp>
 #include <OpenModel/ProcessRunner.hpp>
 #include <OpenModel/GltfWriter.hpp>
 #include <OpenModel/MeshBinaryIO.hpp>
@@ -207,8 +208,13 @@ int loadMeshFile(const std::string& path, MeshData& mesh) {
             for (const auto& diagnostic : imported.diagnostics) std::cerr << diagnostic.code << ": " << diagnostic.message << "\n";
             return 1;
         }
+    } else if (extension == ".mail") {
+        OpenModel::CodeAsterMeshImporter importer;
+        const auto imported = importer.read(path, mesh);
+        for (const auto& diagnostic : imported.diagnostics) std::cerr << diagnostic.code << ": " << diagnostic.message << "\n";
+        if (!imported) return 1;
     } else {
-        std::cerr << "Unsupported input format (expected .mgmb or .inp)\n";
+        std::cerr << "Unsupported input format (expected .mgmb, .inp or .mail)\n";
         return 2;
     }
     return 0;
@@ -240,6 +246,47 @@ int prepareAnalysis(const std::string& meshPath, const std::string& scriptPath, 
     return 0;
 }
 
+/** Parsed options of the code_aster commands. */
+struct AsterArgs {
+    OpenModel::CodeAsterOptions options;
+    std::string launcher, webOut;
+};
+
+bool parseAsterArgs(int argc, char** argv, int first, AsterArgs& out) {
+    try {
+        for (int i = first; i < argc; ++i) {
+            const std::string arg = argv[i];
+            if (arg == "--job" && i + 1 < argc) out.options.jobName = argv[++i];
+            else if (arg == "--solver" && i + 1 < argc) out.options.solver = argv[++i];
+            else if (arg == "--cpus" && i + 1 < argc) out.options.ncpus = std::stoi(argv[++i]);
+            else if (arg == "--memory" && i + 1 < argc) out.options.memoryLimitMB = std::stoi(argv[++i]);
+            else if (arg == "--time" && i + 1 < argc) out.options.timeLimitSeconds = std::stoi(argv[++i]);
+            else if (arg == "--version" && i + 1 < argc) out.options.version = argv[++i];
+            else if (arg == "--launcher" && i + 1 < argc) out.launcher = argv[++i];
+            else if (arg == "--web" && i + 1 < argc) out.webOut = argv[++i];
+            else return false;
+        }
+    } catch (...) { return false; }
+    return true;
+}
+
+/** Writes the code_aster case of a mesh file and an analysis script; returns 0 on success. */
+int prepareAster(const std::string& meshPath, const std::string& scriptPath, const std::filesystem::path& dir,
+                 const OpenModel::CodeAsterOptions& options, OpenModel::CodeAsterExportResult& written) {
+    MeshData mesh;
+    if (const int code = loadMeshFile(meshPath, mesh)) return code;
+    std::string script;
+    if (!readTextFile(scriptPath, script)) return 1;
+    const auto parsed = OpenModel::parseAnalysisScript(script);
+    printAnalysisDiagnostics(parsed.diagnostics);
+    if (!parsed.success) return 2;
+    written = OpenModel::writeCodeAsterCase(mesh, parsed.model, dir, options);
+    printAnalysisDiagnostics(written.diagnostics);
+    if (!written.success) { std::cerr << "error: " << written.error << "\n"; return 1; }
+    std::cout << written.summary << "\nWrote " << written.meshFile.string() << ", " << written.commFile.string() << ", " << written.exportFile.string() << "\n";
+    return 0;
+}
+
 void usage() {
     std::cout << "OpenModel " << OPENMODEL_VERSION << "\n"
               << "Usage:\n"
@@ -249,11 +296,14 @@ void usage() {
               << "  openmodel demo-gltf <output.gltf>\n"
               << "  openmodel demo-glb <output.glb>\n"
               << "  openmodel demo-web <output.mgwv> [cells-per-side]\n"
-              << "  openmodel export-web <input.mgmb|input.inp> <output.mgwv> [--no-interior] [--field x|y|z|r]\n"
+              << "  openmodel export-web <input.mgmb|input.inp|input.mail> <output.mgwv> [--no-interior] [--field x|y|z|r]\n"
               << "                     [--results <file.frd|file.dat|file.csv> [--results <more files>] [--step N] [--displacement NAME|none] [--modes N] [--engineering-strain]\n                      [--no-derived] [--no-coordinate-check]]\n"
               << "  openmodel results-info <file.frd|file.dat|file.csv> [more files, merged]\n"
               << "  openmodel write-input <mesh.mgmb|mesh.inp> <analysis.txt> <job.inp>      (analysis script: see docs/SOLVER.md)\n"
               << "  openmodel solve <mesh.mgmb|mesh.inp> <analysis.txt> <workdir> [--solver ccx-path] [--web out.mgwv]\n"
+              << "  openmodel export-aster <mesh.mgmb|mesh.inp|mesh.mail> <analysis.txt> <dir> [--job NAME] [--solver MULT_FRONT|MUMPS|PETSC|LDLT] [--cpus N] [--memory MB] [--time S] [--version V]\n"
+              << "  openmodel solve-aster <mesh> <analysis.txt> <dir> [--launcher run_aster|as_run path] [--web out.mgwv] [export-aster options]\n"
+              << "  openmodel export-mail <mesh.mgmb|mesh.inp|mesh.mail> <out.mail>        (mesh only, code_aster text format)\n"
 #ifdef OPENMODEL_HAS_GMSH
               << "  openmodel mesh-volume <input.step|input.iges|input.brep> <output.inp|.mgmb|.mgwv> <max-element-size> [order]\n"
 #endif
@@ -384,6 +434,67 @@ int main(int argc, char** argv) {
         }
         return 0;
     }
+    if (command == "export-aster") {
+        if (argc < 5) { usage(); return 2; }
+        AsterArgs args;
+        if (!parseAsterArgs(argc, argv, 5, args)) { usage(); return 2; }
+        OpenModel::CodeAsterExportResult written;
+        return prepareAster(argv[2], argv[3], argv[4], args.options, written);
+    }
+    if (command == "export-mail") {
+        if (argc != 4) { usage(); return 2; }
+        MeshData mesh;
+        if (const int code = loadMeshFile(argv[2], mesh)) return code;
+        const std::string error = OpenModel::writeCodeAsterMesh(argv[3], mesh);
+        if (!error.empty()) { std::cerr << "error: " << error << "\n"; return 1; }
+        std::cout << "Wrote " << argv[3] << " (" << mesh.getNumNodes() << " nodes, " << mesh.getNumElements() << " elements)\n";
+        return 0;
+    }
+    if (command == "solve-aster") {
+        if (argc < 5) { usage(); return 2; }
+        AsterArgs args;
+        if (!parseAsterArgs(argc, argv, 5, args)) { usage(); return 2; }
+        const std::filesystem::path workDir = std::filesystem::absolute(argv[4]);
+        OpenModel::CodeAsterExportResult written;
+        if (const int code = prepareAster(argv[2], argv[3], workDir, args.options, written)) return code;
+        const std::string launcher = OpenModel::findCodeAsterExecutable(args.launcher);
+        if (launcher.empty()) { std::cerr << "code_aster was not found: give --launcher, set OPENMODEL_CODE_ASTER or put run_aster / as_run in PATH\n"; return 1; }
+        OpenModel::removeCodeAsterOutputs(workDir, args.options.jobName);
+        OpenModel::ProcessRunner runner;
+        const auto startError = runner.start(OpenModel::codeAsterLaunchCommand(launcher, written.exportFile), workDir);
+        if (!startError.empty()) { std::cerr << startError << "\n"; return 1; }
+        for (;;) {
+            const auto status = runner.poll();
+            for (const auto& line : status.newLines) std::cout << line << "\n";
+            std::cout.flush();
+            if (status.state != OpenModel::ProcessState::Running) {
+                if (status.state != OpenModel::ProcessState::Finished) { std::cerr << "code_aster failed (exit code " << status.exitCode << "); see " << (workDir / (args.options.jobName + ".mess")).string() << "\n"; return 1; }
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+        const auto files = OpenModel::codeAsterResultFiles(workDir, args.options.jobName);
+        if (files.empty()) { std::cerr << "code_aster wrote no result table (" << args.options.jobName << "_*.tab); see the .mess file\n"; return 1; }
+        std::cout << "Results:";
+        for (const auto& f : files) std::cout << " " << f.string();
+        std::cout << "\n";
+        if (!args.webOut.empty()) {
+            MeshData mesh;
+            if (const int code = loadMeshFile(argv[2], mesh)) return code;
+            OpenModel::FemResults results;
+            const auto imported = OpenModel::readResultsMerged(files, results);
+            printDiagnostics(imported.diagnostics);
+            if (!imported) { std::cerr << "Cannot read the results\n"; return 1; }
+            WebViewOptions options;
+            OpenModel::BindOptions bind;
+            for (const auto& p : files) bind.sourceName += (bind.sourceName.empty() ? "" : " + ") + p.filename().string();
+            const auto bound = OpenModel::bindResults(mesh, results, bind, options);
+            printDiagnostics(bound.diagnostics);
+            if (!bound.success) { std::cerr << "The results do not fit the mesh: " << bound.error << "\n"; return 1; }
+            return writeWeb(mesh, args.webOut, options) ? 0 : 1;
+        }
+        return 0;
+    }
     if (command == "export-web") {
         if (argc < 4) { usage(); return 2; }
         const std::string inputPath = argv[2], outputPath = argv[3];
@@ -423,21 +534,7 @@ int main(int argc, char** argv) {
             else { usage(); return 2; }
         }
         MeshData mesh;
-        const auto extension = lowerExtension(inputPath);
-        if (extension == ".mgmb") {
-            try { mesh = MeshBinaryIO::read(inputPath); }
-            catch (const std::exception& error) { std::cerr << "Cannot read " << inputPath << ": " << error.what() << "\n"; return 1; }
-        } else if (extension == ".inp") {
-            OpenModel::AbaqusInpImporter importer;
-            const auto imported = importer.read(inputPath, mesh);
-            if (!imported) {
-                for (const auto& diagnostic : imported.diagnostics) std::cerr << diagnostic.code << ": " << diagnostic.message << "\n";
-                return 1;
-            }
-        } else {
-            std::cerr << "Unsupported input format (expected .mgmb or .inp)\n";
-            return 2;
-        }
+        if (const int code = loadMeshFile(inputPath, mesh)) return code;
         if (!fieldName.empty()) {
             WebNodalField field;
             if (!makeField(mesh, fieldName, field)) { std::cerr << "Unknown field '" << fieldName << "' (use x, y, z or r)\n"; return 2; }

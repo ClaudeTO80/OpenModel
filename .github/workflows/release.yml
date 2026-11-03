@@ -46,7 +46,7 @@ jobs:
 
       - name: Test (Windows)
         if: runner.os == 'Windows'
-        run: ctest --test-dir build --build-config Release --output-on-failure --parallel 4 --exclude-regex "^solver_cli_"
+        run: ctest --test-dir build --build-config Release --output-on-failure --parallel 4 --exclude-regex "^(solver_cli_|aster_cli_(static|modal|failure|notables|missing))"
 
       - name: Create ZIP package
         run: |

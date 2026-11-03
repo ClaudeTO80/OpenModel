@@ -3,7 +3,7 @@
 [![CI](https://github.com/OWNER/OpenModel/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/OpenModel/actions/workflows/ci.yml)
 
 A C++17 library, command-line tool and lightweight desktop workbench for **finite-element meshes and results**:
-import CAD and mesh files, generate and validate meshes, write solver input, run CalculiX, and inspect the results in a WebGL viewer
+import CAD and mesh files, generate and validate meshes, write solver input, run CalculiX or code_aster, and inspect the results in a WebGL viewer
 where you can also pick nodes, elements and faces to build groups, supports and loads.
 
 > **Status: 0.1.0.0, early.** The project was previously called MeshGen (development phases 8–50, last version 0.49.0); the version
@@ -14,12 +14,12 @@ where you can also pick nodes, elements and faces to build groups, supports and 
 | Area | What it does |
 |---|---|
 | Mesh core | `MeshData` (nodes, linear and quadratic elements, blocks, node sets, physical groups), topology (faces, edges, material interfaces), geometric validation and quality metrics |
-| Mesh I/O | Abaqus / CalculiX `.inp` reader and writer; compact binary **MGMB**; glTF / GLB export with PBR materials |
+| Mesh I/O | Abaqus / CalculiX `.inp` reader and writer; code_aster `.mail` reader and writer; compact binary **MGMB**; glTF / GLB export with PBR materials |
 | Meshing backends *(optional)* | Gmsh, TetGen, Netgen, MFEM adapter, Open CASCADE (STEP / IGES / BREP) and Assimp importers |
-| FEM results | CalculiX `.frd`, `.dat` and CSV readers: displacements, stresses, strains, principal and von Mises values, modal frequencies and mode shapes |
+| FEM results | CalculiX `.frd`, `.dat`, code_aster `.tab` tables and CSV readers: displacements, stresses, strains, principal and von Mises values, modal frequencies and mode shapes |
 | Viewer | Single-file WebGL viewer (**MGWV**): colour fields, deformed shape, modal animation, section plane, GPU picking of nodes / elements / faces |
 | Pre-processing | Selection → node / element / face groups → `fix`, `force`, `pressure` lines in an analysis script |
-| Solver | Analysis script → complete CalculiX input → `ccx` run in the background with live log and cancel → results loaded back into the viewer |
+| Solver | Analysis script → complete CalculiX input → `ccx` run in the background with live log and cancel → results loaded back into the viewer; the same script can also write and run a **code_aster** case ([`docs/CODE_ASTER.md`](docs/CODE_ASTER.md)) |
 | Interfaces | C++ library (`OpenModel::Core`), CLI (`openmodel`), desktop workbench (`openmodel-webui`, **Italian user interface**) |
 
 ## Quick start
@@ -56,6 +56,9 @@ openmodel export-web <input.mgmb|input.inp> <output.mgwv> [--no-interior] [--fie
 openmodel results-info <file.frd|file.dat|file.csv> [more files, merged]
 openmodel write-input <mesh.mgmb|mesh.inp> <analysis.txt> <job.inp>
 openmodel solve <mesh.mgmb|mesh.inp> <analysis.txt> <workdir> [--solver ccx-path] [--web out.mgwv]
+openmodel export-aster <mesh> <analysis.txt> <dir> [--job NAME] [--solver MUMPS] [--cpus N] [--memory MB] [--time S]
+openmodel solve-aster <mesh> <analysis.txt> <dir> [--launcher run_aster] [--web out.mgwv]
+openmodel export-mail <mesh> <out.mail>
 ```
 
 Example: load a CalculiX result on its mesh and view it.
@@ -145,6 +148,7 @@ cmake/               package configuration template
 
 - [Fatigue analysis — detailed MathJax HTML manual](docs/fatigue/index.html) – theory, FEM result contract, tensor history, Rainflow, S–N, strain-life, multiaxial extension contract, spectra, reports and C++ integration examples.
 - [`docs/SOLVER.md`](docs/SOLVER.md) – analysis script, solver launch, picking and groups
+- [`docs/CODE_ASTER.md`](docs/CODE_ASTER.md) – code_aster export, run, mesh import and result tables
 - [`docs/FEM_RESULTS.md`](docs/FEM_RESULTS.md) – result formats and how they are bound to a mesh
 - [`docs/MESH_IMPORTERS.md`](docs/MESH_IMPORTERS.md) – mesh importers
 - [`docs/MGMB_FORMAT.md`](docs/MGMB_FORMAT.md), [`docs/MGWV_FORMAT.md`](docs/MGWV_FORMAT.md) – binary formats
@@ -154,12 +158,13 @@ cmake/               package configuration template
 
 ## Status and known limits
 
-What the automated tests cover (38 CTest tests on Linux with GCC, including headless-browser tests of the viewer and of the real GUI):
+What the automated tests cover (62 CTest tests on Linux with GCC, including headless-browser tests of the viewer and of the real GUI):
 mesh core, I/O round trips, result readers, result binding, group creation, analysis-script parsing, input writing, process control, viewer rendering and picking.
 
 What is **not** verified:
 
 - The generated CalculiX input has never been run through a real `ccx`; the tests use a stand-in (`tests/support/fake_ccx.py`) and check the plumbing, not the physics.
+- The code_aster export has never been run through a real code_aster (stand-in `tests/support/fake_aster.py`); MED files are not supported. See [`docs/CODE_ASTER.md`](docs/CODE_ASTER.md).
 - The solver runner is POSIX only (Linux, macOS); on Windows it returns an error. Only Linux has been built and tested.
 - Gmsh, Open CASCADE, Assimp, TetGen, Netgen and MFEM backends were not compiled in the latest test environment.
 - Nodal forces are shared equally among the selected nodes (not consistent for quadratic elements; use `pressure`); one material and one step per analysis; no contact or nonlinear materials.

@@ -1,4 +1,5 @@
 #include <OpenModel/FemResults.hpp>
+#include <OpenModel/CodeAster.hpp>
 
 #include <algorithm>
 #include <cctype>
@@ -1177,12 +1178,13 @@ ResultImportResult readResults(const std::filesystem::path& path, FemResults& de
     const CalculixFrdImporter frd;
     const CsvResultImporter csv;
     const CalculixDatImporter dat;
-    const ResultImporter* importers[] = {&frd, &dat, &csv};
+    const CodeAsterTableImporter aster;
+    const ResultImporter* importers[] = {&frd, &dat, &csv, &aster};
     for (const ResultImporter* importer : importers)
         if (importer->canRead(path)) return importer->read(path, destination);
     ResultImportResult result;
     result.addError(ImportStatus::UnsupportedFormat, "FORMAT",
-                    "Unsupported result file '" + path.filename().string() + "' (expected .frd, .dat, .csv, .tsv or .txt)");
+                    "Unsupported result file '" + path.filename().string() + "' (expected .frd, .dat, .csv, .tsv, .txt or .tab)");
     return result;
 }
 

@@ -46,6 +46,8 @@ set(OPENMODEL_CORE_SOURCES
     src/WebViewWriter.cpp
     src/FemResults.cpp
     src/ResultBinding.cpp
+    src/CodeAster.cpp
+    src/CodeAsterResults.cpp
     src/fatigue/OpenModelFemResultsSource.cpp
     src/fatigue/TensorNormalizer.cpp
     src/fatigue/FatigueSamplePreparer.cpp
@@ -83,6 +85,7 @@ endfunction()
 find_package(Threads REQUIRED)
 add_library(openmodel_core STATIC ${OPENMODEL_CORE_SOURCES})
 target_link_libraries(openmodel_core PRIVATE Threads::Threads)
+target_compile_definitions(openmodel_core PRIVATE OPENMODEL_VERSION="${PROJECT_VERSION}")
 add_library(OpenModel::Core ALIAS openmodel_core)
 set_target_properties(openmodel_core PROPERTIES OUTPUT_NAME OpenModelCore)
 openmodel_configure_core_target(openmodel_core Core)
@@ -91,6 +94,7 @@ if(OPENMODEL_BUILD_SHARED)
     add_library(openmodel_shared SHARED ${OPENMODEL_CORE_SOURCES})
     add_library(OpenModel::Shared ALIAS openmodel_shared)
     target_link_libraries(openmodel_shared PRIVATE Threads::Threads)
+    target_compile_definitions(openmodel_shared PRIVATE OPENMODEL_VERSION="${PROJECT_VERSION}")
     set_target_properties(openmodel_shared PROPERTIES
         OUTPUT_NAME OpenModel
         WINDOWS_EXPORT_ALL_SYMBOLS ON)
@@ -206,9 +210,10 @@ if(OPENMODEL_BUILD_TESTS)
     openmodel_add_test(fatigue_damage_map_webview_adapter_test tests/fatigue/fatigue_damage_map_webview_adapter_test.cpp)
     openmodel_add_test(analysis_setup_test tests/analysis_setup_test.cpp)
     openmodel_add_test(mesh_selection_test tests/mesh_selection_test.cpp)
+    openmodel_add_test(code_aster_test tests/code_aster_test.cpp)
     set(_openmodel_core_test_names core_smoke_test mesh_validation_test abaqus_writer_test physical_groups_test
         mesh_topology_test surface_mesher_test gltf_writer_test surface_refiner_test
-        web_view_writer_test mesh_binary_io_test mesh_importer_test fem_results_test fatigue_result_source_test fatigue_tensor_normalizer_test fatigue_sample_preparer_test fatigue_stress_history_test fatigue_cycle_counting_test fatigue_multiaxial_cycle_contract_test fatigue_material_test fatigue_mean_stress_correction_test fatigue_damage_model_test fatigue_strain_life_damage_model_test fatigue_wang_brown_damage_model_test fatigue_analysis_test fatigue_report_test fatigue_report_writer_test fatigue_spectrum_report_test fatigue_damage_map_test fatigue_damage_map_writer_test fatigue_damage_map_webview_adapter_test analysis_setup_test mesh_selection_test)
+        web_view_writer_test mesh_binary_io_test mesh_importer_test fem_results_test fatigue_result_source_test fatigue_tensor_normalizer_test fatigue_sample_preparer_test fatigue_stress_history_test fatigue_cycle_counting_test fatigue_multiaxial_cycle_contract_test fatigue_material_test fatigue_mean_stress_correction_test fatigue_damage_model_test fatigue_strain_life_damage_model_test fatigue_wang_brown_damage_model_test fatigue_analysis_test fatigue_report_test fatigue_report_writer_test fatigue_spectrum_report_test fatigue_damage_map_test fatigue_damage_map_writer_test fatigue_damage_map_webview_adapter_test analysis_setup_test mesh_selection_test code_aster_test)
     if(OPENMODEL_BUILD_CLI)
         list(APPEND _openmodel_core_test_names openmodel_cli_info openmodel_cli_validate_demo)
     endif()
@@ -281,6 +286,38 @@ if(OPENMODEL_BUILD_TESTS AND OPENMODEL_BUILD_CLI AND Python3_FOUND)
     set_tests_properties(solver_cli_modal PROPERTIES PASS_REGULAR_EXPRESSION "frequency analysis")
     set_tests_properties(solver_cli_failure PROPERTIES PASS_REGULAR_EXPRESSION "nonpositive jacobian")
     set_tests_properties(solver_cli_missing PROPERTIES PASS_REGULAR_EXPRESSION "Cannot start")
+
+    # code_aster: a stand-in for run_aster writes made-up result tables (plumbing test; real code_aster is not run).
+    set(_fake_aster "${CMAKE_CURRENT_SOURCE_DIR}/tests/support/fake_aster.py")
+    add_test(NAME aster_cli_export
+        COMMAND openmodel-cli export-aster "${_beam_dir}/beam.inp" "${_support}/beam_analysis.txt" "${_beam_dir}/aster_export" --job beam --solver MUMPS)
+    add_test(NAME aster_cli_export_mail
+        COMMAND openmodel-cli export-mail "${_beam_dir}/beam.inp" "${_beam_dir}/beam_export.mail")
+    add_test(NAME aster_cli_import_mail
+        COMMAND openmodel-cli export-web "${_beam_dir}/beam_export.mail" "${_beam_dir}/beam_from_mail.mgwv")
+    add_test(NAME aster_cli_static
+        COMMAND $<TARGET_FILE:openmodel-cli> solve-aster "${_beam_dir}/beam.inp" "${_support}/beam_analysis.txt"
+                "${_beam_dir}/aster_static" --launcher "${_fake_aster}" --web "${_beam_dir}/aster_static/out.mgwv")
+    add_test(NAME aster_cli_modal
+        COMMAND $<TARGET_FILE:openmodel-cli> solve-aster "${_beam_dir}/beam.inp" "${_support}/beam_analysis_modal.txt"
+                "${_beam_dir}/aster_modal" --launcher "${_fake_aster}" --web "${_beam_dir}/aster_modal/out.mgwv")
+    add_test(NAME aster_cli_failure
+        COMMAND ${CMAKE_COMMAND} -E env FAKE_ASTER_FAIL=1 $<TARGET_FILE:openmodel-cli> solve-aster "${_beam_dir}/beam.inp"
+                "${_support}/beam_analysis.txt" "${_beam_dir}/aster_fail" --launcher "${_fake_aster}")
+    add_test(NAME aster_cli_notables
+        COMMAND ${CMAKE_COMMAND} -E env FAKE_ASTER_NOTAB=1 $<TARGET_FILE:openmodel-cli> solve-aster "${_beam_dir}/beam.inp"
+                "${_support}/beam_analysis.txt" "${_beam_dir}/aster_notab" --launcher "${_fake_aster}")
+    add_test(NAME aster_cli_missing
+        COMMAND openmodel-cli solve-aster "${_beam_dir}/beam.inp" "${_support}/beam_analysis.txt" "${_beam_dir}/aster_missing" --launcher /nonexistent/run_aster)
+    set_tests_properties(aster_cli_export aster_cli_export_mail aster_cli_import_mail aster_cli_static aster_cli_modal aster_cli_failure
+        aster_cli_notables aster_cli_missing PROPERTIES FIXTURES_REQUIRED beam_fixture LABELS "core;solver;aster")
+    set_tests_properties(aster_cli_export PROPERTIES PASS_REGULAR_EXPRESSION "static analysis of .* force on 9 nodes")
+    set_tests_properties(aster_cli_import_mail PROPERTIES DEPENDS aster_cli_export_mail)
+    set_tests_properties(aster_cli_static PROPERTIES PASS_REGULAR_EXPRESSION "Results: .*job_disp.tab .*job_stress.tab .*job_strain.tab")
+    set_tests_properties(aster_cli_modal PROPERTIES PASS_REGULAR_EXPRESSION "Results: .*job_modes.tab .*job_modes_disp.tab")
+    set_tests_properties(aster_cli_failure PROPERTIES PASS_REGULAR_EXPRESSION "singular matrix")
+    set_tests_properties(aster_cli_notables PROPERTIES PASS_REGULAR_EXPRESSION "wrote no result table")
+    set_tests_properties(aster_cli_missing PROPERTIES PASS_REGULAR_EXPRESSION "Cannot start")
 endif()
 
 if(OPENMODEL_BUILD_TESTS AND OPENMODEL_TEST_WEBGL_VIEWER AND OPENMODEL_BUILD_CLI)

@@ -11,6 +11,7 @@
 
 #include <OpenModel/AbaqusInpWriter.hpp>
 #include <OpenModel/AnalysisSetup.hpp>
+#include <OpenModel/CodeAster.hpp>
 #include <OpenModel/ProcessRunner.hpp>
 #include <OpenModel/CADModel.hpp>
 #include <OpenModel/FemResults.hpp>
@@ -630,7 +631,7 @@ void loadMesh(webui_event_t* e) {
     StateLock lock;
     if (!lock.ok()) { replyBusy(e); return; }
     const std::string text = getStringArg(e, 0);
-    if (text.empty()) { reply(e, false, "Inserisci il percorso di una mesh .mgmb o .inp oppure usa Sfoglia."); return; }
+    if (text.empty()) { reply(e, false, "Inserisci il percorso di una mesh .mgmb, .inp o .mail oppure usa Sfoglia."); return; }
     std::error_code ec;
     const auto file = absolutePath(text);
     if (!fs::is_regular_file(file, ec)) { reply(e, false, "File non trovato o non accessibile: " + text); return; }
@@ -645,8 +646,13 @@ void loadMesh(webui_event_t* e) {
         const auto result = importer.read(file, loaded);
         for (const auto& d : result.diagnostics) note += "\n" + d.code + ": " + d.message;
         if (!result) { reply(e, false, "Importazione INP fallita:" + note); return; }
+    } else if (ext == ".mail") {
+        OpenModel::CodeAsterMeshImporter importer;
+        const auto result = importer.read(file, loaded);
+        for (const auto& d : result.diagnostics) note += "\n" + d.code + ": " + d.message;
+        if (!result) { reply(e, false, "Importazione mesh code_aster fallita:" + note); return; }
     } else {
-        reply(e, false, "Formato non supportato: usa .mgmb oppure .inp."); return;
+        reply(e, false, "Formato non supportato: usa .mgmb, .inp oppure .mail (code_aster)."); return;
     }
     g.cad.reset();
     g.surface = SurfaceMesh{};
@@ -723,7 +729,7 @@ AttachOutcome attachResultFiles(const std::vector<fs::path>& files, const std::s
 }
 
 /**
- * Loads solver results (CalculiX .frd/.dat or a node table) and attaches them to the current mesh.
+ * Loads solver results (CalculiX .frd/.dat, code_aster .tab or a node table) and attaches them to the current mesh.
  * Arguments: path(s) separated by ';', step index (empty = last).
  */
 void loadResults(webui_event_t* e) {
@@ -734,7 +740,7 @@ void loadResults(webui_event_t* e) {
         return;
     }
     const std::string text = getStringArg(e, 0);
-    if (text.empty()) { reply(e, false, "Inserisci il percorso di un file di risultati (.frd, .dat, .csv) oppure usa Sfoglia."); return; }
+    if (text.empty()) { reply(e, false, "Inserisci il percorso di un file di risultati (.frd, .dat, .csv, .tab) oppure usa Sfoglia."); return; }
     std::error_code ec;
     // Several files (for example the .frd and the .dat of one run) can be given separated by ';' and are merged.
     std::vector<fs::path> files;
@@ -766,6 +772,7 @@ struct SolverJob {
     bool endOk = false;
     fs::path directory;
     std::string name;
+    bool aster = false;           ///< The job is a code_aster run (results are `.tab` tables), otherwise CalculiX.
 };
 
 SolverJob g_job;
@@ -781,7 +788,7 @@ std::string analysisDiagnosticsText(const std::vector<OpenModel::ImportDiagnosti
 }
 
 /** Parses the script and writes the solver input. Returns the message; `ok` tells whether the file was written. */
-std::string writeAnalysisInput(const std::string& script, const fs::path& inputPath, bool& ok) {
+std::string writeAnalysisInput(const std::string& script, const fs::path& inputPath, bool& ok, bool aster = false) {
     ok = false;
     if (g.mesh.getNumNodes() == 0) return "Carica o genera prima una mesh volumetrica.";
     const auto parsed = OpenModel::parseAnalysisScript(script);
@@ -789,6 +796,16 @@ std::string writeAnalysisInput(const std::string& script, const fs::path& inputP
     std::error_code ec;
     fs::create_directories(inputPath.parent_path(), ec);
     if (ec) return "Impossibile creare la cartella " + inputPath.parent_path().string() + ": " + ec.message();
+    if (aster) {
+        OpenModel::CodeAsterOptions options;
+        options.jobName = inputPath.stem().string();
+        const auto exported = OpenModel::writeCodeAsterCase(g.mesh, parsed.model, inputPath.parent_path(), options);
+        if (!exported.success) return "Scrittura del caso code_aster fallita: " + exported.error + analysisDiagnosticsText(exported.diagnostics);
+        ok = true;
+        return "Caso code_aster scritto in " + exported.exportFile.parent_path().string() + " (" + exported.meshFile.filename().string() + ", " +
+               exported.commFile.filename().string() + ", " + exported.exportFile.filename().string() + ")\n" + exported.summary +
+               analysisDiagnosticsText(parsed.diagnostics) + analysisDiagnosticsText(exported.diagnostics);
+    }
     const auto written = OpenModel::writeSolverInput(g.mesh, parsed.model, inputPath);
     if (!written.success) return "Scrittura dell'input fallita: " + written.error + analysisDiagnosticsText(written.diagnostics);
     ok = true;
@@ -807,35 +824,49 @@ void defaultAnalysis(webui_event_t* e) {
     reply(e, true, OpenModel::exampleAnalysisScript());
 }
 
-/** Arguments: script, job path (folder or .inp; empty = ./openmodel_job/job.inp). */
+/** Arguments: script, job path (folder or .inp; empty = ./openmodel_job/job.inp), solver kind ("aster" for code_aster, anything else CalculiX). */
 void writeInput(webui_event_t* e) {
     StateLock lock;
     if (!lock.ok()) { replyBusy(e); return; }
     bool ok = false;
-    const auto message = writeAnalysisInput(getStringArg(e, 0), jobInputPath(getStringArg(e, 1)), ok);
+    const auto message = writeAnalysisInput(getStringArg(e, 0), jobInputPath(getStringArg(e, 1)), ok, getStringArg(e, 2) == "aster");
     reply(e, ok, message);
 }
 
-/** Arguments: script, job path, solver executable (empty = "ccx" from PATH). Starts the solver in the background. */
+/** Arguments: script, job path, solver executable (empty = "ccx" or, for code_aster, run_aster / as_run from PATH), solver kind ("aster" or CalculiX). */
 void runSolver(webui_event_t* e) {
     StateLock lock;
     if (!lock.ok()) { replyBusy(e); return; }
     std::lock_guard<std::mutex> job(g_job.mutex);
     if (g_job.runner.running()) { reply(e, false, "Un'analisi è già in esecuzione: attendi o annullala."); return; }
     const fs::path input = jobInputPath(getStringArg(e, 1));
+    const bool aster = getStringArg(e, 3) == "aster";
     bool ok = false;
-    const auto message = writeAnalysisInput(getStringArg(e, 0), input, ok);
+    const auto message = writeAnalysisInput(getStringArg(e, 0), input, ok, aster);
     if (!ok) { reply(e, false, message); return; }
     // Old outputs would be mistaken for the new ones if the solver fails before writing them.
     std::error_code ec;
     const std::string stem = input.stem().string();
-    for (const char* ext : {".frd", ".dat", ".sta", ".cvg", ".12d"}) fs::remove(input.parent_path() / (stem + ext), ec);
+    std::vector<std::string> command;
     std::string solver = getStringArg(e, 2);
-    if (solver.empty()) solver = "ccx";
-    const auto error = g_job.runner.start({solver, "-i", stem}, input.parent_path());
+    if (aster) {
+        OpenModel::removeCodeAsterOutputs(input.parent_path(), stem);
+        solver = OpenModel::findCodeAsterExecutable(solver);
+        if (solver.empty()) {
+            reply(e, false, message + "\n\ncode_aster non trovato: indica il percorso di run_aster (o as_run) nel campo Solutore, oppure imposta la variabile OPENMODEL_CODE_ASTER.");
+            return;
+        }
+        command = OpenModel::codeAsterLaunchCommand(solver, input.parent_path() / (stem + ".export"));
+    } else {
+        for (const char* ext : {".frd", ".dat", ".sta", ".cvg", ".12d"}) fs::remove(input.parent_path() / (stem + ext), ec);
+        if (solver.empty()) solver = "ccx";
+        command = {solver, "-i", stem};
+    }
+    const auto error = g_job.runner.start(command, input.parent_path());
     if (!error.empty()) {
         reply(e, false, message + "\n\nAvvio del solutore fallito: " + error +
-                            "\nIndica il percorso completo dell'eseguibile CalculiX (ccx) nel campo Solutore.");
+                            (aster ? "\nIndica il percorso completo di run_aster (o as_run) nel campo Solutore."
+                                   : "\nIndica il percorso completo dell'eseguibile CalculiX (ccx) nel campo Solutore."));
         return;
     }
     g_job.active = true;
@@ -843,7 +874,10 @@ void runSolver(webui_event_t* e) {
     g_job.endMessage.clear();
     g_job.directory = input.parent_path();
     g_job.name = stem;
-    reply(e, true, message + "\n\nSolutore avviato: " + solver + " -i " + stem);
+    g_job.aster = aster;
+    std::string started;
+    for (const auto& part : command) started += (started.empty() ? "" : " ") + part;
+    reply(e, true, message + "\n\nSolutore avviato: " + started);
 }
 
 /** Collects the outputs of a successful run and attaches them to the mesh (state lock held by the caller). */
@@ -860,19 +894,24 @@ void finishJob(const OpenModel::ProcessStatus& status) {
         seconds.precision(1);
         seconds << status.elapsedSeconds;
         g_job.endMessage = "Il solutore è terminato con errore (codice " + std::to_string(status.exitCode) + ") dopo " + seconds.str() +
-                           " s. Controlla il log qui sopra e il file " + (base.string() + ".inp") + ".";
+                           " s. Controlla il log qui sopra e il file " + (g_job.aster ? base.string() + ".mess" : base.string() + ".inp") + ".";
     } else {
         std::error_code ec;
         std::vector<fs::path> files;
         const fs::path frd = base.string() + ".frd", dat = base.string() + ".dat";
-        if (fs::is_regular_file(frd, ec) && fs::file_size(frd, ec) > 0) files.push_back(frd);
-        if (fs::is_regular_file(dat, ec) && fs::file_size(dat, ec) > 0) files.push_back(dat);
+        if (g_job.aster) {
+            files = OpenModel::codeAsterResultFiles(g_job.directory, g_job.name);
+        } else {
+            if (fs::is_regular_file(frd, ec) && fs::file_size(frd, ec) > 0) files.push_back(frd);
+            if (fs::is_regular_file(dat, ec) && fs::file_size(dat, ec) > 0) files.push_back(dat);
+        }
         if (files.empty()) {
             g_job.endOk = false;
-            g_job.endMessage = "Il solutore è terminato senza errori ma non ha scritto " + frd.filename().string() + ".";
+            g_job.endMessage = g_job.aster ? "code_aster è terminato senza errori ma non ha scritto tabelle di risultati (" + g_job.name + "_*.tab): controlla " + base.string() + ".mess."
+                                           : "Il solutore è terminato senza errori ma non ha scritto " + frd.filename().string() + ".";
         } else {
             auto outcome = attachResultFiles(files, "");
-            if (!outcome.ok && files.size() > 1) {
+            if (!outcome.ok && files.size() > 1 && !g_job.aster) {
                 // The .dat may be empty of usable data (frequency runs); the .frd alone is enough.
                 const auto retry = attachResultFiles({files[0]}, "");
                 if (retry.ok) outcome = {true, retry.message + "\n(Il file .dat non è stato usato: " + outcome.message + ")"};

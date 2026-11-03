@@ -85,8 +85,8 @@ iframe{display:block;width:100%;height:100%;border:0;background:#10141b}
     <div class="group"><div class="items">
       <button class="rb" data-act="demo" title="Carica il modello dimostrativo"><span class="ic">🧩</span>Modello demo</button>
       <button class="rb" data-act="cad" title="Scegli un file CAD (STEP, IGES, BREP, OBJ, STL…) e triangolalo"><span class="ic">📐</span>Importa CAD…</button>
-      <button class="rb" data-act="mesh" title="Scegli una mesh .mgmb o .inp"><span class="ic">📂</span>Apri mesh…</button>
-      <button class="rb" data-act="res" data-need="mesh" title="Scegli un file di risultati (.frd, .dat, .csv)"><span class="ic">📈</span>Apri risultati…</button>
+      <button class="rb" data-act="mesh" title="Scegli una mesh .mgmb, .inp o .mail (code_aster)"><span class="ic">📂</span>Apri mesh…</button>
+      <button class="rb" data-act="res" data-need="mesh" title="Scegli un file di risultati (.frd, .dat, .csv, .tab)"><span class="ic">📈</span>Apri risultati…</button>
     </div><div class="gname">Apri</div></div>
     <div class="group"><div class="items">
       <button class="rb" data-act="save-mgmb" data-need="mesh" title="Formato binario ottimizzato (nome base: sezione 4)"><span class="ic">💾</span>MGMB</button>
@@ -261,7 +261,7 @@ iframe{display:block;width:100%;height:100%;border:0;background:#10141b}
 
   <section>
     <h2>4 · Mesh su file</h2>
-    <label for="loadPath">Carica mesh esistente (.mgmb, .inp)</label>
+    <label for="loadPath">Carica mesh esistente (.mgmb, .inp, .mail)</label>
     <div class="row"><input id="loadPath" placeholder="/percorso/mesh.mgmb"><button onclick="browse('loadPath','mesh')">Sfoglia…</button></div>
     <button class="full" onclick="loadMesh()">Carica e visualizza</button>
     <label for="outBase">Salva con nome base (l'estensione viene aggiunta)</label>
@@ -276,7 +276,7 @@ iframe{display:block;width:100%;height:100%;border:0;background:#10141b}
 
   <section>
     <h2>5 · Risultati FEM</h2>
-    <label for="resPath">Risultati del solutore (.frd, .dat CalculiX, .csv; più file separati da «;» vengono uniti)</label>
+    <label for="resPath">Risultati del solutore (.frd, .dat CalculiX; .tab code_aster; .csv; più file separati da «;» vengono uniti)</label>
     <div class="row"><input id="resPath" placeholder="/percorso/run.frd; /percorso/run.dat"><button onclick="browse('resPath','results')">Sfoglia…</button></div>
     <label for="resStep">Passo (vuoto = ultimo; file di soli modi = tutti i modi)</label>
     <input id="resStep" type="number" min="0" step="1" placeholder="ultimo">
@@ -288,9 +288,11 @@ iframe{display:block;width:100%;height:100%;border:0;background:#10141b}
     <h2>6 · Analisi e solver</h2>
     <label for="anScript">Script di analisi (materiale, vincoli, carichi, passo)</label>
     <textarea id="anScript" rows="9" spellcheck="false" style="width:100%;font-family:monospace;font-size:12px"></textarea>
-    <label for="anJob">File di lavoro (cartella o .inp; vuoto = ./openmodel_job/job.inp)</label>
+    <label for="anJob">File di lavoro (cartella o .inp; vuoto = ./openmodel_job/job.inp; per code_aster conta la cartella e il nome del file)</label>
     <input id="anJob" placeholder="/percorso/lavoro/job.inp">
-    <label for="anSolver">Solutore CalculiX (vuoto = «ccx» nel PATH)</label>
+    <label for="anSolverKind">Solutore</label>
+    <select id="anSolverKind"><option value="ccx">CalculiX</option><option value="aster">code_aster</option></select>
+    <label for="anSolver">Eseguibile (vuoto = «ccx» nel PATH; code_aster: «run_aster» o «as_run», oppure variabile OPENMODEL_CODE_ASTER)</label>
     <input id="anSolver" placeholder="/usr/bin/ccx">
     <div class="grid2"><button id="btnWrite" onclick="analysisWrite()">Scrivi input</button><button id="btnRun" class="primary" onclick="analysisRun()">Avvia solutore</button></div>
     <div class="grid2"><button id="btnCancel" onclick="analysisCancel()" disabled>Annulla</button><button onclick="analysisExample()">Esempio</button></div>
@@ -414,7 +416,7 @@ function mesherChanged() {
 
 /* ---- server-side file browser (a web page cannot read local paths itself) ---- */
 let browseTarget = null, browseKind = "cad";
-const FILTERS = {cad: ".step,.stp,.iges,.igs,.brep,.brp,.obj,.stl,.ply,.fbx,.gltf,.glb,.dae,.3ds", mesh: ".mgmb,.inp", results: ".frd,.dat,.csv,.tsv,.txt"};
+const FILTERS = {cad: ".step,.stp,.iges,.igs,.brep,.brp,.obj,.stl,.ply,.fbx,.gltf,.glb,.dae,.3ds", mesh: ".mgmb,.inp,.mail", results: ".frd,.dat,.csv,.tsv,.txt,.tab"};
 let afterPick = null;
 async function browse(inputId, kind, then) {
   browseTarget = inputId; browseKind = kind; afterPick = then || null;
@@ -519,10 +521,10 @@ async function analysisExample() {
   const r = await call("openmodel_default_analysis");
   if (r.ok) $("anScript").value = r.message;
 }
-const analysisWrite = () => act("openmodel_write_input", $("anScript").value, $("anJob").value.trim());
+const analysisWrite = () => act("openmodel_write_input", $("anScript").value, $("anJob").value.trim(), $("anSolverKind").value);
 async function analysisRun() {
   if (busy || solverRunning) return;
-  const r = await act("openmodel_run_solver", $("anScript").value, $("anJob").value.trim(), $("anSolver").value.trim());
+  const r = await act("openmodel_run_solver", $("anScript").value, $("anJob").value.trim(), $("anSolver").value.trim(), $("anSolverKind").value);
   if (!r || !r.ok) return;
   solverRunning = true;
   logLines(["— solutore avviato —"], true);

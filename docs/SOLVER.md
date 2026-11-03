@@ -1,5 +1,7 @@
 # Analysis setup and solver launch
 
+The same script can also drive code_aster: see [`CODE_ASTER.md`](CODE_ASTER.md).
+
 OpenModel meshes carry no material, supports or loads. The **analysis script** adds them; OpenModel writes a complete CalculiX input, runs `ccx` in the background and loads the results (`job.frd` + `job.dat`) into the viewer.
 
 ## Script
