@@ -424,9 +424,26 @@ SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& mo
     for (std::size_t i = 0; i < model.supports.size(); ++i) {
         supportNodes.push_back(selectNodes(mesh, model.supports[i].where, error));
         if (!error.empty()) return failed(r, "fix #" + std::to_string(i + 1) + ": " + error);
-        for (const NodeIndex n : supportNodes.back()) constrained[n] = 1;
         if (!model.supports[i].dof[0] && !model.supports[i].dof[1] && !model.supports[i].dof[2])
             return failed(r, "fix #" + std::to_string(i + 1) + " constrains no direction");
+        for (int d = 0; d < 3; ++d) {
+            const double value = model.supports[i].displacement[static_cast<std::size_t>(d)];
+            if (model.supports[i].dof[static_cast<std::size_t>(d)] && !std::isfinite(value))
+                return failed(r, "fix #" + std::to_string(i + 1) + " has a non-finite prescribed displacement");
+            if (!model.supports[i].dof[static_cast<std::size_t>(d)]) continue;
+            for (std::size_t previous = 0; previous < i; ++previous) {
+                if (!model.supports[previous].dof[static_cast<std::size_t>(d)]) continue;
+                const auto& previousNodes = supportNodes[previous];
+                if (std::find(previousNodes.begin(), previousNodes.end(), n) == previousNodes.end()) continue;
+                const double other = model.supports[previous].displacement[static_cast<std::size_t>(d)];
+                const double scale = std::max({1.0, std::fabs(value), std::fabs(other)});
+                if (std::fabs(value - other) > 1e-12 * scale)
+                    return failed(r, "conflicting prescribed displacements: fix #" + std::to_string(previous + 1) +
+                                    " and fix #" + std::to_string(i + 1) + " assign different values to node " +
+                                    std::to_string(mesh.nodeId(n)) + " degree of freedom " + std::to_string(d + 1));
+            }
+        }
+        for (const NodeIndex n : supportNodes.back()) constrained[n] = 1;
     }
     for (const char c : constrained) r.fixedNodes += c ? 1 : 0;
     std::size_t quadratic = 0;
