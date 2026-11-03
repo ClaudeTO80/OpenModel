@@ -260,7 +260,9 @@ std::vector<NodeIndex> selectNodes(const MeshData& mesh, const NodeSelector& sel
         }
         return out;
     }
-    // Group: a node set first, then a physical group (matched exactly, then case-insensitively).
+    // Group: prefer an explicit node set, then a generic mesh group, then
+    // legacy physical groups. Generic node memberships are authoritative: they
+    // preserve many-to-many CAD membership without reconstructing it from elements.
     const auto& sets = mesh.getNodeSets();
     auto set = sets.find(selector.name);
     if (set == sets.end())
@@ -269,25 +271,42 @@ std::vector<NodeIndex> selectNodes(const MeshData& mesh, const NodeSelector& sel
     if (set != sets.end()) {
         out = set->second;
     } else {
-        const MeshPhysicalGroup* group = nullptr;
-        for (const auto& g : mesh.getPhysicalGroups()) if (g.name == selector.name) { group = &g; break; }
-        if (!group)
-            for (const auto& g : mesh.getPhysicalGroups()) if (lowered(g.name) == lowered(selector.name)) { group = &g; break; }
-        if (!group) {
-            std::string known;
-            for (const auto& g : mesh.getPhysicalGroups()) known += (known.empty() ? "" : ", ") + g.name;
-            for (const auto& s : sets) known += (known.empty() ? "" : ", ") + s.first;
-            error = "Unknown group or node set '" + selector.name + "'" + (known.empty() ? " (the mesh has none)" : " (available: " + known + ")");
-            return out;
+        const MeshGroup* generic = mesh.getMeshGroupRegistry().find(selector.name);
+        if (!generic)
+            for (const auto& g : mesh.getMeshGroupRegistry().groups())
+                if (lowered(g.name) == lowered(selector.name)) { generic = &g; break; }
+        if (generic) {
+            out = generic->nodeIndices;
+            if (out.empty() && !generic->elementIds.empty()) {
+                std::unordered_map<ElementId, char> ids;
+                for (const ElementId id : generic->elementIds) ids.emplace(id, 1);
+                for (const auto& block : mesh.getElementBlocks())
+                    for (std::size_t e = 0; e < block.size(); ++e)
+                        if (ids.count(block.ids[e]))
+                            for (std::size_t k = 0; k < block.nodesPerElement; ++k)
+                                out.push_back(block.connectivity[e * block.nodesPerElement + k]);
+            }
+        } else {
+            const MeshPhysicalGroup* group = nullptr;
+            for (const auto& g : mesh.getPhysicalGroups()) if (g.name == selector.name) { group = &g; break; }
+            if (!group)
+                for (const auto& g : mesh.getPhysicalGroups()) if (lowered(g.name) == lowered(selector.name)) { group = &g; break; }
+            if (!group) {
+                std::string known;
+                for (const auto& g : mesh.getPhysicalGroups()) known += (known.empty() ? "" : ", ") + g.name;
+                for (const auto& g : mesh.getMeshGroupRegistry().groups()) known += (known.empty() ? "" : ", ") + g.name;
+                for (const auto& s : sets) known += (known.empty() ? "" : ", ") + s.first;
+                error = "Unknown group or node set '" + selector.name + "'" + (known.empty() ? " (the mesh has none)" : " (available: " + known + ")");
+                return out;
+            }
+            std::unordered_map<ElementId, char> ids;
+            for (const ElementId id : group->elementIds) ids.emplace(id, 1);
+            for (const auto& block : mesh.getElementBlocks())
+                for (std::size_t e = 0; e < block.size(); ++e)
+                    if (ids.count(block.ids[e]))
+                        for (std::size_t k = 0; k < block.nodesPerElement; ++k)
+                            out.push_back(block.connectivity[e * block.nodesPerElement + k]);
         }
-        std::unordered_map<ElementId, std::pair<std::size_t, std::size_t>> where;
-        std::vector<char> wanted;
-        std::unordered_map<ElementId, char> ids;
-        for (const ElementId id : group->elementIds) ids.emplace(id, 1);
-        for (const auto& block : mesh.getElementBlocks())
-            for (std::size_t e = 0; e < block.size(); ++e)
-                if (ids.count(block.ids[e]))
-                    for (std::size_t k = 0; k < block.nodesPerElement; ++k) out.push_back(block.connectivity[e * block.nodesPerElement + k]);
     }
     std::sort(out.begin(), out.end());
     out.erase(std::unique(out.begin(), out.end()), out.end());
