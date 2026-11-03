@@ -19,6 +19,7 @@ set(GMSH_LIBRARY_RELEASE "" CACHE FILEPATH "Gmsh release import/static library (
 set(GMSH_LIBRARY "" CACHE FILEPATH "Legacy/single-configuration Gmsh library path; used as a fallback")
 set(GMSH_RUNTIME_LIBRARY_DEBUG "" CACHE FILEPATH "Gmsh debug runtime DLL on Windows, if applicable")
 set(GMSH_RUNTIME_LIBRARY_RELEASE "" CACHE FILEPATH "Gmsh release runtime DLL on Windows, if applicable")
+set(OPENMODEL_GMSH_TEST_STEP "" CACHE FILEPATH "Optional real STEP file for the Gmsh/OCC end-face mapping regression test")
 option(OPENMODEL_BUILD_OCC_BACKEND "Build the optional Open CASCADE CAD adapter and integration test" OFF)
 option(OPENMODEL_BUILD_NETGEN_BACKEND "Build the optional Netgen meshing adapter" OFF)
 option(OPENMODEL_BUILD_MFEM_BACKEND "Build the optional MFEM adapter and integration test" OFF)
@@ -658,6 +659,19 @@ if(OPENMODEL_BUILD_TESTS AND OPENMODEL_BUILD_GMSH_BACKEND AND OPENMODEL_BUILD_OC
     target_link_libraries(gmsh_assembly_test PRIVATE openmodel_gmsh openmodel_occ)
     add_test(NAME gmsh_assembly_test COMMAND gmsh_assembly_test)
     set_tests_properties(gmsh_assembly_test PROPERTIES LABELS "integration;gmsh;occ" TIMEOUT 180)
+endif()
+
+if(OPENMODEL_BUILD_TESTS AND OPENMODEL_BUILD_GMSH_BACKEND AND OPENMODEL_BUILD_OCC_BACKEND
+   AND OPENMODEL_GMSH_TEST_STEP)
+    if(NOT EXISTS "${OPENMODEL_GMSH_TEST_STEP}")
+        message(FATAL_ERROR "OPENMODEL_GMSH_TEST_STEP does not exist: ${OPENMODEL_GMSH_TEST_STEP}")
+    endif()
+    add_executable(gmsh_step_face_mapping_test tests/gmsh_step_face_mapping_test.cpp)
+    target_link_libraries(gmsh_step_face_mapping_test PRIVATE openmodel_gmsh openmodel_occ)
+    add_test(NAME gmsh_step_face_mapping_test
+        COMMAND gmsh_step_face_mapping_test "${OPENMODEL_GMSH_TEST_STEP}")
+    set_tests_properties(gmsh_step_face_mapping_test PROPERTIES
+        LABELS "integration;gmsh;occ;cad-face-mapping" TIMEOUT 300)
 endif()
 
 if(OPENMODEL_BUILD_TETGEN_BACKEND)
