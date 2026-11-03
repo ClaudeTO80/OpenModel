@@ -111,12 +111,12 @@ jobs:
         with:
           msystem: ${{ matrix.msystem }}
           update: true
+          path-type: inherit
           install: >-
             ${{ matrix.gcc_package }}
             ${{ matrix.cmake_package }}
             ${{ matrix.ninja_package }}
             ${{ matrix.python_package }}
-            nodejs
 
       - name: Show toolchain
         run: |
@@ -193,6 +193,7 @@ jobs:
         with:
           msystem: ${{ matrix.msystem }}
           update: true
+          path-type: inherit
           install: >-
             ${{ matrix.gcc_package }}
             ${{ matrix.cmake_package }}
@@ -206,7 +207,6 @@ jobs:
           python-version: "3.x"
 
       - name: Set up Node.js
-        if: matrix.toolchain == 'gcc' || matrix.toolchain == 'msvc'
         uses: actions/setup-node@v4
         with:
           node-version: "22"
