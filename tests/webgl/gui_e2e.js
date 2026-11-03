@@ -35,7 +35,7 @@ const check = (ok, text) => { console.log((ok ? 'PASS ' : 'FAIL ') + text); if (
   check(options.includes('gmsh') && options.includes('tetgen'), 'mesher selector lists Gmsh and TetGen (' + options.join(', ') + ')');
 
   // 1. Import and triangulate.
-  await page.fill('#cadPath', stepFile);
+  await page.fill('#cadPath', cadFixture);
   await click('Importa e triangola');
   check(/importato/.test(await message()), 'CAD import reports success');
   const surf = await viewerInfo();
@@ -65,7 +65,25 @@ const check = (ok, text) => { console.log((ok ? 'PASS ' : 'FAIL ') + text); if (
         'CAD face picking returns sourceFaceId values (' + JSON.stringify(cadSelection.faces.slice(0, 3)) + ')');
   check(/Facce CAD selezionate:/.test(await page.textContent('#cadFaceInfo')),
         'the workbench displays the selected CAD face identifiers');
+
+  // Create a named CAD group, then reimport the same STEP to verify sidecar persistence.
+  await page.fill('#cadGrpName', 'BladeRoot');
+  await page.click('#btnCadGrpCreate');
+  await waitIdle();
+  check(/Gruppo CAD/.test(await message()) && fs.existsSync(cadSidecar),
+        'CAD face group is created and persisted beside the STEP file');
   await page.selectOption('#selMode', 'off');
+  await page.fill('#cadPath', cadFixture);
+  await click('Importa e triangola');
+  await page.waitForFunction(() => document.querySelector('#cadGrpList').textContent.includes('BladeRoot'), null, { timeout: 10000 });
+  check(/Gruppi CAD utente: 1/.test(await message()) || (await page.textContent('#cadGrpList')).includes('BladeRoot'),
+        'CAD face group is restored after reimporting the source STEP');
+  const cadGroupDelete = page.locator('#cadGrpList button[data-cad-delete]').first();
+  await cadGroupDelete.click();
+  page.once('dialog', (dialog) => dialog.accept());
+  await waitIdle();
+  check(!(await page.textContent('#cadGrpList')).includes('BladeRoot'),
+        'CAD face group can be deleted and the sidecar is updated');
   await shot('1_import.png');
 
   // 2. Gmsh volume mesh must change the viewer content to tetrahedra.
@@ -120,6 +138,7 @@ const check = (ok, text) => { console.log((ok ? 'PASS ' : 'FAIL ') + text); if (
 
   check(problems.length === 0, 'no page errors' + (problems.length ? ': ' + problems[0] : ''));
   await browser.close().catch(() => {});
+  try { fs.rmSync(cadSidecar, { force: true }); } catch (_) {}
   console.log(failures ? failures + ' check(s) failed' : 'all checks passed');
   process.exit(failures ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });
