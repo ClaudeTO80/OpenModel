@@ -40,9 +40,11 @@ struct MeshingOptions {
     bool importCadGroups = true;
 
     /**
-     * Additional user-defined CAD face groups. These are mapped geometrically
-     * by capable backends (currently Gmsh) and retained as dimension-2 physical
-     * groups. The workbench converts their boundary elements into FEM node sets.
+     * Additional user-defined CAD face groups. Backends transfer their boundary
+     * element and node memberships into MeshData::MeshGroupRegistry. Gmsh also
+     * exposes them as physical groups; TetGen uses facet markers and Netgen uses
+     * geometric face queries. The workbench derives solver node sets from the
+     * generic registry, never from backend-specific markers.
      */
     std::vector<CADGroup> additionalFaceGroups;
 };
