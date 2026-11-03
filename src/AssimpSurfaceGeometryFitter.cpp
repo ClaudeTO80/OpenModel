@@ -23,11 +23,15 @@ bool finite(const V& a){return std::isfinite(a[0])&&std::isfinite(a[1])&&std::is
 void canonicalize(V& a){for(double x:a)if(std::abs(x)>1e-12){if(x<0)a=mul(a,-1);return;}}
 
 bool solve(double a[4][5],int n,double* x){
+    double matrixScale=0.0;
+    for(int i=0;i<n;++i)for(int j=0;j<n;++j)matrixScale=std::max(matrixScale,std::abs(a[i][j]));
+    if(!std::isfinite(matrixScale)||matrixScale==0.0)return false;
+    const double pivotTolerance=std::numeric_limits<double>::epsilon()*matrixScale*64.0;
     for(int col=0;col<n;++col){
         int pivot=col;
         for(int row=col+1;row<n;++row)
             if(std::abs(a[row][col])>std::abs(a[pivot][col]))pivot=row;
-        if(std::abs(a[pivot][col])<1e-18)return false;
+        if(std::abs(a[pivot][col])<=pivotTolerance)return false;
         if(pivot!=col)for(int k=col;k<=n;++k)std::swap(a[pivot][k],a[col][k]);
         const double d=a[col][col];
         for(int k=col;k<=n;++k)a[col][k]/=d;
@@ -115,7 +119,7 @@ bool circleFit(const std::vector<V>& points,const V& centroid,const V& axis,
     double solution[4]{};
     if(!solve(normal,3,solution))return false;
     const double radius2=solution[2]+solution[0]*solution[0]+solution[1]*solution[1];
-    if(!std::isfinite(radius2)||radius2<=1e-24)return false;
+    if(!std::isfinite(radius2)||radius2<=0.0)return false;
     const double radius=std::sqrt(radius2);
     if(zMax-zMin<=radius*1e-6)return false;
     std::vector<double> errors,angles;errors.reserve(points.size());angles.reserve(points.size());
@@ -151,7 +155,7 @@ bool coneFit(const std::vector<V>& points,const V& centroid,const V& axis,Candid
     if(std::abs(den)<1e-18||zMax-zMin<=1e-12)return false;
     const double slope=(n*sumZR-sumZ*sumR)/den;
     const double intercept=(sumR-slope*sumZ)/n;
-    if(!std::isfinite(slope)||!std::isfinite(intercept)||intercept<=1e-12)return false;
+    if(!std::isfinite(slope)||!std::isfinite(intercept)||intercept<=0.0)return false;
     std::vector<double> errors;errors.reserve(zr.size());
     for(const auto& item:zr)errors.push_back(std::abs(item[1]-(intercept+slope*item[0])));
     candidate.type=std::abs(slope)>1e-3?AssimpFittedSurfaceType::Conical:AssimpFittedSurfaceType::Cylindrical;
@@ -172,7 +176,7 @@ bool sphereFit(const std::vector<V>& points,const V& centroid,Candidate& candida
     if(!solve(normal,4,solution))return false;
     const V offset{{solution[0],solution[1],solution[2]}};
     const double radius2=solution[3]+dot(offset,offset);
-    if(!std::isfinite(radius2)||radius2<=1e-24)return false;
+    if(!std::isfinite(radius2)||radius2<=0.0)return false;
     const double radius=std::sqrt(radius2);
     std::vector<double> errors;errors.reserve(points.size());
     for(const auto& point:points)errors.push_back(std::abs(norm(sub(point,add(centroid,offset)))-radius));
