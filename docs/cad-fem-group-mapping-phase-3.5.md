@@ -46,7 +46,11 @@ substitute for a boundary-element group. Surface pressure, heat flux, convection
 and similar distributed conditions must reference the appropriate surface
 elements. Likewise, line loads require line elements where the solver formulation
 supports them. This export phase preserves the memberships; it does not infer
-or create missing boundary elements.
+or create missing boundary elements. CalculiX and Code_Aster analysis setup now
+also resolve generic CAD groups: node selectors use the registry's explicit node
+membership (or derive nodes from element membership when needed), and pressure
+loads accept generic dimension-2 groups with actual surface element IDs. A
+node-only face group is deliberately insufficient for pressure.
 
 ## Validation
 
