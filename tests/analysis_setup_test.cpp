@@ -159,6 +159,57 @@ void testStableConditionIds() {
     CHECK(generatedCollision.model.supports[1].id == "fix-2");
 }
 
+
+void testConditionCrudById() {
+    auto parsed = parseAnalysisScript(
+        "material id=steel E=210000 nu=0.3\n"
+        "fix id=clamp all\n"
+        "force id=load all F=1,2,3\n"
+        "pressure id=pressure group=TOP p=4\n");
+    CHECK(parsed.success);
+    auto& model = parsed.model;
+    CHECK(findSupport(model, "clamp") != nullptr);
+    CHECK(findForce(model, "load") != nullptr);
+    CHECK(findPressure(model, "pressure") != nullptr);
+    CHECK(findSupport(model, "missing") == nullptr);
+
+    std::string error;
+    FixedSupport support;
+    support.where.kind = SelectorKind::Plane;
+    support.where.axis = 2;
+    support.where.position = 5.0;
+    support.id = "attempted-id-change";
+    CHECK(updateSupport(model, "clamp", support, error));
+    CHECK(findSupport(model, "clamp") != nullptr);
+    CHECK(findSupport(model, "clamp")->where.position == 5.0);
+    CHECK(findSupport(model, "attempted-id-change") == nullptr);
+    CHECK(!updateSupport(model, "absent", support, error));
+
+    NodalForce force;
+    force.total = {{10.0, 0.0, -2.0}};
+    CHECK(updateForce(model, "load", force, error));
+    CHECK(findForce(model, "load")->total[0] == 10.0);
+    CHECK(eraseForce(model, "load"));
+    CHECK(!eraseForce(model, "load"));
+
+    SurfacePressure pressure;
+    pressure.group = "TOP";
+    pressure.pressure = 12.0;
+    CHECK(updatePressure(model, "pressure", pressure, error));
+    CHECK(findPressure(model, "pressure")->pressure == 12.0);
+    CHECK(erasePressure(model, "pressure"));
+
+    AnalysisMaterial material;
+    material.name = "ALUMINIUM";
+    material.youngModulus = 70000.0;
+    material.poisson = 0.33;
+    CHECK(updateMaterial(model, "steel", material, error));
+    CHECK(model.material.id == "steel" && model.material.name == "ALUMINIUM");
+    CHECK(!updateMaterial(model, "missing", material, error));
+    CHECK(eraseSupport(model, "clamp"));
+    CHECK(serializeAnalysisScript(model).find("id=steel") != std::string::npos);
+}
+
 void testParser() {
     const auto model = parseOk(
         "# comment\n"
@@ -432,6 +483,7 @@ void testRunner() {
 int main() {
     testParser();
     testStableConditionIds();
+    testConditionCrudById();
     testSelectors();
     testWriterStatic();
     testTetFaces();
