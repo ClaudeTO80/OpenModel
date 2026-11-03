@@ -23,9 +23,9 @@ struct AssimpSurfaceSelector {
     std::string name;
     AssimpSurfaceSelectorKind kind = AssimpSurfaceSelectorKind::Plane;
 
-    // Plane: a point on the plane. Cylinder: a point on the cylinder axis.
+    // Plane: point on plane; Cylinder: point on axis; Sphere: center; Cone: apex.
     std::array<double, 3> point{{0.0, 0.0, 0.0}};
-    // Plane: plane normal. Cylinder: cylinder axis direction.
+    // Plane: plane normal; Cylinder/Cone: axis direction; Sphere: unused.
     std::array<double, 3> direction{{0.0, 0.0, 1.0}};
 
     // Axis-aligned box limits in model coordinates.
