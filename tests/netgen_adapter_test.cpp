@@ -12,9 +12,12 @@ public:
     void tessellate(double = 0.1) override {}
     const std::vector<RenderSubMesh>& getRenderMeshes() const override { return m_meshes; }
     std::string getFilePath() const override { return m_path; }
+    const std::vector<CADGroup>& getGroups() const override { return m_groups; }
+    std::vector<int> facesContainingPoint(const std::array<double, 3>&, double) const override { return {42}; }
 private:
     std::string m_path;
     std::vector<RenderSubMesh> m_meshes;
+    std::vector<CADGroup> m_groups{{"Netgen_Face_42", CADGroupKind::NamedShape, 2, {42}}};
 };
 
 int main() {
@@ -50,6 +53,11 @@ int main() {
     }
     if (output.getNumNodes() == 0 || output.getNumElements() == 0) {
         std::cerr << "Netgen returned an empty mesh\n";
+        return EXIT_FAILURE;
+    }
+    const auto* faceGroup = output.getMeshGroupRegistry().find("Netgen_Face_42");
+    if (!faceGroup || faceGroup->elementIds.empty() || faceGroup->nodeIndices.empty()) {
+        std::cerr << "Netgen did not export CAD face boundary membership\n";
         return EXIT_FAILURE;
     }
 #endif
