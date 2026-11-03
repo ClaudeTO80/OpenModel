@@ -44,6 +44,9 @@ bool matches(const CompiledSelector& compiled, const Vec3& a, const Vec3& b,
         return false;
 
     const Vec3 points[] = {a, b, c};
+    if (s.kind == AssimpSurfaceSelectorKind::Normal)
+        return true;
+
     if (s.kind == AssimpSurfaceSelectorKind::Plane) {
         for (const auto& p : points)
             if (std::abs(dot(subtract(p, s.point), compiled.unitDirection)) > s.tolerance)
