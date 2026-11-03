@@ -211,8 +211,16 @@ RenderSubMesh AssimpModel::processMesh(const aiMesh* mesh, const aiScene* scene,
     if (nv == 0) throw std::runtime_error("Assimp mesh '" + out.name + "' has no vertices.");
 
     aiMatrix3x3 normalTransform(transform);
-    const double determinant = static_cast<double>(normalTransform.Determinant());
-    if (!std::isfinite(determinant) || std::abs(determinant) <= 1e-15)
+    const double a1=normalTransform.a1,a2=normalTransform.a2,a3=normalTransform.a3;
+    const double b1=normalTransform.b1,b2=normalTransform.b2,b3=normalTransform.b3;
+    const double c1=normalTransform.c1,c2=normalTransform.c2,c3=normalTransform.c3;
+    const double determinant=a1*(b2*c3-b3*c2)-a2*(b1*c3-b3*c1)+a3*(b1*c2-b2*c1);
+    const double matrixScale=std::max({std::abs(a1),std::abs(a2),std::abs(a3),
+        std::abs(b1),std::abs(b2),std::abs(b3),std::abs(c1),std::abs(c2),std::abs(c3)});
+    const double singularTolerance=std::numeric_limits<double>::epsilon()*
+        matrixScale*matrixScale*matrixScale*64.0;
+    if (!std::isfinite(determinant) || matrixScale==0.0 ||
+        std::abs(determinant)<=singularTolerance)
         throw std::runtime_error("Assimp mesh '" + out.name + "' has a singular or invalid node transform.");
     const bool mirrored = determinant < 0.0;
     normalTransform.Inverse().Transpose();
