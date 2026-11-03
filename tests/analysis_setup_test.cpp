@@ -179,6 +179,16 @@ void testSelectors() {
     n = selectNodes(withCadSet, cad, err);
     CHECK(err.empty() && n.size() == 4);
     CHECK(n[0] == 0 && n[1] == 3 && n[2] == 4 && n[3] == 7);
+
+    MeshData genericGroups = hex;
+    genericGroups.addMeshGroup({"CadRoot", 2, MeshGroupSource::CAD, {17}, {}, {0, 3, 4, 7}});
+    genericGroups.addMeshGroup({"CadFace", 2, MeshGroupSource::CAD, {18}, {101}, {}});
+    cad.name = "cadroot";
+    n = selectNodes(genericGroups, cad, err);
+    CHECK(err.empty() && n == std::vector<NodeIndex>({0, 3, 4, 7}));
+    cad.name = "CadFace";
+    n = selectNodes(genericGroups, cad, err);
+    CHECK(err.empty() && n == std::vector<NodeIndex>({0, 1, 2, 3}));
 }
 
 void testWriterStatic() {
