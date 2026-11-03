@@ -190,6 +190,9 @@ bool TetGenMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Me
             // TetGen's -f output returns boundary triangles and their propagated
             // facet markers. Store these as genuine 2D mesh elements so the
             // CAD-to-FEM mapping survives independently of node markers.
+            const bool quadraticSurface = options.order == 2;
+            if (quadraticSurface && !out.o2facelist)
+                throw std::runtime_error("TetGen did not return second-order boundary face nodes");
             std::map<int, std::vector<ElementId>> elementsByCadFace;
             std::map<int, std::vector<NodeIndex>> nodesByCadFace;
             const ElementId surfaceIdBase = static_cast<ElementId>(out.numberoftetrahedra) + 1;
@@ -200,15 +203,25 @@ bool TetGenMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Me
                 // not boundary elements and must not enter the surface block.
                 if (face == markerToCadFace.end()) continue;
                 std::vector<NodeIndex> connectivity;
-                connectivity.reserve(3);
+                connectivity.reserve(quadraticSurface ? 6 : 3);
                 for (int n = 0; n < 3; ++n) {
                     const int nodeIdx = out.trifacelist[i * 3 + n];
                     if (nodeIdx < 0 || nodeIdx >= out.numberofpoints)
                         throw std::runtime_error("TetGen boundary face references an invalid node");
                     connectivity.push_back(static_cast<NodeIndex>(nodeIdx));
                 }
+                if (quadraticSurface) {
+                    for (int n = 0; n < 3; ++n) {
+                        const int nodeIdx = out.o2facelist[i * 3 + n];
+                        if (nodeIdx < 0 || nodeIdx >= out.numberofpoints)
+                            throw std::runtime_error("TetGen second-order boundary face references an invalid node");
+                        connectivity.push_back(static_cast<NodeIndex>(nodeIdx));
+                    }
+                }
                 const ElementId elementId = surfaceIdBase + static_cast<ElementId>(i);
-                outMesh.addElement("TetGen_Surface", ElementType::Triangle3, elementId, connectivity);
+                outMesh.addElement("TetGen_Surface",
+                    quadraticSurface ? ElementType::Triangle6 : ElementType::Triangle3,
+                    elementId, connectivity);
                 if (face->second >= 0) {
                     elementsByCadFace[face->second].push_back(elementId);
                     auto& nodes = nodesByCadFace[face->second];
@@ -259,6 +272,9 @@ bool TetGenMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Me
             if (!requestedFaceGroups.empty() && cadFaceToMarker.empty())
                 throw std::runtime_error("TetGen input tessellation has no sourceFaceId metadata; CAD face groups cannot be mapped.");
 
+            const auto structuralErrors = outMesh.validate();
+            if (!structuralErrors.empty())
+                throw std::runtime_error("TetGen mesh failed structural validation: " + structuralErrors.front());
             return true;
         } catch (const std::exception& e) {
             std::cerr << "TetGen Error: " << e.what() << std::endl;
