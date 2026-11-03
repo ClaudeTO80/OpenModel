@@ -335,11 +335,11 @@ int main() {
         require(sphereModel->loadFromFile(spherePath.string()),
                 "Could not import sphere selector fixture: " + sphereModel->getLastError());
         AssimpSurfaceSelector sphereSelector;
-        sphereSelector.name = "SPHERE_SURFACE";
-        sphereSelector.kind = AssimpSurfaceSelectorKind::SphereSurface;
-        sphereSelector.point = {{0,0,0}};
-        sphereSelector.radius = 1.75;
-        sphereSelector.tolerance = 1e-5;
+        std::string selectorDiagnostic;
+        require(AssimpSurfaceGeometryFitter::makeSelector(fits.front(), {spherePart},
+                    spherePatches.front(), "SPHERE_SURFACE", 1e-5,
+                    sphereSelector, selectorDiagnostic),
+                "Could not convert sphere fit to a selector: " + selectorDiagnostic);
         MeshingOptions selectorOptions;
         selectorOptions.dimension = MeshDimension::Surface;
         AssimpSurfaceMesher selectorMesher;
@@ -357,14 +357,14 @@ int main() {
         require(coneModel->loadFromFile(conePath.string()),
                 "Could not import cone selector fixture: " + coneModel->getLastError());
         AssimpSurfaceSelector coneSelector;
-        coneSelector.name = "CONE_SURFACE";
-        coneSelector.kind = AssimpSurfaceSelectorKind::ConeSide;
-        coneSelector.point = {{0,0,4.8}};
-        coneSelector.direction = {{0,0,-1}};
-        coneSelector.coneHalfAngleRadians = std::atan((2.0-0.75)/3.0);
-        coneSelector.axialMin = 1.8;
-        coneSelector.axialMax = 4.8;
-        coneSelector.tolerance = 1e-5;
+        require(AssimpSurfaceGeometryFitter::makeSelector(fits.front(), {conePart},
+                    conePatches.front(), "CONE_SURFACE", 1e-5,
+                    coneSelector, selectorDiagnostic),
+                "Could not convert cone fit to a selector: " + selectorDiagnostic);
+        require(coneSelector.kind == AssimpSurfaceSelectorKind::ConeSide &&
+                coneSelector.direction[2] < -0.99 &&
+                std::abs(coneSelector.point[2] - 4.8) < 1e-2,
+                "Fitted cone selector does not preserve the apex orientation.");
         MeshData coneSelection;
         require(selectorMesher.buildMesh(coneModel, selectorOptions, {coneSelector}, coneSelection),
                 "Cone surface selector failed.");
