@@ -20,8 +20,12 @@ bool TetGenMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Me
         // touching solids conform. Say so instead of silently ignoring the request.
         if (options.interfaceMode == InterfaceMode::Conformal)
             m_diagnostics.push_back("TetGen backend ignores interfaceMode: use Gmsh for conformal interfaces between solids.");
-        if (options.importCadGroups && (!cadModel->getComponents().empty() || !cadModel->getGroups().empty()))
-            m_diagnostics.push_back("TetGen backend does not transfer CAD components/groups: the mesh is a single block.");
+        if (options.importCadGroups) {
+            const bool hasSolidGroups = std::any_of(cadModel->getGroups().begin(), cadModel->getGroups().end(),
+                [](const CADGroup& group) { return group.dimension == 3; });
+            if (!cadModel->getComponents().empty() || hasSolidGroups)
+                m_diagnostics.push_back("TetGen maps CAD face groups but does not preserve assembly or solid-region groups; the volume mesh is a single block.");
+        }
         if (options.dimension != MeshDimension::Volume || !options.generateTetrahedra) {
             std::cerr << "OpenModel generates volume meshes only; use SurfaceMesher for a surface mesh.\n";
             return false;
@@ -213,8 +217,10 @@ bool TetGenMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Me
             }
 
             std::vector<CADGroup> requestedFaceGroups;
-            for (const auto& group : cadModel->getGroups())
-                if (group.dimension == 2) requestedFaceGroups.push_back(group);
+            if (options.importCadGroups) {
+                for (const auto& group : cadModel->getGroups())
+                    if (group.dimension == 2) requestedFaceGroups.push_back(group);
+            }
             requestedFaceGroups.insert(requestedFaceGroups.end(),
                                        options.additionalFaceGroups.begin(),
                                        options.additionalFaceGroups.end());
