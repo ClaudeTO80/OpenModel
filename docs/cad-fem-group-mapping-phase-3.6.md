@@ -92,3 +92,25 @@ This is an incremental GUI editing layer, not yet a persistent condition
 object model. Row identity is derived from the current script line position;
 stable condition IDs, project-level persistence, geometric highlighting and
 undo/redo are not implemented in this increment.
+
+
+## Phase 4.2 — Stable analysis condition identifiers
+
+Analysis material, fixed-support, nodal-force and surface-pressure records now
+carry a stable string `id`. The script parser accepts an optional `id=`
+token on these commands and generates deterministic per-kind IDs when it is
+omitted (for example `fix-1`, `force-1`). IDs are unique across all these
+condition records in one parsed model; duplicate or malformed IDs are errors.
+The Workbench condition list displays an ID when one is present in the script.
+
+The C++ API `serializeAnalysisScript(const AnalysisModel&)` writes a
+round-trippable analysis script and retains those IDs. The parser and serializer
+cover material, supports, forces, pressures, gravity, step and element-output
+settings. Existing scripts remain compatible: their conditions receive
+generated IDs when parsed.
+
+This increment does **not** yet add a project-file format or persistent project
+save/load. Nor does it yet expose native C++ CRUD-by-ID endpoints in the
+Workbench; GUI editing still edits the script text. Those are separate follow-up
+tasks and should not be confused with the IDs now available in the analysis
+model.
