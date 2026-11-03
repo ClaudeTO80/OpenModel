@@ -45,6 +45,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstring>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
