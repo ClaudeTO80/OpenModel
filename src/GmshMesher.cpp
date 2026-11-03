@@ -491,9 +491,10 @@ void GmshMesher::mapCadGroups(const CADModel& cad, MeshData& mesh,
             std::map<int, std::size_t> faceVotes;
             for (const auto& probe : probes) {
                 const auto hits = cad.facesContainingPoint(probe, tolerance);
-                if (!hits.empty()) ++mapping.matchedSampleCount;
                 for (const int faceId : hits) ++faceVotes[faceId];
             }
+            for (const auto& vote : faceVotes)
+                mapping.matchedSampleCount = std::max(mapping.matchedSampleCount, vote.second);
             mapping.matchRatio = static_cast<double>(mapping.matchedSampleCount) /
                                  static_cast<double>(mapping.sampledElementCount);
             const std::size_t requiredVotes =
