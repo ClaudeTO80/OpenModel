@@ -98,6 +98,8 @@ struct AppState {
     std::string viewLabel;
     std::string viewNote;            ///< Non-empty when the view could not be built.
     OpenModel::FemResults results;     ///< Solver results attached to the current mesh (empty when none).
+    OpenModel::AnalysisModel analysis;
+    bool hasAnalysis = false;
     std::string resultsName;         ///< File name of the loaded results.
     std::size_t resultsStep = OpenModel::BindOptions::kLastStep;
     std::string resultsNote;         ///< Warnings produced while attaching the results to the current view.
@@ -1008,6 +1010,39 @@ void defaultAnalysis(webui_event_t* e) {
     reply(e, true, OpenModel::exampleAnalysisScript());
 }
 
+
+/** Parse and retain the structured analysis model. */
+void analysisLoad(webui_event_t* e) {
+    StateLock lock;
+    if (!lock.ok()) { replyBusy(e); return; }
+    const auto parsed = OpenModel::parseAnalysisScript(getStringArg(e, 0));
+    if (!parsed.success) { reply(e, false, "Script di analisi non valido:" + analysisDiagnosticsText(parsed.diagnostics)); return; }
+    g.analysis = parsed.model;
+    g.hasAnalysis = true;
+    reply(e, true, OpenModel::serializeAnalysisScript(g.analysis));
+}
+
+/** Return the authoritative structured model as a round-trippable script. */
+void analysisGet(webui_event_t* e) {
+    StateLock lock;
+    if (!lock.ok()) { replyBusy(e); return; }
+    if (!g.hasAnalysis) { reply(e, false, "Nessun modello di analisi caricato."); return; }
+    reply(e, true, OpenModel::serializeAnalysisScript(g.analysis));
+}
+
+/** Delete a support, force or pressure by stable ID. The required material cannot be deleted. */
+void analysisDelete(webui_event_t* e) {
+    StateLock lock;
+    if (!lock.ok()) { replyBusy(e); return; }
+    if (!g.hasAnalysis) { reply(e, false, "Nessun modello di analisi caricato."); return; }
+    const std::string id = getStringArg(e, 0);
+    bool removed = OpenModel::eraseSupport(g.analysis, id) ||
+                   OpenModel::eraseForce(g.analysis, id) ||
+                   OpenModel::erasePressure(g.analysis, id);
+    if (!removed) { reply(e, false, "Condizione non trovata o non eliminabile: " + id); return; }
+    reply(e, true, OpenModel::serializeAnalysisScript(g.analysis));
+}
+
 /** Arguments: script, job path (folder or .inp; empty = ./openmodel_job/job.inp), solver kind ("aster" for code_aster, anything else CalculiX). */
 void writeInput(webui_event_t* e) {
     StateLock lock;
@@ -1656,6 +1691,9 @@ int main() {
     webui_bind(window, "openmodel_load_results", loadResults);
     webui_bind(window, "openmodel_clear_results", clearResultsHandler);
     webui_bind(window, "openmodel_default_analysis", defaultAnalysis);
+    webui_bind(window, "openmodel_analysis_load", analysisLoad);
+    webui_bind(window, "openmodel_analysis_get", analysisGet);
+    webui_bind(window, "openmodel_analysis_delete", analysisDelete);
     webui_bind(window, "openmodel_create_group", createGroupHandler);
     webui_bind(window, "openmodel_list_groups", listGroupsHandler);
     webui_bind(window, "openmodel_show_group", showGroupHandler);
