@@ -89,6 +89,24 @@ int main() {
             require(mirroredMesh.normals[2] > 0.99f,
                     "Mirrored transform produced an inconsistent vertex normal.");
 
+        AssimpModel scaledModel;
+        AssimpImportOptions importOptions;
+        importOptions.coordinateScale = 1000.0;
+        std::string optionError;
+        require(scaledModel.setImportOptions(importOptions, &optionError),
+                "Valid Assimp import options were rejected: " + optionError);
+        require(scaledModel.loadFromFile(path.string()),
+                "Scaled Assimp import failed: " + scaledModel.getLastError());
+        double maximumCoordinate = 0.0;
+        for (const auto coordinate : scaledModel.getRenderMeshes().front().vertices)
+            maximumCoordinate = std::max(maximumCoordinate, std::abs(static_cast<double>(coordinate)));
+        require(std::abs(maximumCoordinate - 1000.0) < 1e-3,
+                "Assimp coordinateScale was not applied to transformed geometry.");
+        AssimpImportOptions invalidOptions;
+        invalidOptions.coordinateScale = 0.0;
+        require(!scaledModel.setImportOptions(invalidOptions, &optionError) && !optionError.empty(),
+                "Invalid Assimp coordinateScale was accepted.");
+
         // The importer should report a useful diagnostic and clear stale geometry
         // after a subsequent failed load.
         require(!model.loadFromFile((path.string() + ".missing")), "Assimp unexpectedly loaded a missing file");
