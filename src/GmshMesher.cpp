@@ -419,40 +419,83 @@ void GmshMesher::mapCadGroups(const CADModel& cad, MeshData& mesh,
                 const auto found = solidsOfVolume.find(v);
                 if (found != solidsOfVolume.end()) adjacentSolids.insert(found->second.begin(), found->second.end());
             }
-            if (adjacentSolids.empty()) continue;
 
-            std::vector<std::size_t> nodeTags;
-            std::vector<double> xyz, parametric;
-            gmsh::model::mesh::getNodes(nodeTags, xyz, parametric, 2, surface.second, true, false);
-            if (nodeTags.empty()) continue;
-            // At most 12 evenly spread sample nodes; the faces containing all of them are the candidates.
-            const std::size_t samples = std::min<std::size_t>(12, nodeTags.size());
-            std::set<int> common;
-            bool first = true;
-            for (std::size_t k = 0; k < samples && (first || !common.empty()); ++k) {
-                const std::size_t i = samples == 1 ? 0 : k * (nodeTags.size() - 1) / (samples - 1);
-                const auto hit = cad.facesContainingPoint({{xyz[3 * i], xyz[3 * i + 1], xyz[3 * i + 2]}}, tolerance);
-                const std::set<int> hits(hit.begin(), hit.end());
-                if (first) { common = hits; first = false; continue; }
-                std::set<int> both;
-                std::set_intersection(common.begin(), common.end(), hits.begin(), hits.end(), std::inserter(both, both.begin()));
-                common = std::move(both);
+            // Probe element interiors, not only boundary nodes. Boundary nodes are
+            // shared by adjacent CAD faces and can make a perfectly valid face
+            // appear ambiguous. Projecting element centroids back onto the Gmsh
+            // surface gives points on the exact OCC surface (also for curved faces).
+            std::vector<int> types;
+            std::vector<std::vector<std::size_t>> elementTags, elementNodeTags;
+            gmsh::model::mesh::getElements(types, elementTags, elementNodeTags, 2, surface.second);
+            std::size_t totalElements = 0;
+            for (const auto& tags : elementTags) totalElements += tags.size();
+            if (totalElements == 0) continue;
+
+            constexpr std::size_t maxProbes = 32;
+            const std::size_t stride = std::max<std::size_t>(1, (totalElements + maxProbes - 1) / maxProbes);
+            std::vector<std::array<double, 3>> probes;
+            probes.reserve(std::min(totalElements, maxProbes + 1));
+            std::size_t globalElement = 0;
+            for (std::size_t t = 0; t < types.size(); ++t) {
+                if (elementTags[t].empty()) continue;
+                std::string typeName;
+                int dim = 0, order = 0, numNodes = 0, numPrimary = 0;
+                std::vector<double> localCoordinates;
+                gmsh::model::mesh::getElementProperties(types[t], typeName, dim, order,
+                                                        numNodes, localCoordinates, numPrimary);
+                if (dim != 2 || numPrimary <= 0 ||
+                    elementNodeTags[t].size() != elementTags[t].size() * static_cast<std::size_t>(numNodes))
+                    continue;
+                for (std::size_t e = 0; e < elementTags[t].size(); ++e, ++globalElement) {
+                    if (globalElement % stride != 0 && globalElement + 1 != totalElements) continue;
+                    std::array<double, 3> centroid{{0.0, 0.0, 0.0}};
+                    for (int n = 0; n < numPrimary; ++n) {
+                        const auto point = coordinates(elementNodeTags[t][e * static_cast<std::size_t>(numNodes) +
+                                                                          static_cast<std::size_t>(n)]);
+                        for (std::size_t axis = 0; axis < 3; ++axis)
+                            centroid[axis] += point[axis] / static_cast<double>(numPrimary);
+                    }
+                    std::vector<double> closest, parametric;
+                    gmsh::model::getClosestPoint(2, surface.second,
+                        {centroid[0], centroid[1], centroid[2]}, closest, parametric);
+                    if (closest.size() == 3)
+                        probes.push_back({{closest[0], closest[1], closest[2]}});
+                }
             }
-            for (const int f : common) {
-                const auto owners = ownersOfFace.find(f);
-                // Some neutral CAD files have no assembly/component metadata. In
-                // that case geometric face matching plus adjacency to a CAD solid
-                // is the available evidence; otherwise use ownership to disambiguate
-                // coincident faces belonging to different component instances.
+            if (probes.empty()) continue;
+
+            // Score each CAD face by the number of independent interior probes
+            // that lie on it. A small tolerance is retained for STEP healing and
+            // floating-point differences; candidates must explain at least 80%
+            // of the probes before being accepted.
+            std::map<int, std::size_t> faceVotes;
+            for (const auto& probe : probes) {
+                const auto hits = cad.facesContainingPoint(probe, tolerance);
+                for (const int faceId : hits) ++faceVotes[faceId];
+            }
+            const std::size_t requiredVotes =
+                std::max<std::size_t>(1, (probes.size() * 4 + 4) / 5);
+            for (const auto& vote : faceVotes) {
+                if (vote.second < requiredVotes) continue;
+                const int faceId = vote.first;
+                const auto owners = ownersOfFace.find(faceId);
+                // In a volume mesh, adjacency to the matched CAD solid is the
+                // strongest discriminator for coincident faces of separate parts.
+                // A surface-only mesh has no upward volumes: in that case accept
+                // geometrically unique ownership, but do not guess among instances.
                 if (owners == ownersOfFace.end()) {
-                    if (components.empty()) facesOfSurface[surface.second].insert(f);
+                    if (components.empty()) facesOfSurface[surface.second].insert(faceId);
                     continue;
                 }
                 bool owned = false;
-                for (const CADComponent* component : owners->second)
-                    for (const int s : component->solidIds)
-                        if (adjacentSolids.count(s)) { owned = true; break; }
-                if (owned) facesOfSurface[surface.second].insert(f);
+                if (!adjacentSolids.empty()) {
+                    for (const CADComponent* component : owners->second)
+                        for (const int solidId : component->solidIds)
+                            if (adjacentSolids.count(solidId)) { owned = true; break; }
+                } else {
+                    owned = owners->second.size() == 1;
+                }
+                if (owned) facesOfSurface[surface.second].insert(faceId);
             }
         }
         for (const auto& group : cadGroups) {
