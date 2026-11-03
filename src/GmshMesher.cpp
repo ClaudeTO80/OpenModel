@@ -458,7 +458,9 @@ void GmshMesher::mapCadGroups(const CADModel& cad, MeshData& mesh,
                     std::vector<double> closest, parametric;
                     gmsh::model::getClosestPoint(2, surface.second,
                         {centroid[0], centroid[1], centroid[2]}, closest, parametric);
-                    if (closest.size() == 3)
+                    // The projection can land on the untrimmed underlying surface.
+                    // Accept it only when its UV coordinates lie inside this face.
+                    if (closest.size() == 3 && gmsh::model::isInside(2, surface.second, parametric, true))
                         probes.push_back({{closest[0], closest[1], closest[2]}});
                 }
             }
