@@ -57,21 +57,15 @@ std::string sha256File(const std::filesystem::path& path) {
     };
     std::ifstream in(path, std::ios::binary);
     if (!in) throw std::runtime_error("OpenModelProject: cannot read asset: " + path.string());
-    std::vector<unsigned char> data((std::istreambuf_iterator<char>(in)), {});
-    if (!in.eof() && in.fail()) throw std::runtime_error("OpenModelProject: asset read failed: " + path.string());
-    const std::uint64_t bitLength = static_cast<std::uint64_t>(data.size()) * 8u;
-    data.push_back(0x80u);
-    while ((data.size() % 64u) != 56u) data.push_back(0u);
-    for (int i = 7; i >= 0; --i) data.push_back(static_cast<unsigned char>(bitLength >> (i * 8)));
     std::uint32_t h[8] = {0x6a09e667u,0xbb67ae85u,0x3c6ef372u,0xa54ff53au,
                          0x510e527fu,0x9b05688cu,0x1f83d9abu,0x5be0cd19u};
     const auto rotr=[](std::uint32_t x,unsigned n){ return (x>>n)|(x<<(32u-n)); };
-    for (std::size_t offset=0; offset<data.size(); offset+=64u) {
+    const auto transform=[&](const unsigned char* block) {
         std::uint32_t w[64]{};
         for (unsigned i=0;i<16;++i) {
-            const auto p=offset+i*4u;
-            w[i]=(std::uint32_t(data[p])<<24)|(std::uint32_t(data[p+1])<<16)|
-                 (std::uint32_t(data[p+2])<<8)|std::uint32_t(data[p+3]);
+            const auto p=i*4u;
+            w[i]=(std::uint32_t(block[p])<<24)|(std::uint32_t(block[p+1])<<16)|
+                 (std::uint32_t(block[p+2])<<8)|std::uint32_t(block[p+3]);
         }
         for (unsigned i=16;i<64;++i) {
             const auto s0=rotr(w[i-15],7)^rotr(w[i-15],18)^(w[i-15]>>3);
@@ -89,7 +83,27 @@ std::string sha256File(const std::filesystem::path& path) {
             z=g; g=f; f=e; e=d+t1; d=c; c=b; b=a; a=t1+t2;
         }
         h[0]+=a;h[1]+=b;h[2]+=c;h[3]+=d;h[4]+=e;h[5]+=f;h[6]+=g;h[7]+=z;
+    };
+    std::array<unsigned char,64> block{};
+    std::uint64_t totalBytes=0;
+    while (in.read(reinterpret_cast<char*>(block.data()), static_cast<std::streamsize>(block.size()))) {
+        transform(block.data());
+        totalBytes += block.size();
     }
+    const auto remaining=static_cast<std::size_t>(in.gcount());
+    totalBytes += remaining;
+    std::array<unsigned char,64> tail{};
+    if (remaining) std::copy_n(block.data(), remaining, tail.data());
+    tail[remaining]=0x80u;
+    if (remaining>=56u) {
+        transform(tail.data());
+        tail.fill(0u);
+    }
+    const std::uint64_t bitLength=totalBytes*8u;
+    for (unsigned i=0;i<8;++i)
+        tail[63u-i]=static_cast<unsigned char>(bitLength>>(i*8u));
+    transform(tail.data());
+    if (!in.eof() && in.fail()) throw std::runtime_error("OpenModelProject: asset read failed: " + path.string());
     std::ostringstream out;
     out << std::hex << std::setfill('0');
     for (auto v:h) out << std::setw(8) << v;
