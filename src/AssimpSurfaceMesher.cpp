@@ -54,6 +54,29 @@ bool matches(const CompiledSelector& compiled, const Vec3& a, const Vec3& b,
         return true;
     }
 
+    if (s.kind == AssimpSurfaceSelectorKind::SphereSurface) {
+        for (const auto& p : points)
+            if (std::abs(norm(subtract(p, s.point)) - s.radius) > s.tolerance)
+                return false;
+        return true;
+    }
+
+    if (s.kind == AssimpSurfaceSelectorKind::ConeSide) {
+        const double tangent = std::tan(s.coneHalfAngleRadians);
+        for (const auto& p : points) {
+            const Vec3 relative = subtract(p, s.point);
+            const double axial = dot(relative, compiled.unitDirection);
+            if (axial < s.axialMin - s.tolerance || axial > s.axialMax + s.tolerance)
+                return false;
+            const Vec3 radial = subtract(relative, {{axial * compiled.unitDirection[0],
+                                                      axial * compiled.unitDirection[1],
+                                                      axial * compiled.unitDirection[2]}});
+            if (std::abs(norm(radial) - axial * tangent) > s.tolerance)
+                return false;
+        }
+        return true;
+    }
+
     if (s.kind == AssimpSurfaceSelectorKind::AxisAlignedBox) {
         for (const auto& p : points) {
             for (std::size_t axis = 0; axis < 3; ++axis) {
@@ -168,6 +191,20 @@ bool AssimpSurfaceMesher::buildMesh(
                 !std::isfinite(s.axialMin) || !std::isfinite(s.axialMax) ||
                 s.axialMin > s.axialMax) {
                 m_diagnostics.push_back("Invalid cylinder selector '" + s.name + "'.");
+                return false;
+            }
+        } else if (s.kind == AssimpSurfaceSelectorKind::SphereSurface) {
+            if (!std::isfinite(s.radius) || s.radius <= 0.0) {
+                m_diagnostics.push_back("Invalid sphere selector '" + s.name + "'.");
+                return false;
+            }
+        } else if (s.kind == AssimpSurfaceSelectorKind::ConeSide) {
+            if (!std::isfinite(s.coneHalfAngleRadians) ||
+                s.coneHalfAngleRadians <= 0.0 ||
+                s.coneHalfAngleRadians >= 1.5707963267948966 ||
+                !std::isfinite(s.axialMin) || !std::isfinite(s.axialMax) ||
+                s.axialMin < 0.0 || s.axialMin > s.axialMax) {
+                m_diagnostics.push_back("Invalid cone selector '" + s.name + "'.");
                 return false;
             }
         } else if (s.kind != AssimpSurfaceSelectorKind::Plane &&
