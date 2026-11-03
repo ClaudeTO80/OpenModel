@@ -192,8 +192,10 @@ void AssimpModel::processNode(const aiNode* node, const aiScene* scene, const st
 
         if (!node || !scene) throw std::runtime_error("Assimp returned an invalid scene node.");
         const aiMatrix4x4 transform = parentTransform * node->mTransformation;
+        if (node->mNumMeshes && (!node->mMeshes || !scene->mMeshes))
+            throw std::runtime_error("Assimp scene node contains an invalid mesh array.");
         for (unsigned int i = 0; i < node->mNumMeshes; ++i) {
-            if (node->mMeshes[i] >= scene->mNumMeshes || !scene->mMeshes)
+            if (node->mMeshes[i] >= scene->mNumMeshes)
                 throw std::runtime_error("Assimp node references an invalid mesh index.");
             const aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
             auto imported = processMesh(mesh, scene, modelDir, transform);
