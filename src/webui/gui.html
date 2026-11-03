@@ -310,7 +310,11 @@ iframe{display:block;width:100%;height:100%;border:0;background:#10141b}
       <div><label for="selBoxOn">Riquadro</label><input id="selBoxOn" type="checkbox" onchange="setPickBox(this.checked)"></div></div>
     <p class="hint" id="selInfo">Selezione: nessuna.</p>
     <p class="hint" id="cadFaceInfo">Facce CAD: nessuna selezionata.</p>
-    <label for="grpName">Nome del gruppo (vuoto = automatico; lettere, cifre, _ - .)</label>
+    <label for="cadGrpName">Nuovo gruppo CAD (indipendente dalla mesh)</label>
+    <div class="row"><input id="cadGrpName" placeholder="BladeRoot"><button id="btnCadGrpCreate" onclick="createCADFaceGroup()">Crea</button></div>
+    <p class="hint">Il gruppo memorizza gli ID delle facce B-Rep selezionate e viene salvato accanto al file CAD nel sidecar <code>.omgroups</code>.</p>
+    <ul id="cadGrpList" style="list-style:none;margin:4px 0 10px;padding:0;font-size:12px"></ul>
+    <label for="grpName">Nome del gruppo FEM (vuoto = automatico; lettere, cifre, _ - .)</label>
     <input id="grpName" placeholder="Appoggio">
     <div class="grid2"><button id="btnGrpNode" onclick="makeGroup('node')">Gruppo nodi</button><button id="btnGrpElem" onclick="makeGroup('element')">Gruppo elementi</button></div>
     <button id="btnGrpFace" onclick="makeGroup('face')" style="margin-top:6px">Gruppo facce</button>
@@ -352,6 +356,7 @@ iframe{display:block;width:100%;height:100%;border:0;background:#10141b}
 const $ = (id) => document.getElementById(id);
 let meshers = [], viewVersion = -1, pendingView = false, defaults = {cwd: ""};
 let busy = false, noMesher = false;
+let selectedCadFaceIds = [];
 
 function show(text, kind) {
   const el = $("result"); el.textContent = text; el.className = kind || "";
@@ -389,7 +394,9 @@ async function act(name, ...args) {
   show(r.message || "", r.ok ? "good" : "bad");
   if (r.view !== undefined && r.view !== viewVersion) { viewVersion = r.view; loadView(r.viewLabel || ""); }
   if (r.groups) renderGroups(r.groups);
-  else if (r.ok && ["openmodel_load_mesh", "openmodel_create_demo", "openmodel_generate_volume"].includes(name)) refreshGroups();
+  if (r.cadGroups) renderCADFaceGroups(r.cadGroups);
+  else if (r.ok && name === "openmodel_import_model") refreshCADFaceGroups();
+  if (!r.groups && r.ok && ["openmodel_load_mesh", "openmodel_create_demo", "openmodel_generate_volume"].includes(name)) refreshGroups();
   return r;
 }
 function loadView(label) {
@@ -403,6 +410,7 @@ function loadView(label) {
     const ids = [...new Set((selection.faces || [])
       .map((face) => face.cadFaceId)
       .filter((id) => Number.isInteger(id) && id >= 0))].sort((a, b) => a - b);
+    selectedCadFaceIds = ids;
     $("cadFaceInfo").textContent = ids.length
       ? "Facce CAD selezionate: " + ids.join(", ")
       : "Facce CAD: nessuna selezionata.";
@@ -596,6 +604,52 @@ function renderGroups(groups) {
   $("grpList").querySelectorAll("button[data-group]").forEach((b) => b.addEventListener("click", () => showGroup(groups[+b.dataset.group].name)));
 }
 async function refreshGroups() { const r = await call("openmodel_list_groups"); if (r.groups) renderGroups(r.groups); }
+
+function renderCADFaceGroups(groups) {
+  $("cadGrpList").innerHTML = groups.length ? groups.map((g, i) =>
+    `<li style="display:flex;gap:6px;align-items:center;margin:3px 0"><span style="flex:1"><b>${esc2(g.name)}</b> · ${g.faceCount} facce</span><button data-cad-show="${i}" style="padding:2px 7px">Mostra</button><button data-cad-delete="${i}" style="padding:2px 7px">Elimina</button></li>`).join("")
+    : '<li style="color:var(--muted)">Nessun gruppo CAD.</li>';
+  $("cadGrpList").querySelectorAll("button[data-cad-show]").forEach((b) => b.addEventListener("click", () => showCADFaceGroup(groups[+b.dataset.cadShow])));
+  $("cadGrpList").querySelectorAll("button[data-cad-delete]").forEach((b) => b.addEventListener("click", () => deleteCADFaceGroup(groups[+b.dataset.cadDelete].name)));
+}
+async function refreshCADFaceGroups() {
+  const r = await call("openmodel_list_cad_face_groups");
+  if (r.cadGroups) renderCADFaceGroups(r.cadGroups);
+  if (r.message) show(r.message, r.ok ? "good" : "bad");
+}
+async function createCADFaceGroup() {
+  const name = $("cadGrpName").value.trim();
+  if (!selectedCadFaceIds.length) { show("Seleziona prima una o più facce CAD nel viewer.", "bad"); return; }
+  const r = await act("openmodel_create_cad_face_group", name, selectedCadFaceIds.join(","));
+  if (r && r.ok) $("cadGrpName").value = "";
+}
+async function deleteCADFaceGroup(name) {
+  if (!confirm("Eliminare il gruppo CAD «" + name + "»?")) return;
+  await act("openmodel_delete_cad_face_group", name);
+}
+function showCADFaceGroup(group) {
+  const V = viewerApi() && viewerApi().OpenModelViewer;
+  const m = V && V.state && V.state.model;
+  if (!m || !m.triRegion || !m.meta.groups) {
+    show("Il gruppo CAD è memorizzato, ma la vista corrente non espone la tessellazione delle facce CAD. Torna alla superficie CAD per visualizzarlo.", "bad");
+    return;
+  }
+  const wanted = new Set(group.faceIds);
+  const faces = [];
+  for (let t = 0; t < m.triRegion.length; ++t) {
+    const region = m.triRegion[t], pg = region > 0 ? m.meta.groups[region - 1] : null;
+    const match = pg && /^__openmodel_cad_face_(\\d+)$/.exec(pg.name);
+    if (!match || !wanted.has(Number(match[1]))) continue;
+    faces.push({element: m.triElementId[t], nodes: [0,1,2].map((k) => m.vertexNodeId[m.triIndices[3*t+k]])});
+  }
+  if (!faces.length) { show("Nessuna faccia del gruppo è presente nella vista corrente.", "bad"); return; }
+  const pk = pickApi();
+  if (!pk) { show("Il viewer non offre il picking delle facce.", "bad"); return; }
+  pk.set({mode:"face", nodes:[], elements:[], faces});
+  $("selMode").value = "face";
+  syncRibbon();
+  show("Gruppo CAD «" + group.name + "»: " + faces.length + " triangoli evidenziati.", "good");
+}
 async function showGroup(name) {
   const r = await act("openmodel_show_group", name);
   if (!r || !r.ok || !r.selMode) return;
