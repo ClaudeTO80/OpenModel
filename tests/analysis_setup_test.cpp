@@ -131,6 +131,7 @@ void testParser() {
     CHECK(model.supports[0].dof[0] && model.supports[0].dof[1] && model.supports[0].dof[2]);
     CHECK(model.supports[1].where.kind == SelectorKind::Group && model.supports[1].where.name == "Bottom");
     CHECK(!model.supports[1].dof[0] && !model.supports[1].dof[1] && model.supports[1].dof[2]);
+    CHECK(model.supports[1].displacement[2] == -2.5);
     CHECK(model.forces.size() == 1 && model.forces[0].total[1] == -100.0);
     CHECK(model.pressures.size() == 1 && model.pressures[0].group == "Top" && model.pressures[0].pressure == 2.5);
     CHECK(model.hasGravity && model.gravity[2] == -9810.0);
@@ -257,6 +258,11 @@ void testWriterStatic() {
     CHECK(t.find("*END STEP") != std::string::npos);
     // Order: the keyword data of the step comes after *STEP.
     CHECK(t.find("*STEP") < t.find("*STATIC") && t.find("*STATIC") < t.find("*NODE FILE"));
+
+    auto prescribed = parseOk("material E=210000 nu=0.3\\nfix group:Bottom dof=3 value=0,0,-1.25\\nforce all F=0,0,0\\n");
+    const auto rp = writeSolverInput(hex, prescribed, dir / "prescribed.inp");
+    CHECK(rp.success);
+    CHECK(contains(slurp(dir / "prescribed.inp"), "MG_FIX1, 3, 3, -1.25"));
 
     model.elementPrint = 0;
     const auto r2 = writeSolverInput(hex, model, dir / "noprint.inp");
