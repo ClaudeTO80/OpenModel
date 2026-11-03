@@ -116,7 +116,6 @@ jobs:
             ${{ matrix.cmake_package }}
             ${{ matrix.ninja_package }}
             ${{ matrix.python_package }}
-            nodejs
 
       - name: Show toolchain
         run: |
@@ -198,7 +197,6 @@ jobs:
             ${{ matrix.cmake_package }}
             ${{ matrix.ninja_package }}
             ${{ matrix.python_package }}
-            nodejs
 
       - name: Set up Python
         if: matrix.toolchain != 'mingw64' && matrix.toolchain != 'ucrt64'
