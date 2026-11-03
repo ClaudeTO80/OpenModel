@@ -47,3 +47,8 @@ The CAD assembly GUI end-to-end test now checks that:
 
 The test runs in the WebUI end-to-end environment, not in the dependency-free
 core test suite.
+
+
+## Phase 4.1 — Prescribed translations
+
+The `fix` command accepts `value=ux,uy,uz` in model length units. Values default to zero, preserving existing scripts. Only the degrees of freedom selected by `dof` are emitted. CalculiX/Abaqus and Code_Aster writers consume the same support values. Rotational DOFs, local coordinate systems and time-dependent amplitudes are outside this increment.
