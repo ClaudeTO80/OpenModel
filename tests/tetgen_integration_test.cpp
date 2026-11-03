@@ -40,10 +40,24 @@ public:
     const std::vector<RenderSubMesh>& getRenderMeshes() const override { return meshes_; }
     std::string getFilePath() const override { return path_; }
     const std::vector<CADGroup>& getGroups() const override { return groups_; }
+    std::vector<int> edgesContainingPoint(const std::array<double, 3>& p, double tolerance) const override {
+        if (p[0] >= -tolerance && p[0] <= 1.0 + tolerance &&
+            std::sqrt(p[1] * p[1] + p[2] * p[2]) <= tolerance) return {20};
+        return {};
+    }
+    std::vector<int> verticesContainingPoint(const std::array<double, 3>& p, double tolerance) const override {
+        if (std::sqrt(p[0] * p[0] + p[1] * p[1] + p[2] * p[2]) <= tolerance) return {30};
+        return {};
+    }
 private:
     std::string path_ = "in-memory-tetrahedron";
     std::vector<RenderSubMesh> meshes_;
-    std::vector<CADGroup> groups_;
+    std::vector<CADGroup> groups_{
+        {"Face_10", CADGroupKind::NamedShape, 2, {10}},
+        {"All_Faces", CADGroupKind::Layer, 2, {10, 11, 12, 13}},
+        {"Edge_10", CADGroupKind::NamedShape, 1, {20}},
+        {"Vertex_10", CADGroupKind::NamedShape, 0, {30}}
+    };
 };
 bool hasType(const MeshData& mesh, ElementType type) {
     for (const auto& block : mesh.getElementBlocks())
@@ -73,6 +87,15 @@ int main() {
         require(oneFace && !oneFace->elementIds.empty(), "TetGen did not map the single CAD face group");
         require(allFaces && allFaces->elementIds.size() >= 4, "TetGen did not map all CAD face boundary elements");
         require(!allFaces->nodeIndices.empty(), "TetGen CAD face group has no nodes");
+        const auto* edgeGroup = volume.getMeshGroupRegistry().find("Edge_10");
+        const auto* vertexGroup = volume.getMeshGroupRegistry().find("Vertex_10");
+        require(edgeGroup && edgeGroup->dimension == 1 && edgeGroup->elementIds.empty() &&
+                !edgeGroup->nodeIndices.empty(), "TetGen did not map the CAD edge node membership");
+        require(vertexGroup && vertexGroup->dimension == 0 && vertexGroup->nodeIndices.size() == 1,
+                "TetGen did not map the CAD vertex node membership");
+        require(volume.getNodeSets().count("Edge_10_NODES") == 1 &&
+                volume.getNodeSets().count("Vertex_10_NODES") == 1,
+                "TetGen did not create solver node sets for CAD edge/vertex groups");
         const auto structuralErrors = volume.validate();
         require(structuralErrors.empty(), "TetGen output failed structural validation: " +
                 (structuralErrors.empty() ? std::string{} : structuralErrors.front()));
