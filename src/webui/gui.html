@@ -630,12 +630,12 @@ async function createCADFaceGroup() {
 function addCADGroupFixedSupport(nodeSetName) {
   const line = "fix group:" + nodeSetName + " dof=1,2,3";
   const editor = $("anScript");
-  const lines = editor.value.split(/\\r?\\n/);
+  const lines = editor.value.split(/\r?\n/);
   if (lines.some((existing) => existing.trim().toLowerCase() === line.toLowerCase())) {
     show("Il vincolo per " + nodeSetName + " è già presente nello script.", "good");
     return;
   }
-  editor.value = editor.value.trimEnd() + (editor.value.trim() ? "\\n" : "") + line + "\\n";
+  editor.value = editor.value.trimEnd() + (editor.value.trim() ? "\n" : "") + line + "\n";
   editor.focus();
   show("Aggiunto vincolo a spostamento nullo su " + nodeSetName + ". Verifica materiale e carichi prima di avviare l'analisi.", "good");
 }
