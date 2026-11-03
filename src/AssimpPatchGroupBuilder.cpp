@@ -148,7 +148,8 @@ bool AssimpPatchGroupBuilder::apply(const std::vector<RenderSubMesh>& parts,
                     diagnostics.push_back("Invalid source triangle index in part "+std::to_string(pi)+".");
                     return false;
                 }
-            if (triangleArea2(part,ti)<=1e-18) continue;
+            const double twiceArea=triangleArea2(part,ti);
+            if (!std::isfinite(twiceArea) || twiceArea<=1e-18) continue;
             if (blockElement>=blockIt->ids.size()) {
                 diagnostics.push_back("Source triangle count does not match imported element block.");
                 return false;
@@ -163,6 +164,10 @@ bool AssimpPatchGroupBuilder::apply(const std::vector<RenderSubMesh>& parts,
 
     std::unordered_map<ElementId,std::vector<NodeIndex>> connectivity;
     for (const auto& block:mesh.getElementBlocks()) {
+        if (block.nodesPerElement==0 || block.connectivity.size()!=block.ids.size()*block.nodesPerElement) {
+            diagnostics.push_back("Malformed element connectivity in imported mesh.");
+            return false;
+        }
         for (std::size_t i=0;i<block.ids.size();++i) {
             const auto begin=block.connectivity.begin()+static_cast<std::ptrdiff_t>(i*block.nodesPerElement);
             connectivity.emplace(block.ids[i],std::vector<NodeIndex>(begin,begin+static_cast<std::ptrdiff_t>(block.nodesPerElement)));
