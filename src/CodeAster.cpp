@@ -173,6 +173,7 @@ struct MeshNames {
     std::vector<std::string> physical;                                  ///< per physical group of the mesh
     std::vector<std::pair<std::string, std::string>> nodeSets;          ///< (mesh name, aster name)
     std::vector<std::string> analysisNodeGroups;                        ///< aster names, in the order given
+    std::vector<std::pair<std::string, std::string>> genericElementGroups; ///< (mesh name, aster name)
 };
 
 /** Node group added by the analysis (support or load selection). */
@@ -291,7 +292,9 @@ std::string writeMeshText(std::ostream& out, const MeshData& mesh, const std::ve
                 diagnostics.push_back({ImportDiagnosticLevel::Warning, "ASTER_MESH_GROUP_MISSING_ELEMENTS",
                     "Mesh group '" + g.name + "' refers to " + std::to_string(missing) +
                     " element id(s) that are not in the mesh; they were left out", 0});
-            writeGroup("GROUP_MA", namer.make(g.name), members);
+            const std::string aster = namer.make(g.name);
+            names.genericElementGroups.emplace_back(g.name, aster);
+            writeGroup("GROUP_MA", aster, members);
         }
 
         bool representedByNodeSet = false;
@@ -451,7 +454,7 @@ CodeAsterExportResult writeCodeAsterCase(const MeshData& mesh, const AnalysisMod
              "A force shared equally by all nodes of a quadratic mesh is not the consistent load; use 'pressure' on a surface group for accurate results");
 
     // Pressure: every surface element of the group must be a boundary face of exactly one volume element.
-    std::vector<const MeshPhysicalGroup*> pressureGroups;
+    std::vector<std::string> pressureGroups;
     {
         std::unordered_map<ElementId, std::pair<const ElementBlock*, std::size_t>> location;
         if (!model.pressures.empty())
@@ -471,6 +474,7 @@ CodeAsterExportResult writeCodeAsterCase(const MeshData& mesh, const AnalysisMod
             }
             if (!groupElements) return fail(r, "pressure: unknown surface group '" + p.group + "'");
             if (groupDimension != 2) return fail(r, "pressure: group '" + p.group + "' is not a surface group (dimension " + std::to_string(groupDimension) + ")");
+            if (groupElements->empty()) return fail(r, "pressure: surface group '" + p.group + "' has no surface elements");
             std::size_t unmatched = 0, shared = 0;
             for (const ElementId id : *groupElements) {
                 const auto at = location.find(id);
@@ -484,7 +488,7 @@ CodeAsterExportResult writeCodeAsterCase(const MeshData& mesh, const AnalysisMod
             }
             if (unmatched) return fail(r, "pressure: " + std::to_string(unmatched) + " surface element(s) of '" + p.group + "' are not faces of a volume element");
             if (shared) return fail(r, "pressure: " + std::to_string(shared) + " surface element(s) of '" + p.group + "' lie between two volume elements; a pressure needs a boundary surface");
-            pressureGroups.push_back(group);
+            pressureGroups.push_back(p.group);
         }
     }
 
@@ -517,9 +521,24 @@ CodeAsterExportResult writeCodeAsterCase(const MeshData& mesh, const AnalysisMod
 
     // Group names of the pressure surfaces, in the order of model.pressures.
     std::vector<std::string> pressureNames;
-    for (const MeshPhysicalGroup* g : pressureGroups) {
-        const auto& groups = mesh.getPhysicalGroups();
-        pressureNames.push_back(names.physical.at(static_cast<std::size_t>(g - groups.data())));
+    for (const auto& rawName : pressureGroups) {
+        bool found = false;
+        const auto& physical = mesh.getPhysicalGroups();
+        for (std::size_t i = 0; i < physical.size(); ++i)
+            if (physical[i].name == rawName || lowered(physical[i].name) == lowered(rawName)) {
+                pressureNames.push_back(names.physical.at(i));
+                found = true;
+                break;
+            }
+        if (!found) {
+            for (const auto& entry : names.genericElementGroups)
+                if (entry.first == rawName || lowered(entry.first) == lowered(rawName)) {
+                    pressureNames.push_back(entry.second);
+                    found = true;
+                    break;
+                }
+        }
+        if (!found) return fail(r, "pressure: no exported element group for surface '" + rawName + "'");
     }
 
     std::ostringstream c;
