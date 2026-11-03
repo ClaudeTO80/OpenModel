@@ -144,3 +144,22 @@ target_link_libraries(my_app PRIVATE OpenModel::Assimp)
 ```
 
 The repository example `examples/cmake-assimp-consumer` is built in the Assimp CI job after installing the package, so the exported target and transitive Assimp dependency are exercised separately from the in-tree build.
+
+
+## Analytic surface fitting from patches
+
+`AssimpSurfaceGeometryFitter` estimates simple geometric primitives from each patch's unique mesh vertices. It supports planar, cylindrical, spherical and conical fits; patches that do not meet the residual and sampling criteria remain `Freeform`. Results include fitted center/axis, radius, cone half-angle, sample count, angular coverage and absolute/relative RMS and maximum residuals.
+
+```cpp
+AssimpSurfaceFitOptions fitOptions;
+fitOptions.maxRelativeRmsError = 1e-3;
+fitOptions.maxRelativeMaxError = 5e-3;
+fitOptions.minAngularCoverageDegrees = 45.0;
+
+std::vector<AssimpSurfaceFit> fits;
+if (!AssimpSurfaceGeometryFitter::fit(
+        assimpModel->getRenderMeshes(), patches, fitOptions, fits, diagnostics))
+    throw std::runtime_error("Surface fitting failed");
+```
+
+The fitter tries PCA-derived candidate axes, algebraic circle/sphere least-squares fits and a linear radius-versus-axial-coordinate cone fit. A minimum of eight unique vertices is required for non-planar primitive fitting by default to reduce overfitting of tiny patches. Residual thresholds and angular coverage are explicit acceptance criteria. This remains a mesh approximation: it does not recover exact CAD analytic surfaces, trim curves, parameterizations or B-Rep face IDs. Use it to classify/select mesh patches, not as a substitute for OpenCASCADE.
