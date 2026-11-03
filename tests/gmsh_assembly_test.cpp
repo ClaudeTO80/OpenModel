@@ -157,7 +157,7 @@ int runSurfaceOnly(const std::string& step) {
     const auto* physical = group(mesh, "TopFace");
     CHECK(physical && !physical->elementIds.empty());
     std::cout << "--- surface-only CAD face mapping: " << namedFace->elementIds.size()
-              << " elements, " << namedFace->nodeIndices.size() << " nodes\\n";
+              << " elements, " << namedFace->nodeIndices.size() << " nodes\n";
     return 0;
 }
 
