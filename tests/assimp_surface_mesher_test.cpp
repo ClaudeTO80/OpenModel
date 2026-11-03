@@ -320,6 +320,11 @@ int main() {
                 "Cone geometry fitting failed.");
         require(fits.size() == 1 && fits.front().type == AssimpFittedSurfaceType::Conical,
                 "Analytic cone frustum was not recognized.");
+        require(std::abs(fits.front().apex[0]) < 1e-3 &&
+                std::abs(fits.front().apex[1]) < 1e-3 &&
+                std::abs(fits.front().apex[2] - 4.8) < 1e-2 &&
+                fits.front().coneSlope < 0.0,
+                "Fitted cone apex or signed slope is incorrect.");
 
         // Re-import analytic fixtures and exercise the sphere/cone selectors
         // through the same Assimp -> MeshData path used by real models.
