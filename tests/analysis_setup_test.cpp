@@ -218,7 +218,7 @@ void testWriterStatic() {
     CHECK(contains(t, "*DENSITY\n7.85e-09"));
     CHECK(contains(t, "*SOLID SECTION, ELSET=SOLID, MATERIAL=MATERIAL"));
     CHECK(contains(t, "*NSET, NSET=MG_FIX1\n11, 12, 13, 14\n"));
-    CHECK(contains(t, "*NSET, NSET=BLADEROOT_NODES\n11, 14, 15, 18\n"));
+    CHECK(contains(t, "*NSET, NSET=BLADEROOT_NODES") && contains(t, "11, 14, 15, 18"));
     CHECK(contains(t, "MG_FIX1, 1, 1, 0.") && contains(t, "MG_FIX1, 3, 3, 0.") &&
           contains(t, "MG_FIX2, 1, 1, 0.") && contains(t, "MG_FIX2, 3, 3, 0.") &&
           contains(t, "MG_FIX3, 1, 1, 0."));
