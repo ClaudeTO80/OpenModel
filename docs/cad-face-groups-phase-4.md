@@ -60,3 +60,27 @@ ambiguous and should be reported rather than guessed. The next validation
 increment should use the `turbine-blade.STEP` model to measure match coverage,
 unmatched surfaces and false/ambiguous candidates at both linear and quadratic
 orders.
+
+## Mapping audit API
+
+`GmshMesher::faceMappingReport()` exposes one `CADFaceMappingRecord` per
+meshed Gmsh surface whenever CAD face ownership is available through the imported
+assembly structure or face groups. Each record contains:
+
+- Gmsh surface tag and total 2-D element count;
+- number of sampled elements;
+- maximum per-CAD-face vote count and its ratio to sampled probes;
+- CAD face IDs accepted after ownership filtering;
+- an ambiguity flag for surface-only cases that cannot distinguish coincident
+  CAD faces.
+
+The report is reset for every `buildMesh` call. Diagnostics also include an
+aggregate mapped/unmatched/ambiguous surface count. A mapped record must have a
+sample ratio of at least 0.8; the regression tests assert this invariant and
+check that each reported Gmsh surface occurs only once.
+
+The report is an audit aid, not a claim that every mesh element has been
+individually projected onto the CAD B-Rep. The current production algorithm
+uses a bounded deterministic sample (up to 32 elements per surface), so a
+separate high-assurance exhaustive validation mode remains a possible future
+extension for small or safety-critical models.
