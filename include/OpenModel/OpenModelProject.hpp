@@ -49,6 +49,12 @@ public:
     std::filesystem::path resolveAssetPath(const std::filesystem::path& manifestPath,
                                            const ProjectAsset& asset) const;
 
+    // Recompute size and SHA-256 from the asset file and update its manifest metadata.
+    void refreshAssetIntegrity(const std::filesystem::path& manifestPath, const std::string& assetId);
+    // Verify all assets that have a recorded digest or size. Missing files and mismatches
+    // are returned as validation issues; no file is modified.
+    std::vector<ProjectValidationIssue> verifyAssetIntegrity(const std::filesystem::path& manifestPath) const;
+
     void save(const std::filesystem::path& manifestPath) const;
     static OpenModelProject load(const std::filesystem::path& manifestPath);
 };
