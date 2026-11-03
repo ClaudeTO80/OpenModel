@@ -216,18 +216,18 @@ void testExportErrors() {
 void testGenericSurfacePressure() {
     MeshData mesh = makeHex();
     mesh.addMeshGroup({"CAD_TOP", 2, MeshGroupSource::CAD, {44}, {102}, {4, 5, 6, 7}});
-    const auto model = parseOk("material E=210000 nu=0.3\\nfix all\\npressure group:CAD_TOP p=1.5\\n");
+    const auto model = parseOk("material E=210000 nu=0.3\nfix all\npressure group:CAD_TOP p=1.5\n");
     const auto dir = tempDir();
     const auto r = writeCodeAsterCase(mesh, model, dir, {});
     CHECK(r.success);
     if (r.success) {
         const auto mail = slurp(r.meshFile);
         const auto comm = slurp(r.commFile);
-        CHECK(contains(mail, "GROUP_MA NOM = CAD_TOP\\n M102\\nFINSF"));
+        CHECK(contains(mail, "GROUP_MA NOM = CAD_TOP\n M102\nFINSF"));
         CHECK(contains(comm, "_F(GROUP_MA='CAD_TOP', PRES=1.5)"));
         CHECK(r.pressureFaces == 1);
     } else {
-        std::cerr << r.error << "\\n";
+        std::cerr << r.error << "\n";
     }
     fs::remove_all(dir);
 }
