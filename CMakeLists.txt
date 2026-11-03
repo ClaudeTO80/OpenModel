@@ -367,7 +367,8 @@ if(OPENMODEL_BUILD_ASSIMP_BACKEND)
         src/AssimpModel.cpp
         src/AssimpSurfaceMesher.cpp
         src/AssimpSurfacePatchAnalyzer.cpp
-        src/AssimpPatchGroupBuilder.cpp)
+        src/AssimpPatchGroupBuilder.cpp
+        src/AssimpSurfaceGeometryFitter.cpp)
     add_library(OpenModel::Assimp ALIAS openmodel_assimp)
     set_target_properties(openmodel_assimp PROPERTIES EXPORT_NAME Assimp)
     target_link_libraries(openmodel_assimp PUBLIC OpenModel::Core)
