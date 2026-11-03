@@ -288,6 +288,9 @@ iframe{display:block;width:100%;height:100%;border:0;background:#10141b}
     <h2>6 · Analisi e solver</h2>
     <label for="anScript">Script di analisi (materiale, vincoli, carichi, passo)</label>
     <textarea id="anScript" rows="9" spellcheck="false" style="width:100%;font-family:monospace;font-size:12px"></textarea>
+    <label>Condizioni presenti nello script</label>
+    <ul id="analysisConditions" style="list-style:none;margin:0 0 8px;padding:0;font-size:12px"></ul>
+    <p class="hint">Modifica o rimuovi singolarmente materiale, vincoli, carichi e passi. Le modifiche aggiornano direttamente lo script utilizzato dal solver.</p>
     <label for="anJob">File di lavoro (cartella o .inp; vuoto = ./openmodel_job/job.inp; per code_aster conta la cartella e il nome del file)</label>
     <input id="anJob" placeholder="/percorso/lavoro/job.inp">
     <label for="anSolverKind">Solutore</label>
@@ -549,7 +552,7 @@ function logLines(lines, reset) {
 }
 async function analysisExample() {
   const r = await call("openmodel_default_analysis");
-  if (r.ok) $("anScript").value = r.message;
+  if (r.ok) { $("anScript").value = r.message; renderAnalysisConditions(); }
 }
 const analysisWrite = () => act("openmodel_write_input", $("anScript").value, $("anJob").value.trim(), $("anSolverKind").value);
 async function analysisRun() {
@@ -671,6 +674,7 @@ function addCADGroupFixedSupport(nodeSetName) {
     return;
   }
   editor.value = editor.value.trimEnd() + (editor.value.trim() ? "\n" : "") + line + "\n";
+  renderAnalysisConditions();
   editor.focus();
   show("Aggiunto vincolo a spostamento nullo su " + nodeSetName + ". Verifica materiale e carichi prima di avviare l'analisi.", "good");
 }
@@ -722,10 +726,64 @@ async function makeGroup(kind, name, prefix) {
   if (r && r.ok) { $("grpName").value = ""; }
   return r;
 }
+const ANALYSIS_COMMANDS = new Set(["material", "fix", "force", "pressure", "gravity", "step", "output"]);
+function analysisCommand(line) {
+  const text = line.trim();
+  if (!text || text.startsWith("#")) return null;
+  const command = text.split(/\s+/, 1)[0].toLowerCase();
+  return ANALYSIS_COMMANDS.has(command) ? command : null;
+}
+function renderAnalysisConditions() {
+  const list = $("analysisConditions");
+  if (!list) return;
+  list.replaceChildren();
+  const lines = $("anScript").value.split(/\r?\n/);
+  let count = 0;
+  lines.forEach((line, index) => {
+    const command = analysisCommand(line);
+    if (!command) return;
+    ++count;
+    const item = document.createElement("li");
+    item.style.cssText = "display:flex;gap:6px;align-items:center;margin:4px 0;padding:5px;border:1px solid var(--border,#bbb);border-radius:4px";
+    const content = document.createElement("code");
+    content.textContent = line.trim();
+    content.style.cssText = "flex:1;overflow-wrap:anywhere;white-space:pre-wrap";
+    const edit = document.createElement("button");
+    edit.type = "button"; edit.textContent = "Modifica";
+    edit.addEventListener("click", () => {
+      const replacement = prompt("Modifica la condizione (comando " + command + "):", line.trim());
+      if (replacement === null) return;
+      if (analysisCommand(replacement) !== command) {
+        show("La riga modificata deve mantenere il comando " + command + ".", "bad"); return;
+      }
+      lines[index] = replacement;
+      $("anScript").value = lines.join("\n");
+      renderAnalysisConditions();
+    });
+    const remove = document.createElement("button");
+    remove.type = "button"; remove.textContent = "Rimuovi";
+    remove.addEventListener("click", () => {
+      if (!confirm("Rimuovere questa condizione dallo script?")) return;
+      lines.splice(index, 1);
+      $("anScript").value = lines.join("\n");
+      renderAnalysisConditions();
+    });
+    item.append(content, edit, remove);
+    list.append(item);
+  });
+  if (!count) {
+    const empty = document.createElement("li");
+    empty.textContent = "Nessuna condizione riconosciuta.";
+    empty.className = "hint";
+    list.append(empty);
+  }
+}
+$("anScript").addEventListener("input", renderAnalysisConditions);
 function appendScript(line) {
   const box = $("anScript");
   box.value = box.value.replace(/\s*$/, "") + "\n" + line + "\n";
   box.scrollTop = box.scrollHeight;
+  renderAnalysisConditions();
 }
 const numList = (t, n) => { const p = t.split(",").map((x) => x.trim()); return p.length === n && p.every((x) => x !== "" && Number.isFinite(Number(x))) ? p.map(Number) : null; };
 async function assign(type) {
