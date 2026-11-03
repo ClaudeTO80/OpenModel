@@ -136,6 +136,21 @@ int main() {
         require(connected->relativePlanarityDeviation < 1e-6,
                 "Relative planarity deviation is incorrect.");
 
+        RenderSubMesh folded;
+        folded.vertices = {0,0,0, 1,0,0, 0,1,0, 0,0,1};
+        folded.indices = {0,1,2, 1,0,3};
+        std::vector<AssimpSurfacePatch> foldedPatches;
+        std::vector<std::string> foldedDiagnostics;
+        require(AssimpSurfacePatchAnalyzer::analyze({folded}, 1e-6,
+                    foldedPatches, foldedDiagnostics, 90.0),
+                "Folded patch analysis failed.");
+        require(foldedPatches.size() == 1 && foldedPatches.front().triangleIndices.size() == 2,
+                "Folded adjacent triangles were not connected at a 90-degree threshold.");
+        require(foldedPatches.front().kind == AssimpSurfacePatchKind::NonPlanar,
+                "Folded patch was incorrectly classified as planar.");
+        require(foldedPatches.front().normalCoherence < 0.9,
+                "Folded patch normal coherence did not detect the fold.");
+
         // Keep the original plane-only API working for existing callers.
         AssimpPlaneSurfaceGroup legacyPlane;
         legacyPlane.name = "LEGACY_PLANE";
