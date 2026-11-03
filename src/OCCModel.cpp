@@ -402,11 +402,17 @@ const std::vector<CADGroup>& OCCModel::getGroups() const { return m_groups; }
 void OCCModel::indexShape() {
     m_solidMap.Clear();
     m_faceMap.Clear();
+    m_edgeMap.Clear();
+    m_vertexMap.Clear();
     m_solidBoxes.clear();
     m_faceBoxes.clear();
+    m_edgeBoxes.clear();
+    m_vertexBoxes.clear();
     if (m_rawShape.IsNull()) return;
     TopExp::MapShapes(m_rawShape, TopAbs_SOLID, m_solidMap);
-    TopExp::MapShapes(m_rawShape, TopAbs_FACE, m_faceMap);\n    TopExp::MapShapes(m_rawShape, TopAbs_EDGE, m_edgeMap);\n    TopExp::MapShapes(m_rawShape, TopAbs_VERTEX, m_vertexMap);
+    TopExp::MapShapes(m_rawShape, TopAbs_FACE, m_faceMap);
+    TopExp::MapShapes(m_rawShape, TopAbs_EDGE, m_edgeMap);
+    TopExp::MapShapes(m_rawShape, TopAbs_VERTEX, m_vertexMap);
     // Geometry-based boxes (no triangulation) so they stay conservative supersets of the true extent.
     for (Standard_Integer i = 1; i <= m_solidMap.Extent(); ++i) {
         Bnd_Box box;
@@ -417,6 +423,16 @@ void OCCModel::indexShape() {
         Bnd_Box box;
         BRepBndLib::Add(m_faceMap(i), box, Standard_False);
         m_faceBoxes.push_back(box);
+    }
+    for (Standard_Integer i = 1; i <= m_edgeMap.Extent(); ++i) {
+        Bnd_Box box;
+        BRepBndLib::Add(m_edgeMap(i), box, Standard_False);
+        m_edgeBoxes.push_back(box);
+    }
+    for (Standard_Integer i = 1; i <= m_vertexMap.Extent(); ++i) {
+        Bnd_Box box;
+        BRepBndLib::Add(m_vertexMap(i), box, Standard_False);
+        m_vertexBoxes.push_back(box);
     }
 }
 
