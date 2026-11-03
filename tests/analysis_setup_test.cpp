@@ -242,9 +242,9 @@ void testWriterStatic() {
     CHECK(contains(t, "*SOLID SECTION, ELSET=SOLID, MATERIAL=MATERIAL"));
     CHECK(contains(t, "*NSET, NSET=MG_FIX1\n11, 12, 13, 14\n"));
     CHECK(containsNsetMembers(t, "BLADEROOT_NODES", {11, 14, 15, 18}));
-    CHECK(contains(t, "MG_FIX1, 1, 1, 0\\n") && contains(t, "MG_FIX1, 3, 3, 0\\n") &&
-          contains(t, "MG_FIX2, 1, 1, 0\\n") && contains(t, "MG_FIX2, 3, 3, 0\\n") &&
-          contains(t, "MG_FIX3, 1, 1, 0\\n"));
+    CHECK(contains(t, "MG_FIX1, 1, 1, 0\n") && contains(t, "MG_FIX1, 3, 3, 0\n") &&
+          contains(t, "MG_FIX2, 1, 1, 0\n") && contains(t, "MG_FIX2, 3, 3, 0\n") &&
+          contains(t, "MG_FIX3, 1, 1, 0\n"));
     CHECK(!contains(t, "MG_FIX3, 2, 2") && !contains(t, "MG_FIX3, 3, 3"));
     CHECK(contains(t, "*STATIC"));
     CHECK(contains(t, "MG_LOAD1, 3, -10"));              // -40 shared by 4 nodes
