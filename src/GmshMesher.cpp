@@ -524,9 +524,9 @@ void GmshMesher::mapCadGroups(const CADModel& cad, MeshData& mesh,
         for (const auto& curve : curves) {
             std::vector<std::size_t> tags;
             std::vector<double> xyz, parametric;
+            // Use interior curve nodes only. Endpoints are shared by adjacent
+            // CAD edges and would make a coarse, unsplit curve ambiguous.
             gmsh::model::mesh::getNodes(tags, xyz, parametric, 1, curve.second, false, false);
-            if (tags.empty())
-                gmsh::model::mesh::getNodes(tags, xyz, parametric, 1, curve.second, true, false);
             if (tags.empty()) continue;
             std::set<int> common;
             bool first = true;
