@@ -180,6 +180,13 @@ int main() {
             {"CONNECTED_PATCH", {connectedPatchIndex}, "STEEL"},
             {"COMBINED_PATCHES", {0, 1}, ""}
         };
+        AssimpPatchGroupDefinition filteredPatchGroup;
+        filteredPatchGroup.name = "PLANAR_AREA_FILTER";
+        filteredPatchGroup.selectByFilter = true;
+        filteredPatchGroup.filter.planarOnly = true;
+        filteredPatchGroup.filter.minArea = 0.99;
+        filteredPatchGroup.filter.maxArea = 1.01;
+        patchGroups.push_back(filteredPatchGroup);
         std::vector<std::string> groupDiagnostics;
         require(AssimpPatchGroupBuilder::apply(model->getRenderMeshes(), patches,
                     patchGroups, mesh, groupDiagnostics),
@@ -200,6 +207,9 @@ int main() {
         const auto* combinedGroup = mesh.getMeshGroupRegistry().find("COMBINED_PATCHES");
         require(combinedGroup && combinedGroup->elementIds.size() == 2,
                 "Combining multiple analyzed patches into one FEM group failed.");
+        const auto* filteredGroup = mesh.getMeshGroupRegistry().find("PLANAR_AREA_FILTER");
+        require(filteredGroup && filteredGroup->elementIds.size() == 2,
+                "Geometry-filtered patch selection did not isolate the area-one planar patch.");
 
         std::vector<std::string> invalidGroupDiagnostics;
         require(!AssimpPatchGroupBuilder::apply(model->getRenderMeshes(), patches,
