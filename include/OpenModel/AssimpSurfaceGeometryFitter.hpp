@@ -20,6 +20,7 @@ struct AssimpSurfaceFitOptions {
     double maxRelativeMaxError = 5e-3;
     double minAngularCoverageDegrees = 45.0;
     double minAxisExtentRatio = 0.05;
+    std::size_t minSampleCount = 8;
 };
 
 struct AssimpSurfaceFit {
