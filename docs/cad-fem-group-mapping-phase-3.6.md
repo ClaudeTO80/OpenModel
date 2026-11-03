@@ -68,3 +68,12 @@ ID, and the conflicting degree of freedom.
 
 Rotational DOFs, local coordinate systems, time-dependent amplitudes and GUI
 symbol editing remain outside this increment.
+
+
+### Phase 4.1 — WebUI prescribed support values
+
+The support controls in the Workbench now expose a prescribed translation
+field `ux,uy,uz`, in the model's length units. The value is included in
+the generated `fix` command both for a viewer selection and for a saved CAD
+face group transferred to a FEM node set. The existing default remains
+`0,0,0`, so the previous fixed-support workflow is unchanged.
