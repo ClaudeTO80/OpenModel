@@ -30,6 +30,7 @@ set(OPENMODEL_NETGEN_TEST_STEP "" CACHE FILEPATH "Optional STEP/IGES/BREP fixtur
 set(OPENMODEL_CORE_SOURCES
     src/MeshData.cpp
     src/MeshBinaryIO.cpp
+    src/OpenModelProject.cpp
     src/MeshImporter.cpp
     src/AbaqusInpImporter.cpp
     src/CalculixInpImporter.cpp
