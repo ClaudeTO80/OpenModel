@@ -763,7 +763,7 @@ void generateVolume(webui_event_t* e) {
         if (physical == candidate.getPhysicalGroups().end()) {
             std::string details;
             for (const auto& note : notes)
-                if (note.find(userGroup.name) != std::string::npos) details += "\\n" + note;
+                if (note.find(userGroup.name) != std::string::npos) details += "\n" + note;
             reply(e, false, "Mapping CAD→FEM incompleto per il gruppo «" + userGroup.name +
                 "». La mesh non è stata accettata per evitare vincoli parziali." + details);
             return;
