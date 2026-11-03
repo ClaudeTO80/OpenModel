@@ -14,7 +14,9 @@ enum class AssimpSurfaceSelectorKind {
     Plane,          ///< Triangle vertices lie on a plane within tolerance.
     Normal,         ///< Select triangles by normal direction.
     AxisAlignedBox, ///< All triangle vertices lie inside the supplied AABB.
-    CylinderSide    ///< All triangle vertices lie on the lateral cylinder within tolerance.
+    CylinderSide,   ///< All triangle vertices lie on the lateral cylinder within tolerance
+    SphereSurface,  ///< All triangle vertices lie on a sphere within tolerance
+    ConeSide        ///< All triangle vertices lie on a right circular cone within tolerance.
 };
 
 struct AssimpSurfaceSelector {
@@ -31,15 +33,16 @@ struct AssimpSurfaceSelector {
     std::array<double, 3> boundsMax{{0.0, 0.0, 0.0}};
 
     // Cylinder lateral surface.
-    double radius = 1.0;
+    double radius = 1.0; // Cylinder/Sphere radius
+    double coneHalfAngleRadians = 0.7853981633974483; // Cone half-angle, measured from its axis
     double axialMin = -std::numeric_limits<double>::max();
     double axialMax = std::numeric_limits<double>::max();
 
     // Absolute distance tolerance, in the source model's units.
     double tolerance = 1e-5;
 
-    // Optional normal filter. For planes it is enabled by default.
-    bool constrainNormal = true;
+    // Optional normal filter. The Normal selector always applies this filter.
+    bool constrainNormal = false;
     double minNormalAlignment = 0.95;
 };
 
