@@ -10,8 +10,9 @@ the section plane and block visibility. Enable it in CTest with `-DOPENMODEL_TES
 
 ## GUI end-to-end test (`gui_e2e.js`)
 Drives the real `openmodel-webui` on the real WebUI runtime: import a STEP file, select a rendered surface triangle and verify
-that the viewer reports its original OCC `sourceFaceId`, mesh it with Gmsh and TetGen, check what the viewer shows,
-save/export MGMB/INP/MGWV/GLB, reload them, use the file browser.
+that the viewer reports its original OCC `sourceFaceId`; create a `BladeRoot` CAD face group, verify its sidecar persistence
+after reimport, delete it, then mesh with Gmsh and TetGen, check what the viewer shows, save/export MGMB/INP/MGWV/GLB,
+reload them and use the file browser. The test copies the STEP fixture into the work directory and removes its sidecar afterward.
 
 ```bash
 export OPENMODEL_TEST_CHROMIUM=/path/to/chromium
