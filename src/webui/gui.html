@@ -312,7 +312,7 @@ iframe{display:block;width:100%;height:100%;border:0;background:#10141b}
     <p class="hint" id="cadFaceInfo">Facce CAD: nessuna selezionata.</p>
     <label for="cadGrpName">Nuovo gruppo CAD (indipendente dalla mesh)</label>
     <div class="row"><input id="cadGrpName" placeholder="BladeRoot"><button id="btnCadGrpCreate" onclick="createCADFaceGroup()">Crea</button></div>
-    <p class="hint">Il gruppo memorizza gli ID delle facce B-Rep selezionate e viene salvato accanto al file CAD nel sidecar <code>.omgroups</code>. Per convertirlo in un Node Set FEM, usa Gmsh: verrà creato <code>NOME_NODES</code>. Le modifiche ai gruppi invalidano la mesh volumetrica generata, che dovrà essere rigenerata.</p>
+    <p class="hint">Il gruppo memorizza gli ID delle facce B-Rep selezionate e viene salvato accanto al file CAD nel sidecar <code>.omgroups</code>. Per convertirlo in un Node Set FEM, usa Gmsh: verrà creato <code>NOME_NODES</code>. Dopo la meshatura, il pulsante «Vincola» inserisce nello script il vincolo a spostamento nullo. Le modifiche ai gruppi invalidano la mesh volumetrica generata, che dovrà essere rigenerata.</p>
     <ul id="cadGrpList" style="list-style:none;margin:4px 0 10px;padding:0;font-size:12px"></ul>
     <label for="grpName">Nome del gruppo FEM (vuoto = automatico; lettere, cifre, _ - .)</label>
     <input id="grpName" placeholder="Appoggio">
@@ -395,7 +395,7 @@ async function act(name, ...args) {
   if (r.view !== undefined && r.view !== viewVersion) { viewVersion = r.view; loadView(r.viewLabel || ""); }
   if (r.groups) renderGroups(r.groups);
   if (r.cadGroups) renderCADFaceGroups(r.cadGroups);
-  else if (r.ok && ["openmodel_import_model", "openmodel_load_mesh", "openmodel_create_demo"].includes(name)) refreshCADFaceGroups();
+  else if (r.ok && ["openmodel_import_model", "openmodel_load_mesh", "openmodel_create_demo", "openmodel_generate_volume"].includes(name)) refreshCADFaceGroups();
   if (!r.groups && r.ok && ["openmodel_load_mesh", "openmodel_create_demo", "openmodel_generate_volume"].includes(name)) refreshGroups();
   return r;
 }
@@ -609,10 +609,11 @@ async function refreshGroups() { const r = await call("openmodel_list_groups"); 
 
 function renderCADFaceGroups(groups) {
   $("cadGrpList").innerHTML = groups.length ? groups.map((g, i) =>
-    `<li style="display:flex;gap:6px;align-items:center;margin:3px 0"><span style="flex:1"><b>${esc2(g.name)}</b> · ${g.faceCount} facce</span><button data-cad-show="${i}" style="padding:2px 7px">Mostra</button><button data-cad-update="${i}" style="padding:2px 7px">Aggiorna</button><button data-cad-delete="${i}" style="padding:2px 7px">Elimina</button></li>`).join("")
+    `<li style="display:flex;gap:6px;align-items:center;margin:3px 0"><span style="flex:1"><b>${esc2(g.name)}</b> · ${g.faceCount} facce${g.nodeCount ? " · " + g.nodeCount + " nodi FEM" : ""}</span><button data-cad-show="${i}" style="padding:2px 7px">Mostra</button><button data-cad-update="${i}" style="padding:2px 7px">Aggiorna</button><button data-cad-fix="${i}" style="padding:2px 7px" ${g.nodeCount ? "" : "disabled"}>Vincola</button><button data-cad-delete="${i}" style="padding:2px 7px">Elimina</button></li>`).join("")
     : '<li style="color:var(--muted)">Nessun gruppo CAD.</li>';
   $("cadGrpList").querySelectorAll("button[data-cad-show]").forEach((b) => b.addEventListener("click", () => showCADFaceGroup(groups[+b.dataset.cadShow])));
   $("cadGrpList").querySelectorAll("button[data-cad-update]").forEach((b) => b.addEventListener("click", () => updateCADFaceGroup(groups[+b.dataset.cadUpdate].name)));
+  $("cadGrpList").querySelectorAll("button[data-cad-fix]").forEach((b) => b.addEventListener("click", () => addCADGroupFixedSupport(groups[+b.dataset.cadFix].nodeSetName)));
   $("cadGrpList").querySelectorAll("button[data-cad-delete]").forEach((b) => b.addEventListener("click", () => deleteCADFaceGroup(groups[+b.dataset.cadDelete].name)));
 }
 async function refreshCADFaceGroups() {
@@ -625,6 +626,18 @@ async function createCADFaceGroup() {
   if (!selectedCadFaceIds.length) { show("Seleziona prima una o più facce CAD nel viewer.", "bad"); return; }
   const r = await act("openmodel_create_cad_face_group", name, selectedCadFaceIds.join(","));
   if (r && r.ok) $("cadGrpName").value = "";
+}
+function addCADGroupFixedSupport(nodeSetName) {
+  const line = "fix group:" + nodeSetName + " dof=1,2,3";
+  const editor = $("anScript");
+  const lines = editor.value.split(/\\r?\\n/);
+  if (lines.some((existing) => existing.trim().toLowerCase() === line.toLowerCase())) {
+    show("Il vincolo per " + nodeSetName + " è già presente nello script.", "good");
+    return;
+  }
+  editor.value = editor.value.trimEnd() + (editor.value.trim() ? "\\n" : "") + line + "\\n";
+  editor.focus();
+  show("Aggiunto vincolo a spostamento nullo su " + nodeSetName + ". Verifica materiale e carichi prima di avviare l'analisi.", "good");
 }
 async function updateCADFaceGroup(name) {
   if (!selectedCadFaceIds.length) { show("Seleziona prima le facce CAD che devono sostituire i membri del gruppo.", "bad"); return; }
