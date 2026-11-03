@@ -166,7 +166,25 @@ bool coneFit(const std::vector<V>& points,const V& centroid,const V& axis,Candid
     candidate.valid=true;return true;
 }
 
-bool sphereFit(const std::vector<V>& points,const V& centroid,Candidate& candidate){
+bool sphereFit(const std::vector<V>& points,const V& centroid,
+               const std::array<V,3>& axes,Candidate& candidate){
+    // A sphere fit to only two parallel rings is indistinguishable from a
+    // cylinder through those samples. Require three resolved levels along
+    // every principal direction before accepting a spherical primitive.
+    V lo{{std::numeric_limits<double>::max(),std::numeric_limits<double>::max(),std::numeric_limits<double>::max()}};
+    V hi{{-std::numeric_limits<double>::max(),-std::numeric_limits<double>::max(),-std::numeric_limits<double>::max()}};
+    for(const auto& p:points)for(int k=0;k<3;++k){lo[k]=std::min(lo[k],p[k]);hi[k]=std::max(hi[k],p[k]);}
+    const double scale=norm(sub(hi,lo));
+    const double levelTolerance=std::max(scale*1e-6,
+        std::numeric_limits<double>::epsilon()*std::max({std::abs(lo[0]),std::abs(lo[1]),std::abs(lo[2]),std::abs(hi[0]),std::abs(hi[1]),std::abs(hi[2])})*64.0);
+    for(const auto& axis:axes){
+        std::vector<double> levels;levels.reserve(points.size());
+        for(const auto& p:points)levels.push_back(dot(sub(p,centroid),axis));
+        std::sort(levels.begin(),levels.end());
+        std::size_t distinct=0;double previous=0.0;
+        for(double value:levels)if(distinct==0||std::abs(value-previous)>levelTolerance){++distinct;previous=value;}
+        if(distinct<3)return false;
+    }
     double normal[4][5]{};
     for(const auto& point:points){
         const V q=sub(point,centroid);const double row[4]={2*q[0],2*q[1],2*q[2],1};
@@ -263,7 +281,7 @@ bool AssimpSurfaceGeometryFitter::fit(const std::vector<RenderSubMesh>& parts,
             if(!best.valid||candidate.relativeRms<best.relativeRms)best=candidate;
         };
         Candidate sphere;
-        if(sphereFit(points,centroid,sphere)) {
+        if(sphereFit(points,centroid,axes,sphere)) {
             sphere.coverage=360.0;
             consider(sphere);
         }
