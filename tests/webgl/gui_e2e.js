@@ -87,12 +87,6 @@ const check = (ok, text) => { console.log((ok ? 'PASS ' : 'FAIL ') + text); if (
   const shownCADFaces = await page.evaluate(() => document.getElementById('viewer').contentWindow.OpenModelViewer.pick.get().faces);
   check(shownCADFaces.length > 0 && shownCADFaces.every((face) => Number.isInteger(face.cadFaceId)),
         'showing a CAD group highlights its source B-Rep faces');
-  const cadGroupDelete = page.locator('#cadGrpList button[data-cad-delete]').first();
-  page.once('dialog', (dialog) => dialog.accept());
-  await cadGroupDelete.click();
-  await waitIdle();
-  check(!(await page.textContent('#cadGrpList')).includes('BladeRoot'),
-        'CAD face group can be deleted and the sidecar is updated');
   await shot('1_import.png');
 
   // 2. Gmsh volume mesh must change the viewer content to tetrahedra.
@@ -102,6 +96,14 @@ const check = (ok, text) => { console.log((ok ? 'PASS ' : 'FAIL ') + text); if (
   check(/Gmsh/.test(await message()) && /validata/.test(await message()), 'Gmsh generates and validates a volume mesh');
   const gm = await viewerInfo();
   check(gm && /Tetrahedron4/.test(gm.types) && gm.elements > 1000, 'viewer shows the Gmsh tetrahedra (' + (gm && gm.elements) + ' elements)');
+  check(/Node Set BladeRoot_NODES: [1-9][0-9]* nodi/.test(await message()),
+        'Gmsh maps the CAD face group to a non-empty FEM node set');
+  const cadGroupDelete = page.locator('#cadGrpList button[data-cad-delete]').first();
+  page.once('dialog', (dialog) => dialog.accept());
+  await cadGroupDelete.click();
+  await waitIdle();
+  check(!(await page.textContent('#cadGrpList')).includes('BladeRoot'),
+        'CAD face group can be deleted and the sidecar is updated');
   await shot('2_gmsh.png');
 
   // 3. Save / export in every format.
@@ -147,7 +149,6 @@ const check = (ok, text) => { console.log((ok ? 'PASS ' : 'FAIL ') + text); if (
 
   check(problems.length === 0, 'no page errors' + (problems.length ? ': ' + problems[0] : ''));
   await browser.close().catch(() => {});
-  try { fs.rmSync(cadSidecar, { force: true }); } catch (_) {}
   try { fs.rmSync(cadSidecar, { force: true }); } catch (_) {}
   console.log(failures ? failures + ' check(s) failed' : 'all checks passed');
   process.exit(failures ? 1 : 0);
