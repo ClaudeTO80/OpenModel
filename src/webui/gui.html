@@ -309,6 +309,7 @@ iframe{display:block;width:100%;height:100%;border:0;background:#10141b}
     <div class="grid2"><div><label for="selAngle">Angolo facce (°)</label><input id="selAngle" type="number" min="0" max="180" step="1" value="0" onchange="setPickAngle(this.value)"></div>
       <div><label for="selBoxOn">Riquadro</label><input id="selBoxOn" type="checkbox" onchange="setPickBox(this.checked)"></div></div>
     <p class="hint" id="selInfo">Selezione: nessuna.</p>
+    <p class="hint" id="cadFaceInfo">Facce CAD: nessuna selezionata.</p>
     <label for="grpName">Nome del gruppo (vuoto = automatico; lettere, cifre, _ - .)</label>
     <input id="grpName" placeholder="Appoggio">
     <div class="grid2"><button id="btnGrpNode" onclick="makeGroup('node')">Gruppo nodi</button><button id="btnGrpElem" onclick="makeGroup('element')">Gruppo elementi</button></div>
@@ -396,6 +397,16 @@ function loadView(label) {
   if (!w || !w.OpenModelViewer) { pendingView = true; return; }
   pendingView = false;
   if (viewVersion < 0) return;
+  // The viewer reports the selected B-Rep face ids when the displayed model is the CAD surface.
+  // FEM selections remain unchanged; they simply have no cadFaceId field.
+  w.OpenModelViewer.onSelect = (selection) => {
+    const ids = [...new Set((selection.faces || [])
+      .map((face) => face.cadFaceId)
+      .filter((id) => Number.isInteger(id) && id >= 0))].sort((a, b) => a - b);
+    $("cadFaceInfo").textContent = ids.length
+      ? "Facce CAD selezionate: " + ids.join(", ")
+      : "Facce CAD: nessuna selezionata.";
+  };
   w.OpenModelViewer.loadUrl("model.mgwv?v=" + viewVersion, label);
 }
 $("viewer").addEventListener("load", () => { if (pendingView || viewVersion >= 0) loadView(); });
