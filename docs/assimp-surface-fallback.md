@@ -76,3 +76,8 @@ This is a mesh-topology analysis, not a CAD surface reconstruction. A component 
 curved or folded geometry; in that case the reported planarity deviation is a diagnostic,
 not a proof of a planar analytic surface. The analyzer does not merge patches across
 different Assimp parts and does not alter or weld the imported mesh.
+
+
+## Conservative patch classification
+
+Each analyzed patch is classified as `Planar` or `NonPlanar`. The decision uses maximum vertex distance from the area-weighted mean plane, normalized by the patch bounding-box diagonal, and area-weighted normal coherence. The threshold is relative to patch size, with a small absolute floor. This is deliberately conservative: `NonPlanar` does not mean cylindrical. It may represent a cylinder, cone, sphere, freeform surface, or a folded/inconsistently oriented mesh. The analyzer reports `normalCoherence` and both absolute and relative planarity deviations so callers can apply application-specific thresholds without mistaking a mesh heuristic for analytic surface recognition.
