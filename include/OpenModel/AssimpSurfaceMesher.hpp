@@ -12,7 +12,7 @@
 /** Geometric selector operating on the imported triangle mesh, never on B-Rep IDs. */
 enum class AssimpSurfaceSelectorKind {
     Plane,          ///< Triangle vertices lie on a plane within tolerance.
-    Normal,         ///< Select triangles by normal direction, optionally combined with a spatial filter in a future extension.
+    Normal,         ///< Select triangles by normal direction.
     AxisAlignedBox, ///< All triangle vertices lie inside the supplied AABB.
     CylinderSide    ///< All triangle vertices lie on the lateral cylinder within tolerance.
 };
