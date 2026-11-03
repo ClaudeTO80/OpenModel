@@ -202,6 +202,7 @@ bool AssimpSurfaceMesher::buildMesh(
             if (!std::isfinite(s.coneHalfAngleRadians) ||
                 s.coneHalfAngleRadians <= 0.0 ||
                 s.coneHalfAngleRadians >= 1.5707963267948966 ||
+                !std::isfinite(std::tan(s.coneHalfAngleRadians)) ||
                 !std::isfinite(s.axialMin) || !std::isfinite(s.axialMax) ||
                 s.axialMin < 0.0 || s.axialMin > s.axialMax) {
                 m_diagnostics.push_back("Invalid cone selector '" + s.name + "'.");
