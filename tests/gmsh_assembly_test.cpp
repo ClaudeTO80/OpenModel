@@ -128,6 +128,39 @@ int run(InterfaceMode mode, const std::string& step) {
     return 0;
 }
 
+
+int runSurfaceOnly(const std::string& step) {
+    auto cad = std::make_shared<OCCModel>();
+    CHECK(cad->loadFromFile(step));
+    MeshingOptions options;
+    options.dimension = MeshDimension::Surface;
+    options.generateTetrahedra = false;
+    options.elementSize = 2.0;
+    options.maxElementSize = 2.0;
+    options.importCadGroups = true;
+
+    GmshMesher mesher;
+    MeshData mesh;
+    CHECK(mesher.buildMesh(cad, options, mesh));
+    CHECK(mesh.getNumElements() > 0);
+    for (const auto& block : mesh.getElementBlocks())
+        CHECK(block.type != ElementType::Tetrahedron4 && block.type != ElementType::Tetrahedron10);
+
+    // Surface-only meshes have no upward volume adjacency. CAD faces must still
+    // be mapped from their geometric location and actual 2-D mesh elements.
+    const auto* namedFace = mesh.getMeshGroupRegistry().find("TopFace");
+    const auto* layerFace = mesh.getMeshGroupRegistry().find("Interface");
+    CHECK(namedFace && layerFace);
+    CHECK(namedFace->dimension == 2 && layerFace->dimension == 2);
+    CHECK(!namedFace->elementIds.empty());
+    CHECK(namedFace->elementIds == layerFace->elementIds);
+    const auto* physical = group(mesh, "TopFace");
+    CHECK(physical && !physical->elementIds.empty());
+    std::cout << "--- surface-only CAD face mapping: " << namedFace->elementIds.size()
+              << " elements, " << namedFace->nodeIndices.size() << " nodes\\n";
+    return 0;
+}
+
 } // namespace
 
 int main() {
@@ -135,7 +168,8 @@ int main() {
     CHECK(writeAssemblyFixture(step));
     const int a = run(InterfaceMode::Independent, step);
     const int b = a == 0 ? run(InterfaceMode::Conformal, step) : a;
+    const int c = (a == 0 && b == 0) ? runSurfaceOnly(step) : 1;
     std::remove(step.c_str());
-    if (a == 0 && b == 0) std::cout << "gmsh_assembly_test passed\n";
-    return a != 0 ? a : b;
+    if (a == 0 && b == 0 && c == 0) std::cout << "gmsh_assembly_test passed\n";
+    return a != 0 ? a : (b != 0 ? b : c);
 }
