@@ -4,6 +4,8 @@
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -56,6 +58,37 @@ int main() {
         }
         require(vertices >= 3 && triangles >= 1, "Assimp round-trip produced no usable triangles");
 
+        // A negative node scale is a mirrored transform. The importer must
+        // reverse triangle winding so geometric normals remain consistent
+        // with inverse-transpose transformed vertex normals.
+        const auto gltfPath = std::filesystem::temp_directory_path() / "openmodel_assimp_mirrored_fixture.gltf";
+        const auto gltfWritten = GltfWriter::writeFile(gltfPath.string(), source);
+        require(gltfWritten.success, "Could not create mirrored glTF fixture: " + gltfWritten.error);
+        {
+            std::ifstream input(gltfPath, std::ios::binary);
+            std::string json((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+            const std::string node = "\\"mesh\\":0}";
+            const auto position = json.find(node);
+            require(position != std::string::npos, "Could not locate glTF mesh node for mirrored fixture.");
+            json.replace(position, node.size(), "\\"mesh\\":0,\\"scale\\":[-1,1,1]}");
+            std::ofstream output(gltfPath, std::ios::binary | std::ios::trunc);
+            output.write(json.data(), static_cast<std::streamsize>(json.size()));
+            require(static_cast<bool>(output), "Could not write mirrored glTF fixture.");
+        }
+        AssimpModel mirroredModel;
+        require(mirroredModel.loadFromFile(gltfPath.string()),
+                "Assimp failed to load mirrored glTF: " + mirroredModel.getLastError());
+        require(!mirroredModel.getRenderMeshes().empty(), "Mirrored glTF produced no render mesh.");
+        const auto& mirroredMesh = mirroredModel.getRenderMeshes().front();
+        require(mirroredMesh.indices.size() >= 3 &&
+                mirroredMesh.indices[0] == 0 &&
+                mirroredMesh.indices[1] == 2 &&
+                mirroredMesh.indices[2] == 1,
+                "Negative-determinant node transform did not reverse triangle winding.");
+        if (!mirroredMesh.normals.empty())
+            require(mirroredMesh.normals[2] > 0.99f,
+                    "Mirrored transform produced an inconsistent vertex normal.");
+
         // The importer should report a useful diagnostic and clear stale geometry
         // after a subsequent failed load.
         require(!model.loadFromFile((path.string() + ".missing")), "Assimp unexpectedly loaded a missing file");
@@ -66,6 +99,7 @@ int main() {
                   << triangles << " triangles\n";
         std::error_code ec;
         std::filesystem::remove(path, ec);
+        std::filesystem::remove(std::filesystem::temp_directory_path() / "openmodel_assimp_mirrored_fixture.gltf", ec);
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "Assimp integration failed: " << error.what() << '\n';
