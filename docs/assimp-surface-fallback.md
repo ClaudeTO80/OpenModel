@@ -61,7 +61,9 @@ Each matched selector creates a dimension-2 imported MeshGroup, a physical group
 
 `AssimpSurfacePatchAnalyzer` identifies edge-connected triangle components independently
 inside each imported part. It uses a configurable coordinate weld tolerance to recognize
-coincident edge endpoints without changing the source mesh. Each result reports:
+coincident edge endpoints without changing the source mesh. Two triangles are connected only
+when their winding-independent normal angle is below the configurable maximum dihedral angle
+(default 45 degrees), so sharp creases split into separate patches. Each result reports:
 
 - source part index and triangle indices;
 - total triangle area and area-weighted centroid;
