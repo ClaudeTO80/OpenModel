@@ -124,3 +124,15 @@ endFaces.filter.minNormalAlignment = 0.98;
 endFaces.filter.minArea = 10.0;
 AssimpPatchGroupBuilder::apply(parts, patches, {endFaces}, mesh, diagnostics);
 ```
+
+
+## Installed CMake package
+
+When the Assimp backend is enabled, the build exports and installs `OpenModel::Assimp` alongside `OpenModel::Core`. The installed package resolves Assimp as a dependency. Consumers can request the component explicitly:
+
+```cmake
+find_package(OpenModel CONFIG REQUIRED COMPONENTS Assimp)
+target_link_libraries(my_app PRIVATE OpenModel::Assimp)
+```
+
+The repository example `examples/cmake-assimp-consumer` is built in the Assimp CI job after installing the package, so the exported target and transitive Assimp dependency are exercised separately from the in-tree build.
