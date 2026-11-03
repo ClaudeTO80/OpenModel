@@ -554,7 +554,12 @@ async function analysisExample() {
   const r = await call("openmodel_default_analysis");
   if (r.ok) { $("anScript").value = r.message; renderAnalysisConditions(); }
 }
-const analysisWrite = () => act("openmodel_write_input", $("anScript").value, $("anJob").value.trim(), $("anSolverKind").value);
+const analysisWrite = async () => {
+  const synced = await act("openmodel_analysis_load", $("anScript").value);
+  if (!synced || !synced.ok) return;
+  $("anScript").value = synced.message;
+  await act("openmodel_write_input", $("anScript").value, $("anJob").value.trim(), $("anSolverKind").value);
+};
 async function analysisRun() {
   if (busy || solverRunning) return;
   const r = await act("openmodel_run_solver", $("anScript").value, $("anJob").value.trim(), $("anSolver").value.trim(), $("anSolverKind").value);
@@ -763,10 +768,19 @@ function renderAnalysisConditions() {
     });
     const remove = document.createElement("button");
     remove.type = "button"; remove.textContent = "Rimuovi";
-    remove.addEventListener("click", () => {
-      if (!confirm("Rimuovere questa condizione dallo script?")) return;
-      lines.splice(index, 1);
-      $("anScript").value = lines.join("\n");
+    remove.addEventListener("click", async () => {
+      if (!confirm("Rimuovere questa condizione?")) return;
+      const id = idMatch && idMatch[1];
+      if (id) {
+        const r = await act("openmodel_analysis_delete", id);
+        if (!r || !r.ok) return;
+        $("anScript").value = r.message;
+      } else {
+        lines.splice(index, 1);
+        $("anScript").value = lines.join("\n");
+        const synced = await act("openmodel_analysis_load", $("anScript").value);
+        if (!synced || !synced.ok) return;
+      }
       renderAnalysisConditions();
     });
     item.append(content, edit, remove);
