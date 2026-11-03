@@ -85,6 +85,11 @@ bool AssimpSurfacePatchAnalyzer::analyze(const std::vector<RenderSubMesh>& parts
         return false;
     }
 
+    const double tolerance2=weldTolerance*weldTolerance;
+    if (!std::isfinite(tolerance2)) {
+        diagnostics.push_back("Weld tolerance is too large to square safely.");
+        return false;
+    }
     const double minNormalDot=std::cos(maxDihedralAngleDegrees*3.14159265358979323846/180.0);
     std::size_t degenerateCount=0, nonManifoldEdges=0;
     try {
@@ -109,7 +114,6 @@ bool AssimpSurfacePatchAnalyzer::analyze(const std::vector<RenderSubMesh>& parts
             // actual Euclidean distance. This avoids quantization-bin boundary misses.
             DSU vertexSets(vertexCount);
             std::map<Cell,std::vector<std::size_t>> buckets;
-            const double tolerance2=weldTolerance*weldTolerance;
             for (std::size_t vi=0;vi<vertexCount;++vi) {
                 const Cell cell=cellOf(points[vi],weldTolerance);
                 for (int dx=-1;dx<=1;++dx)
@@ -223,7 +227,11 @@ bool AssimpSurfacePatchAnalyzer::analyze(const std::vector<RenderSubMesh>& parts
                 patch.relativePlanarityDeviation=diagonal>0.0
                     ? patch.maxPlanarityDeviation/diagonal
                     : std::numeric_limits<double>::infinity();
-                const double limit=std::max(1e-12,diagonal*1e-6);
+                double coordinateScale=diagonal;
+                for (std::size_t axis=0;axis<3;++axis)
+                    coordinateScale=std::max(coordinateScale,std::max(std::abs(patch.boundsMin[axis]),std::abs(patch.boundsMax[axis])));
+                const double limit=std::max(diagonal*1e-6,
+                    std::numeric_limits<double>::epsilon()*coordinateScale*64.0);
                 patch.kind=(patch.maxPlanarityDeviation<=limit && patch.normalCoherence>=0.999999)
                     ? AssimpSurfacePatchKind::Planar : AssimpSurfacePatchKind::NonPlanar;
                 std::sort(patch.triangleIndices.begin(),patch.triangleIndices.end());
