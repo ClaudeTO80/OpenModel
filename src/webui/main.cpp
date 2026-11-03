@@ -46,6 +46,7 @@
 #include <cmath>
 #include <cstring>
 #include <filesystem>
+#include <iomanip>
 #include <memory>
 #include <map>
 #include <mutex>
@@ -71,9 +72,17 @@ namespace fs = std::filesystem;
 /** Where the current mesh comes from. */
 enum class MeshOrigin { None, Demo, Generated, Loaded };
 
+/** A user-defined group of original CAD B-Rep faces. Face ids refer to the current CAD import. */
+struct UserCADFaceGroup {
+    std::string name;
+    std::vector<int> faceIds;
+};
+
 /** Whole application state; always accessed with g_mutex held. */
 struct AppState {
     std::shared_ptr<CADModel> cad;
+    std::vector<UserCADFaceGroup> cadFaceGroups;
+    std::string cadGroupsNote;
     SurfaceMesh surface;
     MeshData mesh;
     MeshOrigin origin = MeshOrigin::None;
