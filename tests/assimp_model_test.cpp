@@ -1,6 +1,7 @@
 #include <OpenModel/AssimpModel.hpp>
 #include <OpenModel/GltfWriter.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
