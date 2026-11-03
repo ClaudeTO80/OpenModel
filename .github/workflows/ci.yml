@@ -76,6 +76,34 @@ jobs:
           path: build/Testing/Temporary/LastTest.log
           if-no-files-found: ignore
 
+  assimp:
+    name: Assimp backend and surface-group tests (Linux GCC)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Assimp SDK
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libassimp-dev
+
+      - name: Configure Assimp backend
+        run: >
+          cmake -S . -B build-assimp
+          -DCMAKE_BUILD_TYPE=Release
+          -DOPENMODEL_BUILD_TESTS=ON
+          -DOPENMODEL_BUILD_ASSIMP_BACKEND=ON
+          -DOPENMODEL_BUILD_CLI=OFF
+          -DOPENMODEL_BUILD_SHARED=OFF
+
+      - name: Build Assimp backend
+        run: cmake --build build-assimp --parallel 4
+
+      - name: Run Assimp tests
+        run: ctest --test-dir build-assimp --output-on-failure --parallel 2 -R '^assimp_'
+
   windows-mingw:
     name: Core, CLI and tests (Windows ${{ matrix.msystem }}, ${{ matrix.build_type }})
     runs-on: windows-latest
