@@ -1,0 +1,49 @@
+# CAD-to-FEM group mapping — Phase 3.6: Workbench registry view
+
+The Workbench now exposes three distinct group collections in the selection panel.
+
+## Native CAD groups
+
+The read-only **Gruppi nominati importati dal CAD** list is populated from
+`CADModel::getGroups()`. Each entry displays:
+- the name stored in the CAD source;
+- the group kind (`layer` or `named-shape`);
+- the topological dimension and number of entities.
+
+Dimensions are shown as vertex (0), edge (1), face (2) and solid (3). This list
+does not create or modify CAD metadata. Its purpose is to make imported XDE
+layers and named sub-shapes inspectable before meshing.
+
+## User-defined CAD face groups
+
+The existing editable face-group workflow remains separate. It stores selected
+B-Rep face IDs in the `.omgroups` sidecar, supports create/update/delete and
+invalidates a generated volume mesh when membership changes.
+
+This phase deliberately does not pretend that edge/vertex/solid picking is
+available in the viewer. Those editable selections require dimension-aware
+picking and a generalized sidecar schema; until that work is implemented, the
+native groups are displayed read-only.
+
+## Generic FEM mesh groups
+
+The **Gruppi FEM generici** list is populated from
+`MeshData::getMeshGroupRegistry()`. Each entry shows:
+- group name;
+- topological dimension;
+- element and node membership counts;
+- source (`CAD`, `Imported`, `UserDefined`).
+
+The registry is independent of legacy mesher physical groups and remains the
+backend-independent representation used by the solver writers and analysis
+setup. The GUI refreshes this list together with the CAD group collections
+after import, mesh loading, mesh generation and CAD face-group operations.
+
+## Tests
+
+The CAD assembly GUI end-to-end test now checks that:
+- native named CAD groups appear after import with their topological dimension;
+- generic FEM groups appear after Gmsh volume meshing and report their source.
+
+The test runs in the WebUI end-to-end environment, not in the dependency-free
+core test suite.
