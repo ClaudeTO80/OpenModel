@@ -270,6 +270,41 @@ std::string writeMeshText(std::ostream& out, const MeshData& mesh, const std::ve
                                    "Group '" + g.name + "' refers to " + std::to_string(missing) + " element id(s) that are not in the mesh; they were left out", 0});
         writeGroup("GROUP_MA", aster, members);
     }
+
+    // Export the backend-independent registry as native code_aster groups too.
+    // Physical groups and node sets are already emitted above; avoid duplicating
+    // identical memberships while retaining distinct generic memberships.
+    for (const auto& g : mesh.getMeshGroupRegistry().groups()) {
+        bool representedByPhysical = false;
+        for (const auto& p : mesh.getPhysicalGroups())
+            if (p.name == g.name && p.dimension == g.dimension && p.elementIds == g.elementIds) {
+                representedByPhysical = true;
+                break;
+            }
+        if (!g.elementIds.empty() && !representedByPhysical) {
+            std::vector<std::string> members;
+            std::size_t missing = 0;
+            for (const ElementId id : g.elementIds) {
+                if (present.count(id)) members.push_back(elementName(id)); else ++missing;
+            }
+            if (missing)
+                diagnostics.push_back({ImportDiagnosticLevel::Warning, "ASTER_MESH_GROUP_MISSING_ELEMENTS",
+                    "Mesh group '" + g.name + "' refers to " + std::to_string(missing) +
+                    " element id(s) that are not in the mesh; they were left out", 0});
+            writeGroup("GROUP_MA", namer.make(g.name), members);
+        }
+
+        bool representedByNodeSet = false;
+        const auto nodeSet = mesh.getNodeSets().find(g.name + "_NODES");
+        if (nodeSet != mesh.getNodeSets().end() && nodeSet->second == g.nodeIndices)
+            representedByNodeSet = true;
+        if (!g.nodeIndices.empty() && !representedByNodeSet) {
+            std::vector<std::string> members;
+            members.reserve(g.nodeIndices.size());
+            for (const NodeIndex n : g.nodeIndices) members.push_back(nodeName(mesh.nodeId(n)));
+            writeGroup("GROUP_NO", namer.make(g.name + "_NODES"), members);
+        }
+    }
     out << "FIN\n";
     return {};
 }
