@@ -98,12 +98,6 @@ const check = (ok, text) => { console.log((ok ? 'PASS ' : 'FAIL ') + text); if (
   check(gm && /Tetrahedron4/.test(gm.types) && gm.elements > 1000, 'viewer shows the Gmsh tetrahedra (' + (gm && gm.elements) + ' elements)');
   check(/Node Set BladeRoot_NODES: [1-9][0-9]* nodi/.test(await message()),
         'Gmsh maps the CAD face group to a non-empty FEM node set');
-  const cadGroupDelete = page.locator('#cadGrpList button[data-cad-delete]').first();
-  page.once('dialog', (dialog) => dialog.accept());
-  await cadGroupDelete.click();
-  await waitIdle();
-  check(!(await page.textContent('#cadGrpList')).includes('BladeRoot'),
-        'CAD face group can be deleted and the sidecar is updated');
   await shot('2_gmsh.png');
 
   // 3. Save / export in every format.
@@ -113,6 +107,14 @@ const check = (ok, text) => { console.log((ok ? 'PASS ' : 'FAIL ') + text); if (
     await click(label);
     check(fs.existsSync(base + ext) && fs.statSync(base + ext).size > 100, label + ' writes ' + path.basename(base + ext));
   }
+  check(/\\*NSET, NSET=BLADEROOT_NODES/.test(fs.readFileSync(base + '.inp', 'utf8')),
+        'CalculiX export preserves the CAD-derived FEM node set');
+  const cadGroupDelete = page.locator('#cadGrpList button[data-cad-delete]').first();
+  page.once('dialog', (dialog) => dialog.accept());
+  await cadGroupDelete.click();
+  await waitIdle();
+  check(!(await page.textContent('#cadGrpList')).includes('BladeRoot'),
+        'CAD face group can be deleted and the sidecar is updated');
 
   // 4. TetGen from the same CAD model.
   await page.selectOption('#mesher', 'tetgen');
