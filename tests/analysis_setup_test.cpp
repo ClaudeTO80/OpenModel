@@ -165,7 +165,7 @@ void testConditionCrudById() {
         "material id=steel E=210000 nu=0.3\n"
         "fix id=clamp all\n"
         "force id=load all F=1,2,3\n"
-        "pressure id=pressure group=TOP p=4\n");
+        "pressure id=pressure group:TOP p=4\n");
     CHECK(parsed.success);
     auto& model = parsed.model;
     CHECK(findSupport(model, "clamp") != nullptr);
