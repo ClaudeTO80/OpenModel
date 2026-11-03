@@ -29,7 +29,8 @@ int main() {
     auto q = OpenModel::OpenModelProject::load(manifest);
     assert(q.metadata.name == p.metadata.name);
     assert(q.metadata.description == p.metadata.description);
-    assert(q.assets.size() == 2);\n    assert(q.verifyAssetIntegrity(manifest).empty());
+    assert(q.assets.size() == 2);
+    assert(q.verifyAssetIntegrity(manifest).empty());
     assert(q.findAsset("mesh-1") && q.findAsset("mesh-1")->role == "mesh.volume");
     assert(q.resolveAssetPath(manifest, q.assets[1]).filename() == "part.step");
     assert(q.removeAsset("cad-1"));
