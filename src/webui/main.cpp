@@ -1447,6 +1447,10 @@ void updateCADFaceGroupHandler(webui_event_t* e) {
 void deleteCADFaceGroupHandler(webui_event_t* e) {
     StateLock lock;
     if (!lock.ok()) { replyBusy(e); return; }
+    if (!g.cad || g.source.empty()) {
+        replyCADFaceGroups(e, false, "Importa prima il modello CAD.");
+        return;
+    }
     const std::string name = getStringArg(e, 0);
     auto candidate = g.cadFaceGroups;
     const auto oldSize = candidate.size();
