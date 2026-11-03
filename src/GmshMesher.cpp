@@ -12,6 +12,7 @@ bool GmshMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Mesh
 
         m_lastError.clear();
         m_diagnostics.clear();
+        m_faceMappingReport.clear();
         if (!cadModel) return fail("CAD model pointer is null");
         if (cadModel->getFilePath().empty()) return fail("CAD file path is empty");
         const double baseSize = options.maxElementSize > 0.0 ? options.maxElementSize : options.elementSize;
@@ -429,7 +430,15 @@ void GmshMesher::mapCadGroups(const CADModel& cad, MeshData& mesh,
             gmsh::model::mesh::getElements(types, elementTags, elementNodeTags, 2, surface.second);
             std::size_t totalElements = 0;
             for (const auto& tags : elementTags) totalElements += tags.size();
-            if (totalElements == 0) continue;
+            CADFaceMappingRecord mapping;
+            mapping.gmshSurfaceTag = surface.second;
+            mapping.elementCount = totalElements;
+            if (totalElements == 0) {
+                m_diagnostics.push_back("Gmsh surface " + std::to_string(surface.second) +
+                    " has no 2-D mesh elements and cannot be mapped to a CAD face.");
+                m_faceMappingReport.push_back(std::move(mapping));
+                continue;
+            }
 
             constexpr std::size_t maxProbes = 32;
             const std::size_t stride = std::max<std::size_t>(1, (totalElements + maxProbes - 1) / maxProbes);
@@ -464,7 +473,13 @@ void GmshMesher::mapCadGroups(const CADModel& cad, MeshData& mesh,
                         probes.push_back({{closest[0], closest[1], closest[2]}});
                 }
             }
-            if (probes.empty()) continue;
+            mapping.sampledElementCount = probes.size();
+            if (probes.empty()) {
+                m_diagnostics.push_back("Gmsh surface " + std::to_string(surface.second) +
+                    " produced no valid interior probes; CAD face mapping skipped.");
+                m_faceMappingReport.push_back(std::move(mapping));
+                continue;
+            }
 
             // Score each CAD face by the number of independent interior probes
             // that lie on it. A small tolerance is retained for STEP healing and
@@ -473,8 +488,11 @@ void GmshMesher::mapCadGroups(const CADModel& cad, MeshData& mesh,
             std::map<int, std::size_t> faceVotes;
             for (const auto& probe : probes) {
                 const auto hits = cad.facesContainingPoint(probe, tolerance);
+                if (!hits.empty()) ++mapping.matchedSampleCount;
                 for (const int faceId : hits) ++faceVotes[faceId];
             }
+            mapping.matchRatio = static_cast<double>(mapping.matchedSampleCount) /
+                                 static_cast<double>(mapping.sampledElementCount);
             const std::size_t requiredVotes =
                 std::max<std::size_t>(1, (probes.size() * 4 + 4) / 5);
             std::vector<int> candidates;
@@ -485,8 +503,10 @@ void GmshMesher::mapCadGroups(const CADModel& cad, MeshData& mesh,
             // distinguished reliably from position alone. Refuse the mapping
             // rather than attaching one Gmsh surface to several CAD instances.
             if (adjacentSolids.empty() && candidates.size() > 1) {
+                mapping.ambiguous = true;
                 m_diagnostics.push_back("Gmsh surface " + std::to_string(surface.second) +
                     " matches multiple coincident CAD faces in a surface-only mesh; mapping skipped as ambiguous.");
+                m_faceMappingReport.push_back(std::move(mapping));
                 continue;
             }
 
@@ -506,6 +526,15 @@ void GmshMesher::mapCadGroups(const CADModel& cad, MeshData& mesh,
                 }
                 if (owned) facesOfSurface[surface.second].insert(faceId);
             }
+            const auto mapped = facesOfSurface.find(surface.second);
+            if (mapped != facesOfSurface.end())
+                mapping.cadFaceIds.assign(mapped->second.begin(), mapped->second.end());
+            if (mapping.cadFaceIds.empty()) {
+                m_diagnostics.push_back("Gmsh surface " + std::to_string(surface.second) +
+                    " did not map to a CAD face (matched sample ratio " +
+                    std::to_string(mapping.matchRatio) + ").");
+            }
+            m_faceMappingReport.push_back(std::move(mapping));
         }
         for (const auto& group : cadGroups) {
             if (group.dimension != 2) continue;
