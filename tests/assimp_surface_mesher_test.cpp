@@ -7,6 +7,7 @@
 #include <cmath>
 #include <filesystem>
 #include <iostream>
+#include <iterator>
 #include <stdexcept>
 
 namespace {
