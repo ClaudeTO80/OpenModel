@@ -432,6 +432,23 @@ CodeAsterExportResult writeCodeAsterCase(const MeshData& mesh, const AnalysisMod
         if (!error.empty()) return fail(r, "fix #" + std::to_string(i + 1) + ": " + error);
         nodes = restrict(std::move(nodes), "fix #" + std::to_string(i + 1));
         if (nodes.empty()) return fail(r, "fix #" + std::to_string(i + 1) + ": the selection contains no node of a volume element");
+        for (int d = 0; d < 3; ++d) {
+            const double value = s.displacement[static_cast<std::size_t>(d)];
+            if (s.dof[static_cast<std::size_t>(d)] && !std::isfinite(value))
+                return fail(r, "fix #" + std::to_string(i + 1) + " has a non-finite prescribed displacement");
+            if (!s.dof[static_cast<std::size_t>(d)]) continue;
+            for (std::size_t previous = 0; previous < i; ++previous) {
+                if (!model.supports[previous].dof[static_cast<std::size_t>(d)]) continue;
+                const auto& previousNodes = extra[supportGroup[previous]].nodes;
+                if (std::find(previousNodes.begin(), previousNodes.end(), n) == previousNodes.end()) continue;
+                const double other = model.supports[previous].displacement[static_cast<std::size_t>(d)];
+                const double scale = std::max({1.0, std::fabs(value), std::fabs(other)});
+                if (std::fabs(value - other) > 1e-12 * scale)
+                    return fail(r, "conflicting prescribed displacements: fix #" + std::to_string(previous + 1) +
+                                   " and fix #" + std::to_string(i + 1) + " assign different values to node " +
+                                   std::to_string(mesh.nodeId(n)) + " degree of freedom " + std::to_string(d + 1));
+            }
+        }
         for (const NodeIndex n : nodes) constrained[n] = 1;
         supportGroup.push_back(extra.size());
         extra.push_back({"OM_FIX" + std::to_string(i + 1), std::move(nodes)});
