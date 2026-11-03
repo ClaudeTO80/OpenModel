@@ -432,7 +432,8 @@ CodeAsterExportResult writeCodeAsterCase(const MeshData& mesh, const AnalysisMod
         if (!error.empty()) return fail(r, "fix #" + std::to_string(i + 1) + ": " + error);
         nodes = restrict(std::move(nodes), "fix #" + std::to_string(i + 1));
         if (nodes.empty()) return fail(r, "fix #" + std::to_string(i + 1) + ": the selection contains no node of a volume element");
-        for (int d = 0; d < 3; ++d) {
+        for (const NodeIndex n : nodes) {
+          for (int d = 0; d < 3; ++d) {
             const double value = s.displacement[static_cast<std::size_t>(d)];
             if (s.dof[static_cast<std::size_t>(d)] && !std::isfinite(value))
                 return fail(r, "fix #" + std::to_string(i + 1) + " has a non-finite prescribed displacement");
@@ -448,6 +449,7 @@ CodeAsterExportResult writeCodeAsterCase(const MeshData& mesh, const AnalysisMod
                                    " and fix #" + std::to_string(i + 1) + " assign different values to node " +
                                    std::to_string(mesh.nodeId(n)) + " degree of freedom " + std::to_string(d + 1));
             }
+          }
         }
         for (const NodeIndex n : nodes) constrained[n] = 1;
         supportGroup.push_back(extra.size());
