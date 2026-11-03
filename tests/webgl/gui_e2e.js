@@ -9,6 +9,11 @@ const path = require('path');
 
 const [, , stepFile, workDir, shotDir] = process.argv;
 if (!stepFile || !workDir) { console.error('usage: gui_e2e.js <model.step> <work-dir> [shots]'); process.exit(2); }
+fs.mkdirSync(workDir, { recursive: true });
+const cadFixture = path.join(workDir, 'cad-face-groups-fixture.step');
+const cadSidecar = cadFixture + '.omgroups';
+fs.copyFileSync(stepFile, cadFixture);
+try { fs.rmSync(cadSidecar, { force: true }); } catch (_) {}
 let failures = 0;
 const check = (ok, text) => { console.log((ok ? 'PASS ' : 'FAIL ') + text); if (!ok) failures++; };
 
@@ -138,6 +143,7 @@ const check = (ok, text) => { console.log((ok ? 'PASS ' : 'FAIL ') + text); if (
 
   check(problems.length === 0, 'no page errors' + (problems.length ? ': ' + problems[0] : ''));
   await browser.close().catch(() => {});
+  try { fs.rmSync(cadSidecar, { force: true }); } catch (_) {}
   try { fs.rmSync(cadSidecar, { force: true }); } catch (_) {}
   console.log(failures ? failures + ' check(s) failed' : 'all checks passed');
   process.exit(failures ? 1 : 0);
