@@ -702,6 +702,18 @@ void generateVolume(webui_event_t* e) {
     options.curvatureAdaptation = curvature;
     options.interfaceMode = conformal ? InterfaceMode::Conformal : InterfaceMode::Independent;
     options.importCadGroups = true;
+    for (const auto& userGroup : g.cadFaceGroups) {
+        CADGroup group;
+        group.name = userGroup.name;
+        group.kind = CADGroupKind::NamedShape;
+        group.dimension = 2;
+        group.ids = userGroup.faceIds;
+        options.additionalFaceGroups.push_back(std::move(group));
+    }
+    if (!g.cadFaceGroups.empty() && mesherId != "gmsh") {
+        reply(e, false, "I gruppi di facce CAD personalizzati richiedono attualmente Gmsh per il mapping geometrico. Scegli Gmsh oppure rimuovi i gruppi prima di usare un altro meshatore.");
+        return;
+    }
     options.linearDeflection = g.linearDeflection;
     options.angularDeflection = g.angularDeflection;
 
@@ -740,6 +752,45 @@ void generateVolume(webui_event_t* e) {
     if (!built) {
         for (const auto& note : notes) failure += "\n" + note;
         reply(e, false, "Generazione volumetrica fallita: " + failure); return;
+    }
+
+    // Convert each mapped CAD face physical group into a deduplicated FEM node set.
+    // The mapper must have covered every requested CAD face; never silently apply a
+    // support to only a subset of the user's selected geometry.
+    for (const auto& userGroup : g.cadFaceGroups) {
+        const auto physical = std::find_if(candidate.getPhysicalGroups().begin(), candidate.getPhysicalGroups().end(),
+            [&](const MeshPhysicalGroup& group) { return group.dimension == 2 && group.name == userGroup.name; });
+        if (physical == candidate.getPhysicalGroups().end()) {
+            std::string details;
+            for (const auto& note : notes)
+                if (note.find(userGroup.name) != std::string::npos) details += "\\n" + note;
+            reply(e, false, "Mapping CAD→FEM incompleto per il gruppo «" + userGroup.name +
+                "». La mesh non è stata accettata per evitare vincoli parziali." + details);
+            return;
+        }
+        const std::unordered_set<ElementId> boundaryElements(physical->elementIds.begin(), physical->elementIds.end());
+        std::vector<NodeIndex> nodeIndices;
+        for (const auto& block : candidate.getElementBlocks()) {
+            if (elementDimension(block.type) != 2) continue;
+            for (std::size_t element = 0; element < block.ids.size(); ++element) {
+                if (!boundaryElements.count(block.ids[element])) continue;
+                const auto offset = element * block.nodesPerElement;
+                for (std::size_t local = 0; local < block.nodesPerElement; ++local)
+                    nodeIndices.push_back(block.connectivity[offset + local]);
+            }
+        }
+        std::sort(nodeIndices.begin(), nodeIndices.end());
+        nodeIndices.erase(std::unique(nodeIndices.begin(), nodeIndices.end()), nodeIndices.end());
+        if (nodeIndices.empty()) {
+            reply(e, false, "Il gruppo CAD «" + userGroup.name + "» non contiene nodi FEM di bordo: mesh rifiutata.");
+            return;
+        }
+        const std::string nodeSetName = userGroup.name + "_NODES";
+        if (candidate.getNodeSets().count(nodeSetName)) {
+            reply(e, false, "Il Node Set «" + nodeSetName + "» esiste già: rinomina il gruppo CAD.");
+            return;
+        }
+        candidate.addNodeSet(nodeSetName, nodeIndices);
     }
 
     const auto report = MeshValidator::validate(candidate);
@@ -1274,8 +1325,11 @@ void createCADFaceGroupHandler(webui_event_t* e) {
         replyCADFaceGroups(e, false, "Nome non valido: usa lettere, cifre, underscore, trattino o punto.");
         return;
     }
-    if (std::any_of(g.cadFaceGroups.begin(), g.cadFaceGroups.end(), [&](const auto& group) { return group.name == name; })) {
-        replyCADFaceGroups(e, false, "Esiste già un gruppo CAD chiamato «" + name + "».");
+    if (std::any_of(g.cadFaceGroups.begin(), g.cadFaceGroups.end(), [&](const auto& group) { return group.name == name; }) ||
+        std::any_of(g.cad->getGroups().begin(), g.cad->getGroups().end(), [&](const auto& group) { return group.name == name; }) ||
+        std::any_of(g.cad->getComponents().begin(), g.cad->getComponents().end(),
+            [&](const auto& component) { return !component.isAssembly && component.path == name; })) {
+        replyCADFaceGroups(e, false, "Il nome del gruppo CAD è già usato da un gruppo o componente importato.");
         return;
     }
     std::set<int> available;
