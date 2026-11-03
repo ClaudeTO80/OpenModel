@@ -168,7 +168,8 @@ bool AssimpSurfaceMesher::buildMesh(
                 m_diagnostics.push_back("Invalid cylinder selector '" + s.name + "'.");
                 return false;
             }
-        } else if (s.kind != AssimpSurfaceSelectorKind::Plane) {
+        } else if (s.kind != AssimpSurfaceSelectorKind::Plane &&
+                   s.kind != AssimpSurfaceSelectorKind::Normal) {
             m_diagnostics.push_back("Unsupported selector kind for '" + s.name + "'.");
             return false;
         }
