@@ -330,3 +330,87 @@ bool AssimpSurfaceGeometryFitter::fit(const std::vector<RenderSubMesh>& parts,
         " Assimp surface patch(es) using plane, cylinder, sphere and cone models.");
     return true;
 }
+
+
+bool AssimpSurfaceGeometryFitter::makeSelector(const AssimpSurfaceFit& fit,
+    const std::vector<RenderSubMesh>& parts,const AssimpSurfacePatch& patch,
+    const std::string& name,double tolerance,AssimpSurfaceSelector& selector,
+    std::string& diagnostic) {
+    diagnostic.clear();
+    if(name.empty()||!std::isfinite(tolerance)||tolerance<=0.0||
+       patch.partIndex>=parts.size()) {
+        diagnostic="Invalid selector name, tolerance or source patch.";
+        return false;
+    }
+    const auto& part=parts[patch.partIndex];
+    if(part.vertices.size()%3!=0||part.indices.size()%3!=0||patch.triangleIndices.empty()) {
+        diagnostic="Malformed source geometry for fitted patch selector.";
+        return false;
+    }
+    selector=AssimpSurfaceSelector{};
+    selector.name=name;
+    selector.tolerance=tolerance;
+    selector.constrainNormal=false;
+    V axis=fit.axis;
+    if(fit.type==AssimpFittedSurfaceType::Planar) {
+        if(!normalize(axis)){diagnostic="Planar fit has no valid normal.";return false;}
+        selector.kind=AssimpSurfaceSelectorKind::Plane;
+        selector.point=fit.center;
+        selector.direction=axis;
+        return true;
+    }
+    if(fit.type==AssimpFittedSurfaceType::Spherical) {
+        if(!finite(fit.center)||!std::isfinite(fit.radius)||fit.radius<=0.0) {
+            diagnostic="Spherical fit has invalid center or radius.";return false;
+        }
+        selector.kind=AssimpSurfaceSelectorKind::SphereSurface;
+        selector.point=fit.center;
+        selector.radius=fit.radius;
+        return true;
+    }
+    if(fit.type==AssimpFittedSurfaceType::Cylindrical) {
+        if(!finite(fit.center)||!normalize(axis)||!std::isfinite(fit.radius)||fit.radius<=0.0) {
+            diagnostic="Cylindrical fit has invalid axis, center or radius.";return false;
+        }
+        selector.kind=AssimpSurfaceSelectorKind::CylinderSide;
+        selector.point=fit.center;
+        selector.direction=axis;
+        selector.radius=fit.radius;
+    } else if(fit.type==AssimpFittedSurfaceType::Conical) {
+        if(!finite(fit.apex)||!std::isfinite(fit.coneHalfAngleRadians)||
+           fit.coneHalfAngleRadians<=0.0||fit.coneHalfAngleRadians>=Pi/2.0) {
+            diagnostic="Conical fit has invalid apex or half-angle.";return false;
+        }
+        axis=sub(fit.center,fit.apex);
+        if(!normalize(axis)){diagnostic="Conical fit has no valid apex direction.";return false;}
+        selector.kind=AssimpSurfaceSelectorKind::ConeSide;
+        selector.point=fit.apex;
+        selector.direction=axis;
+        selector.coneHalfAngleRadians=fit.coneHalfAngleRadians;
+    } else {
+        diagnostic="Freeform patches cannot be converted to analytic selectors.";
+        return false;
+    }
+
+    double axialMin=std::numeric_limits<double>::max();
+    double axialMax=-std::numeric_limits<double>::max();
+    for(const auto triangle:patch.triangleIndices) {
+        if(triangle>=part.indices.size()/3){diagnostic="Patch triangle index is outside source geometry.";return false;}
+        for(std::size_t k=0;k<3;++k) {
+            const auto vi=static_cast<std::size_t>(part.indices[3*triangle+k]);
+            if(vi>=part.vertices.size()/3){diagnostic="Patch vertex index is outside source geometry.";return false;}
+            const V point{{part.vertices[3*vi],part.vertices[3*vi+1],part.vertices[3*vi+2]}};
+            if(!finite(point)){diagnostic="Non-finite vertex in fitted patch.";return false;}
+            const double axial=dot(sub(point,selector.point),selector.direction);
+            axialMin=std::min(axialMin,axial);
+            axialMax=std::max(axialMax,axial);
+        }
+    }
+    selector.axialMin=axialMin;
+    selector.axialMax=axialMax;
+    if(selector.kind==AssimpSurfaceSelectorKind::ConeSide && selector.axialMin<0.0) {
+        diagnostic="Fitted cone axis points away from its patch; apex orientation is inconsistent.";
+        return false;
+    }
+    return true;
+}
