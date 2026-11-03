@@ -275,23 +275,13 @@ bool AssimpSurfaceGeometryFitter::fit(const std::vector<RenderSubMesh>& parts,
         if (points.size()<options.minSampleCount) {
             result.type=patch.kind==AssimpSurfacePatchKind::Planar
                 ? AssimpFittedSurfaceType::Planar : AssimpFittedSurfaceType::Freeform;
-            result.axis=patch.meanNormal;
-            result.maxError=patch.maxPlanarityDeviation;
-            result.rmsError=patch.maxPlanarityDeviation;
-            const double scale=std::max(norm(sub(patch.boundsMax,patch.boundsMin)),1e-30);
-            result.relativeMaxError=result.maxError/scale;
-            result.relativeRmsError=result.rmsError/scale;
+            planeResidualMetrics(points,patch,result);
             results.push_back(result);
             continue;
         }
         if(patch.kind==AssimpSurfacePatchKind::Planar){
-            result.type=AssimpFittedSurfaceType::Planar;result.axis=patch.meanNormal;
-            if(!normalize(result.axis))result.axis={{0,0,1}};
-            std::vector<double> errors;errors.reserve(points.size());
-            for(const auto& p:points)errors.push_back(std::abs(dot(sub(p,patch.centroid),result.axis)));
-            radialMetrics(errors,1.0,result.rmsError,result.maxError,result.relativeRmsError,result.relativeMaxError);
-            const double scale=std::max(norm(sub(patch.boundsMax,patch.boundsMin)),1e-30);
-            result.relativeRmsError=result.rmsError/scale;result.relativeMaxError=result.maxError/scale;
+            result.type=AssimpFittedSurfaceType::Planar;
+            planeResidualMetrics(points,patch,result);
             results.push_back(result);continue;
         }
 
@@ -332,12 +322,7 @@ bool AssimpSurfaceGeometryFitter::fit(const std::vector<RenderSubMesh>& parts,
             result.angularCoverageDegrees=best.coverage;
         }else{
             result.type=AssimpFittedSurfaceType::Freeform;
-            result.axis=patch.meanNormal;
-            result.rmsError=patch.maxPlanarityDeviation;
-            result.maxError=patch.maxPlanarityDeviation;
-            const double scale=std::max(norm(sub(patch.boundsMax,patch.boundsMin)),1e-30);
-            result.relativeRmsError=result.rmsError/scale;
-            result.relativeMaxError=result.maxError/scale;
+            planeResidualMetrics(points,patch,result);
         }
         results.push_back(result);
     }
