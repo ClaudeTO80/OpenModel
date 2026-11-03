@@ -91,6 +91,7 @@ bool AssimpSurfaceMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel,
     const auto model = std::dynamic_pointer_cast<AssimpModel>(cadModel);
     if (!model) {
         outMesh.clear();
+        m_sourceTriangleElementIds.clear();
         m_diagnostics = {"AssimpSurfaceMesher requires an AssimpModel instance."};
         return false;
     }
