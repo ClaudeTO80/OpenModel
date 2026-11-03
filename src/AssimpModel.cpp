@@ -81,7 +81,10 @@ void AssimpModel::readMaterial(const aiScene* scene, const aiMesh* mesh, const s
             float opacity = 1.0f;
             if (mat->Get(AI_MATKEY_OPACITY, opacity) == AI_SUCCESS) color.a = opacity;
         }
-        out.baseColorFactor = {{color.r, color.g, color.b, color.a}};
+        const auto safeColor=[](float component) {
+            return std::isfinite(component) ? std::max(0.0f,std::min(1.0f,component)) : 0.8f;
+        };
+        out.baseColorFactor = {{safeColor(color.r),safeColor(color.g),safeColor(color.b),safeColor(color.a)}};
         float value = 0.0f;
         if (mat->Get(AI_MATKEY_METALLIC_FACTOR, value) == AI_SUCCESS && std::isfinite(value))
             out.metallicFactor = std::max(0.0f, std::min(1.0f, value));
@@ -89,8 +92,12 @@ void AssimpModel::readMaterial(const aiScene* scene, const aiMesh* mesh, const s
         if (mat->Get(AI_MATKEY_ROUGHNESS_FACTOR, value) == AI_SUCCESS && std::isfinite(value))
             out.roughnessFactor = std::max(0.0f, std::min(1.0f, value));
         aiColor3D emissive(0.0f, 0.0f, 0.0f);
-        if (mat->Get(AI_MATKEY_COLOR_EMISSIVE, emissive) == AI_SUCCESS)
-            out.emissiveFactor = {{emissive.r, emissive.g, emissive.b}};
+        if (mat->Get(AI_MATKEY_COLOR_EMISSIVE, emissive) == AI_SUCCESS) {
+            const auto safeEmissive=[](float component) {
+                return std::isfinite(component) ? std::max(0.0f,component) : 0.0f;
+            };
+            out.emissiveFactor = {{safeEmissive(emissive.r),safeEmissive(emissive.g),safeEmissive(emissive.b)}};
+        }
         int twoSided = 0;
         if (mat->Get(AI_MATKEY_TWOSIDED, twoSided) == AI_SUCCESS) out.doubleSided = twoSided != 0;
         aiString alphaMode;
@@ -173,7 +180,8 @@ void AssimpModel::processNode(const aiNode* node, const aiScene* scene, const st
         const aiMatrix4x4 transform = parentTransform * node->mTransformation;
         for (unsigned int i = 0; i < node->mNumMeshes; ++i) {
             const aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
-            m_renderMeshes.push_back(processMesh(mesh, scene, modelDir, transform));
+            auto imported = processMesh(mesh, scene, modelDir, transform);
+            if (!imported.indices.empty()) m_renderMeshes.push_back(std::move(imported));
         }
         for (unsigned int i = 0; i < node->mNumChildren; ++i)
             processNode(node->mChildren[i], scene, modelDir, transform);
