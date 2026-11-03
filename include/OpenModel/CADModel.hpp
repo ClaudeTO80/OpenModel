@@ -64,7 +64,7 @@ enum class CADGroupKind {
 struct CADGroup {
     std::string name;             ///< Name as written in the CAD file.
     CADGroupKind kind = CADGroupKind::Layer;
-    int dimension = 2;            ///< 2 = ids are face ids, 3 = ids are solid ids.
+    int dimension = 2;            ///< 0 = vertex ids, 1 = edge ids, 2 = face ids, 3 = solid ids.
     std::vector<int> ids;         ///< Face ids (dimension 2) or solid ids (dimension 3), sorted, unique.
 };
 
@@ -106,4 +106,10 @@ public:
      * @return Ids of the faces (numbered as RenderSubMesh::sourceFaceId) the point lies on.
      */
     virtual std::vector<int> facesContainingPoint(const std::array<double, 3>& point, double tolerance) const;
+
+    /** @brief CAD edges whose curve passes through a point within tolerance (edge IDs are importer-local). */
+    virtual std::vector<int> edgesContainingPoint(const std::array<double, 3>& point, double tolerance) const;
+
+    /** @brief CAD vertices within tolerance of a point (vertex IDs are importer-local). */
+    virtual std::vector<int> verticesContainingPoint(const std::array<double, 3>& point, double tolerance) const;
 };
