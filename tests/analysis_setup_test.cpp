@@ -170,6 +170,15 @@ void testSelectors() {
     CHECK(n.empty() && contains(err, "Unknown group") && contains(err, "Bottom"));
     NodeSelector all;
     CHECK(selectNodes(hex, all, err).size() == 8);
+
+    MeshData withCadSet = hex;
+    withCadSet.addNodeSet("BladeRoot_NODES", {0, 3, 4, 7, 0, 3});
+    NodeSelector cad;
+    cad.kind = SelectorKind::Group;
+    cad.name = "BladeRoot_NODES";
+    n = selectNodes(withCadSet, cad, err);
+    CHECK(err.empty() && n.size() == 4);
+    CHECK(n[0] == 0 && n[1] == 3 && n[2] == 4 && n[3] == 7);
 }
 
 void testWriterStatic() {
