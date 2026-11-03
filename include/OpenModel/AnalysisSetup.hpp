@@ -95,6 +95,26 @@ struct AnalysisParseResult {
     std::vector<ImportDiagnostic> diagnostics;
 };
 
+
+/** ID-based condition access. Returned pointers remain valid only until the corresponding container is modified. */
+FixedSupport* findSupport(AnalysisModel& model, const std::string& id);
+NodalForce* findForce(AnalysisModel& model, const std::string& id);
+SurfacePressure* findPressure(AnalysisModel& model, const std::string& id);
+const FixedSupport* findSupport(const AnalysisModel& model, const std::string& id);
+const NodalForce* findForce(const AnalysisModel& model, const std::string& id);
+const SurfacePressure* findPressure(const AnalysisModel& model, const std::string& id);
+
+/** Replace a condition while preserving its ID. Returns false and sets error if the ID is absent or invalid. */
+bool updateMaterial(AnalysisModel& model, const std::string& id, const AnalysisMaterial& replacement, std::string& error);
+bool updateSupport(AnalysisModel& model, const std::string& id, const FixedSupport& replacement, std::string& error);
+bool updateForce(AnalysisModel& model, const std::string& id, const NodalForce& replacement, std::string& error);
+bool updatePressure(AnalysisModel& model, const std::string& id, const SurfacePressure& replacement, std::string& error);
+
+/** Remove a support, force or pressure by ID. Material is required and cannot be erased. */
+bool eraseSupport(AnalysisModel& model, const std::string& id);
+bool eraseForce(AnalysisModel& model, const std::string& id);
+bool erasePressure(AnalysisModel& model, const std::string& id);
+
 /** @brief Read a script (see the file comment). Errors carry the line number; all of them are collected. */
 AnalysisParseResult parseAnalysisScript(const std::string& text);
 
