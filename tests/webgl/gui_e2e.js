@@ -107,7 +107,7 @@ const check = (ok, text) => { console.log((ok ? 'PASS ' : 'FAIL ') + text); if (
     await click(label);
     check(fs.existsSync(base + ext) && fs.statSync(base + ext).size > 100, label + ' writes ' + path.basename(base + ext));
   }
-  check(/\\*NSET, NSET=BLADEROOT_NODES/.test(fs.readFileSync(base + '.inp', 'utf8')),
+  check(/\*NSET, NSET=BLADEROOT_NODES/.test(fs.readFileSync(base + '.inp', 'utf8')),
         'CalculiX export preserves the CAD-derived FEM node set');
   const cadGroupDelete = page.locator('#cadGrpList button[data-cad-delete]').first();
   page.once('dialog', (dialog) => dialog.accept());
