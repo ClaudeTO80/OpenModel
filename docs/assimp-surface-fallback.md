@@ -55,3 +55,22 @@ Each matched selector creates a dimension-2 imported MeshGroup, a physical group
 - The cylinder selector tests the triangle vertices. For coarse tessellations or large tolerances, refine the input mesh if selection quality is insufficient.
 - The adapter imports surface triangles only. It does not create volume elements or prove that a shell is closed/manifold.
 - STEP/IGES/BREP should be converted with a CAD-capable tool into a polygonal format supported by the configured Assimp build. Unit metadata may be absent or lost in conversion.
+
+
+## Connected patch analysis
+
+`AssimpSurfacePatchAnalyzer` identifies edge-connected triangle components independently
+inside each imported part. It uses a configurable coordinate weld tolerance to recognize
+coincident edge endpoints without changing the source mesh. Each result reports:
+
+- source part index and triangle indices;
+- total triangle area and area-weighted centroid;
+- area-weighted mean normal;
+- axis-aligned bounds;
+- maximum distance of patch vertices from the centroid/mean-normal plane;
+- number of boundary edges.
+
+This is a mesh-topology analysis, not a CAD surface reconstruction. A component can contain
+curved or folded geometry; in that case the reported planarity deviation is a diagnostic,
+not a proof of a planar analytic surface. The analyzer does not merge patches across
+different Assimp parts and does not alter or weld the imported mesh.
