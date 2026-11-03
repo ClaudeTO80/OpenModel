@@ -1,6 +1,7 @@
 #include <OpenModel/OpenModelProject.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <iterator>
 #include <fstream>
