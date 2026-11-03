@@ -187,6 +187,7 @@ void testWriterStatic() {
     hex.addNodeSet("BladeRoot_NODES", {0, 3, 4, 7});
     auto model = parseOk("material E=210000 nu=0.3 rho=7.85e-9\n"
                          "fix group:Bottom\n"
+                         "fix group:BladeRoot_NODES dof=1,2,3\n"
                          "fix plane:x=0 dof=1\n"
                          "force group:Top F=0,0,-40\n"
                          "pressure group:Right p=2\n"
@@ -208,7 +209,9 @@ void testWriterStatic() {
     CHECK(contains(t, "*SOLID SECTION, ELSET=SOLID, MATERIAL=MATERIAL"));
     CHECK(contains(t, "*NSET, NSET=MG_FIX1\n11, 12, 13, 14\n"));
     CHECK(contains(t, "*NSET, NSET=BLADEROOT_NODES\n11, 14, 15, 18\n"));
-    CHECK(contains(t, "MG_FIX1, 1, 1, 0.") && contains(t, "MG_FIX1, 3, 3, 0.") && contains(t, "MG_FIX2, 1, 1, 0."));
+    CHECK(contains(t, "MG_FIX1, 1, 1, 0.") && contains(t, "MG_FIX1, 3, 3, 0.") &&
+          contains(t, "MG_FIX2, 1, 1, 0.") && contains(t, "MG_FIX3, 1, 1, 0.") &&
+          contains(t, "MG_FIX3, 3, 3, 0."));
     CHECK(!contains(t, "MG_FIX2, 2, 2") && !contains(t, "MG_FIX2, 3, 3"));
     CHECK(contains(t, "*STATIC"));
     CHECK(contains(t, "MG_LOAD1, 3, -10"));              // -40 shared by 4 nodes
