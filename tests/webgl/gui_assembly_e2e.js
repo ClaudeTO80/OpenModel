@@ -138,6 +138,17 @@ function countPixels(png, pred) {
   const tmsg = await message();
   check(/TetGen/.test(tmsg) && /does not transfer CAD components/.test(tmsg), 'TetGen reports that it does not transfer CAD groups');
 
+  // 6. Analysis conditions are listed and can be edited/removed without editing unrelated lines.
+  await page.fill('#anScript', 'material E=210000 nu=0.3\\nfix group:CLAMP dof=1,2,3 value=0,0,0\\nforce group:LOAD F=0,0,-10\\nstep static\\n');
+  await page.waitForFunction(() => document.querySelectorAll('#analysisConditions > li button').length === 8);
+  check(await page.locator('#analysisConditions > li').count() === 4, 'analysis condition list recognises material, support, load and step');
+  page.once('dialog', (dialog) => dialog.accept('fix group:CLAMP dof=1,2 value=0.1,0,0'));
+  await page.locator('#analysisConditions > li').nth(1).getByRole('button', {name:'Modifica'}).click();
+  check((await page.inputValue('#anScript')).includes('fix group:CLAMP dof=1,2 value=0.1,0,0'), 'editing a condition updates its script line');
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.locator('#analysisConditions > li').nth(2).getByRole('button', {name:'Rimuovi'}).click();
+  check(await page.locator('#analysisConditions > li').count() === 3 && !(await page.inputValue('#anScript')).includes('force group:LOAD'), 'removing a condition leaves unrelated conditions intact');
+
   check(problems.length === 0, 'no page errors' + (problems.length ? ': ' + problems[0] : ''));
   await browser.close();
   console.log(failures ? failures + ' check(s) failed' : 'all checks passed');
