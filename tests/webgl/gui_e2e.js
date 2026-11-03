@@ -40,6 +40,32 @@ const check = (ok, text) => { console.log((ok ? 'PASS ' : 'FAIL ') + text); if (
   check(/importato/.test(await message()), 'CAD import reports success');
   const surf = await viewerInfo();
   check(surf && surf.tris > 0 && /Triangle3/.test(surf.types), 'viewer shows the CAD surface (' + (surf && surf.tris) + ' triangles)');
+
+  // CAD surface picking must return the original OCC face id, not a generated triangle id.
+  await page.selectOption('#selMode', 'face');
+  await page.fill('#selAngle', '0'); await page.dispatchEvent('#selAngle', 'change');
+  const cadHit = await page.evaluate(() => {
+    const V = document.getElementById('viewer').contentWindow.OpenModelViewer;
+    const m = V.state.model;
+    for (let t = 0; t < m.meta.counts.triangles; ++t) {
+      const xy = [0, 1, 2].map((k) => V.pick.project(m.vertexNodeId[m.triIndices[3 * t + k]]));
+      if (xy.some((p) => !p)) continue;
+      const x = xy.reduce((a, p) => a + p[0], 0) / 3, y = xy.reduce((a, p) => a + p[1], 0) / 3;
+      if (V.pick.at(x, y).tri >= 0) return [x, y];
+    }
+    return null;
+  });
+  if (cadHit) {
+    await page.mouse.click(cadHit[0], cadHit[1]);
+    await page.waitForTimeout(300);
+  }
+  const cadSelection = await page.evaluate(() => document.getElementById('viewer').contentWindow.OpenModelViewer.pick.get());
+  check(cadHit && cadSelection.faces.length > 0 &&
+        cadSelection.faces.every((face) => Number.isInteger(face.cadFaceId) && face.cadFaceId >= 0),
+        'CAD face picking returns sourceFaceId values (' + JSON.stringify(cadSelection.faces.slice(0, 3)) + ')');
+  check(/Facce CAD selezionate:/.test(await page.textContent('#cadFaceInfo')),
+        'the workbench displays the selected CAD face identifiers');
+  await page.selectOption('#selMode', 'off');
   await shot('1_import.png');
 
   // 2. Gmsh volume mesh must change the viewer content to tetrahedra.
