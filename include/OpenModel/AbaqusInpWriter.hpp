@@ -30,8 +30,9 @@ struct AbaqusWriteOptions {
 };
 
 // Writes the MeshData model to the Abaqus/CalculiX .inp keyword format.
-// ElementBlock names are exported as *ELSET names. Node IDs and element IDs
-// are preserved; connectivity is translated from internal NodeIndex to NodeId.
+// ElementBlock names and physical/generic mesh-group memberships are exported as
+// *ELSETs; generic group node memberships become <name>_NODES *NSETs. Node IDs
+// and element IDs are preserved; connectivity is translated from NodeIndex to NodeId.
 class AbaqusInpWriter {
 public:
     static AbaqusWriteResult writeFile(const std::string& path,
