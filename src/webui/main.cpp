@@ -710,10 +710,8 @@ void generateVolume(webui_event_t* e) {
         group.ids = userGroup.faceIds;
         options.additionalFaceGroups.push_back(std::move(group));
     }
-    if (!g.cadFaceGroups.empty() && mesherId != "gmsh") {
-        reply(e, false, "I gruppi di facce CAD personalizzati richiedono attualmente Gmsh per il mapping geometrico. Scegli Gmsh oppure rimuovi i gruppi prima di usare un altro meshatore.");
-        return;
-    }
+    // CAD face groups are transferred through the backend-independent
+    // MeshGroupRegistry. Each adapter must provide a complete mapping.
     options.linearDeflection = g.linearDeflection;
     options.angularDeflection = g.angularDeflection;
 
@@ -745,7 +743,7 @@ void generateVolume(webui_event_t* e) {
 #ifdef OPENMODEL_HAS_NETGEN
         NetgenMesher mesher;
         built = mesher.buildMesh(g.cad, options, candidate);
-        if (!built) failure = "Netgen non ha prodotto una mesh. Dettagli nel terminale.";
+        if (!built) failure = mesher.lastError();
         label = "Netgen";
 #endif
     }
@@ -754,13 +752,11 @@ void generateVolume(webui_event_t* e) {
         reply(e, false, "Generazione volumetrica fallita: " + failure); return;
     }
 
-    // Convert each mapped CAD face physical group into a deduplicated FEM node set.
-    // The mapper must have covered every requested CAD face; never silently apply a
-    // support to only a subset of the user's selected geometry.
+    // Convert the backend-independent CAD face membership into solver node
+    // sets. Physical groups remain an optional backend/export representation.
     for (const auto& userGroup : g.cadFaceGroups) {
-        const auto physical = std::find_if(candidate.getPhysicalGroups().begin(), candidate.getPhysicalGroups().end(),
-            [&](const MeshPhysicalGroup& group) { return group.dimension == 2 && group.name == userGroup.name; });
-        if (physical == candidate.getPhysicalGroups().end()) {
+        const auto* mapped = candidate.getMeshGroupRegistry().find(userGroup.name);
+        if (!mapped || mapped->dimension != 2 || mapped->elementIds.empty()) {
             std::string details;
             for (const auto& note : notes)
                 if (note.find(userGroup.name) != std::string::npos) details += "\n" + note;
@@ -768,17 +764,7 @@ void generateVolume(webui_event_t* e) {
                 "». La mesh non è stata accettata per evitare vincoli parziali." + details);
             return;
         }
-        const std::unordered_set<ElementId> boundaryElements(physical->elementIds.begin(), physical->elementIds.end());
-        std::vector<NodeIndex> nodeIndices;
-        for (const auto& block : candidate.getElementBlocks()) {
-            if (elementDimension(block.type) != 2) continue;
-            for (std::size_t element = 0; element < block.ids.size(); ++element) {
-                if (!boundaryElements.count(block.ids[element])) continue;
-                const auto offset = element * block.nodesPerElement;
-                for (std::size_t local = 0; local < block.nodesPerElement; ++local)
-                    nodeIndices.push_back(block.connectivity[offset + local]);
-            }
-        }
+        auto nodeIndices = mapped->nodeIndices;
         std::sort(nodeIndices.begin(), nodeIndices.end());
         nodeIndices.erase(std::unique(nodeIndices.begin(), nodeIndices.end()), nodeIndices.end());
         if (nodeIndices.empty()) {
