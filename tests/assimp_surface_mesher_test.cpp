@@ -1,6 +1,7 @@
 #include <OpenModel/AssimpSurfaceMesher.hpp>
 #include <OpenModel/AssimpSurfacePatchAnalyzer.hpp>
 #include <OpenModel/AssimpPatchGroupBuilder.hpp>
+#include <OpenModel/AssimpSurfaceGeometryFitter.hpp>
 #include <OpenModel/GltfWriter.hpp>
 
 #include <algorithm>
@@ -13,6 +14,82 @@
 namespace {
 void require(bool value, const std::string& message) {
     if (!value) throw std::runtime_error(message);
+}
+
+RenderSubMesh makeCylinder(double radius, double height, unsigned int segments) {
+    RenderSubMesh part;
+    part.name = "Cylinder";
+    for (unsigned int ring=0; ring<2; ++ring)
+        for (unsigned int i=0; i<segments; ++i) {
+            const double angle=2.0*3.14159265358979323846*i/segments;
+            part.vertices.insert(part.vertices.end(), {
+                static_cast<float>(radius*std::cos(angle)),
+                static_cast<float>(radius*std::sin(angle)),
+                static_cast<float>(ring*height)});
+        }
+    for (unsigned int i=0; i<segments; ++i) {
+        const unsigned int j=(i+1)%segments;
+        const unsigned int bi=i, bj=j, ti=segments+i, tj=segments+j;
+        part.indices.insert(part.indices.end(), {bi,bj,tj, bi,tj,ti});
+    }
+    return part;
+}
+
+RenderSubMesh makeCone(double bottomRadius, double topRadius, double height,
+                       unsigned int segments) {
+    RenderSubMesh part;
+    part.name = "ConeFrustum";
+    for (unsigned int ring=0; ring<2; ++ring) {
+        const double radius=ring ? topRadius : bottomRadius;
+        for (unsigned int i=0; i<segments; ++i) {
+            const double angle=2.0*3.14159265358979323846*i/segments;
+            part.vertices.insert(part.vertices.end(), {
+                static_cast<float>(radius*std::cos(angle)),
+                static_cast<float>(radius*std::sin(angle)),
+                static_cast<float>(ring*height)});
+        }
+    }
+    for (unsigned int i=0; i<segments; ++i) {
+        const unsigned int j=(i+1)%segments;
+        const unsigned int bi=i, bj=j, ti=segments+i, tj=segments+j;
+        part.indices.insert(part.indices.end(), {bi,bj,tj, bi,tj,ti});
+    }
+    return part;
+}
+
+RenderSubMesh makeSphere(double radius, unsigned int latitudeSegments,
+                         unsigned int longitudeSegments) {
+    RenderSubMesh part;
+    part.name = "Sphere";
+    const unsigned int top=0;
+    part.vertices.insert(part.vertices.end(), {0.0f,0.0f,static_cast<float>(radius)});
+    std::vector<std::vector<unsigned int>> rings;
+    for (unsigned int lat=1; lat<latitudeSegments; ++lat) {
+        const double polar=3.14159265358979323846*lat/latitudeSegments;
+        std::vector<unsigned int> ring;
+        for (unsigned int lon=0; lon<longitudeSegments; ++lon) {
+            const double azimuth=2.0*3.14159265358979323846*lon/longitudeSegments;
+            ring.push_back(static_cast<unsigned int>(part.vertices.size()/3));
+            part.vertices.insert(part.vertices.end(), {
+                static_cast<float>(radius*std::sin(polar)*std::cos(azimuth)),
+                static_cast<float>(radius*std::sin(polar)*std::sin(azimuth)),
+                static_cast<float>(radius*std::cos(polar))});
+        }
+        rings.push_back(std::move(ring));
+    }
+    const unsigned int bottom=static_cast<unsigned int>(part.vertices.size()/3);
+    part.vertices.insert(part.vertices.end(), {0.0f,0.0f,static_cast<float>(-radius)});
+    for (unsigned int lon=0; lon<longitudeSegments; ++lon) {
+        const unsigned int next=(lon+1)%longitudeSegments;
+        part.indices.insert(part.indices.end(), {top,rings.front()[lon],rings.front()[next]});
+        for (std::size_t lat=0; lat+1<rings.size(); ++lat) {
+            const unsigned int a=rings[lat][lon], b=rings[lat][next];
+            const unsigned int c=rings[lat+1][next], d=rings[lat+1][lon];
+            part.indices.insert(part.indices.end(), {a,b,c, a,c,d});
+        }
+        part.indices.insert(part.indices.end(), {bottom,rings.back()[next],rings.back()[lon]});
+    }
+    return part;
 }
 }
 
@@ -181,6 +258,48 @@ int main() {
                 "Inconsistent source winding incorrectly changed planar classification.");
         require(weldedPatches.front().normalCoherence > 0.999,
                 "Winding-independent normal coherence is incorrect.");
+
+        // Fit analytic surfaces from tessellated, mesh-only patches.
+        AssimpSurfaceFitOptions fitOptions;
+        std::vector<AssimpSurfaceFit> fits;
+        std::vector<std::string> fitDiagnostics;
+        const auto cylinderPart = makeCylinder(2.0, 3.0, 24);
+        std::vector<AssimpSurfacePatch> cylinderPatches;
+        require(AssimpSurfacePatchAnalyzer::analyze({cylinderPart}, 1e-6,
+                    cylinderPatches, fitDiagnostics, 30.0) && cylinderPatches.size() == 1,
+                "Cylinder fixture patch analysis failed.");
+        require(AssimpSurfaceGeometryFitter::fit({cylinderPart}, cylinderPatches,
+                    fitOptions, fits, fitDiagnostics),
+                "Cylinder geometry fitting failed.");
+        require(fits.size() == 1 && fits.front().type == AssimpFittedSurfaceType::Cylindrical,
+                "Analytic cylinder was not recognized.");
+        require(std::abs(fits.front().radius - 2.0) < 1e-3,
+                "Fitted cylinder radius is inaccurate.");
+
+        const auto spherePart = makeSphere(1.75, 8, 24);
+        std::vector<AssimpSurfacePatch> spherePatches;
+        require(AssimpSurfacePatchAnalyzer::analyze({spherePart}, 1e-6,
+                    spherePatches, fitDiagnostics, 45.0) && spherePatches.size() == 1,
+                "Sphere fixture patch analysis failed.");
+        require(AssimpSurfaceGeometryFitter::fit({spherePart}, spherePatches,
+                    fitOptions, fits, fitDiagnostics),
+                "Sphere geometry fitting failed.");
+        require(fits.size() == 1 && fits.front().type == AssimpFittedSurfaceType::Spherical,
+                "Analytic sphere was not recognized.");
+        require(std::abs(fits.front().radius - 1.75) < 1e-3,
+                "Fitted sphere radius is inaccurate.");
+
+        const auto conePart = makeCone(2.0, 0.75, 3.0, 24);
+        std::vector<AssimpSurfacePatch> conePatches;
+        require(AssimpSurfacePatchAnalyzer::analyze({conePart}, 1e-6,
+                    conePatches, fitDiagnostics, 30.0) && conePatches.size() == 1,
+                "Cone fixture patch analysis failed.");
+        require(AssimpSurfaceGeometryFitter::fit({conePart}, conePatches,
+                    fitOptions, fits, fitDiagnostics),
+                "Cone geometry fitting failed.");
+        require(fits.size() == 1 && fits.front().type == AssimpFittedSurfaceType::Conical,
+                "Analytic cone frustum was not recognized.");
+
 
         const auto connectedPatchIndex = static_cast<std::size_t>(
             std::distance(patches.begin(), connected));
