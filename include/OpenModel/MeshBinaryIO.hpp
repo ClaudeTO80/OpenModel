@@ -5,7 +5,7 @@
 #include <filesystem>
 #include <stdexcept>
 
-// MGMB v1 binary persistence for MeshData. The format is little-endian,
+// MGMB v1.1 binary persistence for MeshData (reads v1.0 files). The format is little-endian,
 // sectioned, uncompressed, and independent of compiler ABI/layout.
 class MeshBinaryIO {
 public:
