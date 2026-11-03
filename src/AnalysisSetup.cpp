@@ -301,6 +301,56 @@ std::string serializeAnalysisScript(const AnalysisModel& model) {
     return out.str();
 }
 
+
+namespace {
+bool validConditionId(const std::string& id) {
+    return !id.empty() && std::all_of(id.begin(), id.end(), [](unsigned char c) {
+        return std::isalnum(c) || c == '_' || c == '-' || c == '.';
+    });
+}
+template<class T> T* findCondition(std::vector<T>& values, const std::string& id) {
+    const auto it = std::find_if(values.begin(), values.end(), [&](const T& value) { return value.id == id; });
+    return it == values.end() ? nullptr : &*it;
+}
+template<class T> const T* findCondition(const std::vector<T>& values, const std::string& id) {
+    const auto it = std::find_if(values.begin(), values.end(), [&](const T& value) { return value.id == id; });
+    return it == values.end() ? nullptr : &*it;
+}
+template<class T> bool eraseCondition(std::vector<T>& values, const std::string& id) {
+    const auto it = std::find_if(values.begin(), values.end(), [&](const T& value) { return value.id == id; });
+    if (it == values.end()) return false;
+    values.erase(it);
+    return true;
+}
+template<class T> bool replaceCondition(std::vector<T>& values, const std::string& id, const T& replacement, std::string& error) {
+    auto* current = findCondition(values, id);
+    if (!current) { error = "Condition not found: " + id; return false; }
+    if (!validConditionId(id)) { error = "Invalid condition ID: " + id; return false; }
+    T updated = replacement;
+    updated.id = id;
+    *current = std::move(updated);
+    error.clear();
+    return true;
+}
+}
+FixedSupport* findSupport(AnalysisModel& m, const std::string& id) { return findCondition(m.supports, id); }
+NodalForce* findForce(AnalysisModel& m, const std::string& id) { return findCondition(m.forces, id); }
+SurfacePressure* findPressure(AnalysisModel& m, const std::string& id) { return findCondition(m.pressures, id); }
+const FixedSupport* findSupport(const AnalysisModel& m, const std::string& id) { return findCondition(m.supports, id); }
+const NodalForce* findForce(const AnalysisModel& m, const std::string& id) { return findCondition(m.forces, id); }
+const SurfacePressure* findPressure(const AnalysisModel& m, const std::string& id) { return findCondition(m.pressures, id); }
+bool updateMaterial(AnalysisModel& m, const std::string& id, const AnalysisMaterial& r, std::string& e) {
+    if (m.material.id != id) { e = "Material not found: " + id; return false; }
+    if (!validConditionId(id)) { e = "Invalid condition ID: " + id; return false; }
+    m.material = r; m.material.id = id; e.clear(); return true;
+}
+bool updateSupport(AnalysisModel& m, const std::string& id, const FixedSupport& r, std::string& e) { return replaceCondition(m.supports, id, r, e); }
+bool updateForce(AnalysisModel& m, const std::string& id, const NodalForce& r, std::string& e) { return replaceCondition(m.forces, id, r, e); }
+bool updatePressure(AnalysisModel& m, const std::string& id, const SurfacePressure& r, std::string& e) { return replaceCondition(m.pressures, id, r, e); }
+bool eraseSupport(AnalysisModel& m, const std::string& id) { return eraseCondition(m.supports, id); }
+bool eraseForce(AnalysisModel& m, const std::string& id) { return eraseCondition(m.forces, id); }
+bool erasePressure(AnalysisModel& m, const std::string& id) { return eraseCondition(m.pressures, id); }
+
 std::string exampleAnalysisScript() {
     return "# Cantilever: clamped at x = 0, load at x = 10 (units: mm, N, tonne, s)\n"
            "material E=210000 nu=0.3 rho=7.85e-9\n"
