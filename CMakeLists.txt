@@ -366,7 +366,8 @@ if(OPENMODEL_BUILD_ASSIMP_BACKEND)
     add_library(openmodel_assimp STATIC
         src/AssimpModel.cpp
         src/AssimpSurfaceMesher.cpp
-        src/AssimpSurfacePatchAnalyzer.cpp)
+        src/AssimpSurfacePatchAnalyzer.cpp
+        src/AssimpPatchGroupBuilder.cpp)
     target_link_libraries(openmodel_assimp PUBLIC OpenModel::Core)
     if(TARGET assimp::assimp)
         target_link_libraries(openmodel_assimp PUBLIC assimp::assimp)
