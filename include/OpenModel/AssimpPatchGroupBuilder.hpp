@@ -39,6 +39,7 @@ class AssimpPatchGroupBuilder {
 public:
     static bool apply(const std::vector<RenderSubMesh>& parts,
                       const std::vector<AssimpSurfacePatch>& patches,
+                      const std::vector<std::vector<ElementId>>& sourceTriangleElementIds,
                       const std::vector<AssimpPatchGroupDefinition>& definitions,
                       MeshData& mesh,
                       std::vector<std::string>& diagnostics);
