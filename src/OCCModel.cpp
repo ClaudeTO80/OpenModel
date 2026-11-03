@@ -406,7 +406,7 @@ void OCCModel::indexShape() {
     m_faceBoxes.clear();
     if (m_rawShape.IsNull()) return;
     TopExp::MapShapes(m_rawShape, TopAbs_SOLID, m_solidMap);
-    TopExp::MapShapes(m_rawShape, TopAbs_FACE, m_faceMap);
+    TopExp::MapShapes(m_rawShape, TopAbs_FACE, m_faceMap);\n    TopExp::MapShapes(m_rawShape, TopAbs_EDGE, m_edgeMap);\n    TopExp::MapShapes(m_rawShape, TopAbs_VERTEX, m_vertexMap);
     // Geometry-based boxes (no triangulation) so they stay conservative supersets of the true extent.
     for (Standard_Integer i = 1; i <= m_solidMap.Extent(); ++i) {
         Bnd_Box box;
@@ -443,6 +443,35 @@ std::vector<int> OCCModel::facesContainingPoint(const std::array<double, 3>& poi
         if (box.IsOut(p)) continue;
         BRepExtrema_DistShapeShape distance(vertex, m_faceMap(i));
         if (distance.IsDone() && distance.Value() <= tolerance) result.push_back(i - 1);
+    }
+    return result;
+}
+
+std::vector<int> OCCModel::edgesContainingPoint(const std::array<double, 3>& point, double tolerance) const {
+    std::vector<int> result;
+    if (!std::isfinite(tolerance) || tolerance < 0.0) return result;
+    const gp_Pnt p(point[0], point[1], point[2]);
+    const TopoDS_Vertex query = BRepBuilderAPI_MakeVertex(p);
+    for (Standard_Integer i = 1; i <= m_edgeMap.Extent(); ++i) {
+        Bnd_Box box = m_edgeBoxes[static_cast<std::size_t>(i - 1)];
+        box.Enlarge(tolerance);
+        if (box.IsOut(p)) continue;
+        BRepExtrema_DistShapeShape distance(query, m_edgeMap(i));
+        if (distance.IsDone() && distance.Value() <= tolerance) result.push_back(i - 1);
+    }
+    return result;
+}
+
+std::vector<int> OCCModel::verticesContainingPoint(const std::array<double, 3>& point, double tolerance) const {
+    std::vector<int> result;
+    if (!std::isfinite(tolerance) || tolerance < 0.0) return result;
+    const gp_Pnt p(point[0], point[1], point[2]);
+    for (Standard_Integer i = 1; i <= m_vertexMap.Extent(); ++i) {
+        Bnd_Box box = m_vertexBoxes[static_cast<std::size_t>(i - 1)];
+        box.Enlarge(tolerance);
+        if (box.IsOut(p)) continue;
+        const gp_Pnt vertexPoint = BRep_Tool::Pnt(TopoDS::Vertex(m_vertexMap(i)));
+        if (vertexPoint.Distance(p) <= tolerance) result.push_back(i - 1);
     }
     return result;
 }
