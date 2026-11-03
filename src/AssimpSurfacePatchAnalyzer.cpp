@@ -6,6 +6,7 @@
 #include <limits>
 #include <map>
 #include <numeric>
+#include <stdexcept>
 #include <sstream>
 #include <tuple>
 
@@ -26,7 +27,7 @@ Q quantize(const V& p,double t){
     return {static_cast<std::int64_t>(std::llround(p[0]/t)),static_cast<std::int64_t>(std::llround(p[1]/t)),static_cast<std::int64_t>(std::llround(p[2]/t))};
 }
 E edge(Q a,Q b){if(b<a)std::swap(a,b);return {a,b};}
-struct Tri { V p[3]; V normal; double area; };
+struct Tri { V p[3]; V normal; double area; std::size_t sourceIndex; };
 struct DSU {
     std::vector<std::size_t> p;
     explicit DSU(std::size_t n):p(n){std::iota(p.begin(),p.end(),0);}
@@ -64,7 +65,7 @@ bool AssimpSurfacePatchAnalyzer::analyze(const std::vector<RenderSubMesh>& parts
                 const V n=cross(sub(tr.p[1],tr.p[0]),sub(tr.p[2],tr.p[0]));
                 const double twice=length(n);
                 if(!std::isfinite(twice)||twice<=1e-18) continue;
-                tr.area=0.5*twice; tr.normal=mul(n,1.0/twice);
+                tr.area=0.5*twice; tr.normal=mul(n,1.0/twice); tr.sourceIndex=ti;
                 const std::size_t validIndex=tris.size();
                 tris.push_back(tr); keys.push_back(q);
                 for(int k=0;k<3;++k) edgeOwners[edge(q[k],q[(k+1)%3])].push_back(validIndex);
@@ -83,7 +84,7 @@ bool AssimpSurfacePatchAnalyzer::analyze(const std::vector<RenderSubMesh>& parts
                 V weighted{{0,0,0}}, normalSum{{0,0,0}};
                 std::map<E,std::size_t> localEdges;
                 for(auto ti:component.second){
-                    const auto& tr=tris[ti]; patch.triangleIndices.push_back(ti);
+                    const auto& tr=tris[ti]; patch.triangleIndices.push_back(tr.sourceIndex);
                     patch.area+=tr.area;
                     V c=mul(add(add(tr.p[0],tr.p[1]),tr.p[2]),1.0/3.0);
                     weighted=add(weighted,mul(c,tr.area));
@@ -98,9 +99,13 @@ bool AssimpSurfacePatchAnalyzer::analyze(const std::vector<RenderSubMesh>& parts
                 const double nl=length(normalSum);
                 if(nl>1e-14) patch.meanNormal=mul(normalSum,1.0/nl);
                 for(const auto& e:localEdges) if(e.second==1) ++patch.boundaryEdgeCount;
-                for(auto ti:component.second) for(const auto& p:tris[ti].p)
-                    patch.maxPlanarityDeviation=std::max(patch.maxPlanarityDeviation,
-                        std::abs(dot(sub(p,patch.centroid),patch.meanNormal)));
+                if(nl>1e-14) {
+                    for(auto ti:component.second) for(const auto& p:tris[ti].p)
+                        patch.maxPlanarityDeviation=std::max(patch.maxPlanarityDeviation,
+                            std::abs(dot(sub(p,patch.centroid),patch.meanNormal)));
+                } else {
+                    patch.maxPlanarityDeviation=std::numeric_limits<double>::infinity();
+                }
                 patches.push_back(std::move(patch));
             }
         }
