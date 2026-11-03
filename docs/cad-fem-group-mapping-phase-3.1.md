@@ -51,11 +51,26 @@ represented both in the generic registry and, where required, as a physical grou
 
 ## Current scope and known limitation
 
-The registry is currently an in-memory `MeshData` facility. MGMB binary persistence
-has not yet been extended to store this new registry, so a write/read round trip
-does not preserve these associations yet. That is the next required step before
-the registry can be considered durable across saved mesh files.
+MGMB persistence has been extended in format version 1.1 with a dedicated mesh-group
+section. The reader remains backward-compatible with version 1.0 files: those files
+load with an empty generic registry, while new files preserve group source, CAD entity
+IDs, element memberships and node memberships. The section is length-bounded and
+validated while reading.
 
 TetGen and Netgen adapters are not yet connected to this registry. They should
 populate the same generic contract from their own boundary/subdomain metadata;
 their marker systems must not be treated as the canonical membership model.
+
+
+## MGMB 1.1 persistence (Phase 3.2)
+
+The MGMB minor version is now 1.1. The six sections are node IDs, coordinates,
+element blocks, node sets, physical groups and generic mesh groups. The new section
+stores each group's name, topological dimension, source kind, source CAD entity IDs,
+element IDs and node indices. Values are encoded explicitly in little-endian form;
+no compiler struct layout is written to disk.
+
+The reader accepts legacy MGMB 1.0 files with five sections and initializes their
+generic registry as empty. New writes always produce 1.1. Corrupt counts, invalid
+source values, truncated lists, invalid node indices and invalid group references are
+rejected through the normal structural validation path.
