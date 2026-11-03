@@ -1314,6 +1314,57 @@ void createCADFaceGroupHandler(webui_event_t* e) {
         std::to_string(group.faceIds.size()) + " facce). Sidecar: " + cadGroupsPath(g.source).string());
 }
 
+void updateCADFaceGroupHandler(webui_event_t* e) {
+    StateLock lock;
+    if (!lock.ok()) { replyBusy(e); return; }
+    if (!g.cad || g.source.empty()) {
+        replyCADFaceGroups(e, false, "Importa prima il modello CAD.");
+        return;
+    }
+    const std::string name = getStringArg(e, 0);
+    auto candidate = g.cadFaceGroups;
+    auto found = std::find_if(candidate.begin(), candidate.end(),
+        [&](const auto& group) { return group.name == name; });
+    if (found == candidate.end()) {
+        replyCADFaceGroups(e, false, "Gruppo CAD non trovato: " + name);
+        return;
+    }
+    std::set<int> available;
+    for (const auto& part : g.surface.parts) if (part.sourceFaceId >= 0) available.insert(part.sourceFaceId);
+    std::set<int> selected;
+    std::stringstream input(getStringArg(e, 1));
+    std::string token;
+    while (std::getline(input, token, ',')) {
+        if (token.empty()) continue;
+        try {
+            std::size_t used = 0;
+            const long value = std::stol(token, &used);
+            if (used != token.size() || value < 0 || value > std::numeric_limits<int>::max() ||
+                available.count(static_cast<int>(value)) == 0) {
+                replyCADFaceGroups(e, false, "La selezione contiene un ID faccia non valido per il CAD corrente.");
+                return;
+            }
+            selected.insert(static_cast<int>(value));
+        } catch (...) {
+            replyCADFaceGroups(e, false, "La selezione degli ID faccia non è valida.");
+            return;
+        }
+    }
+    if (selected.empty()) {
+        replyCADFaceGroups(e, false, "Seleziona almeno una faccia CAD prima di aggiornare il gruppo.");
+        return;
+    }
+    found->faceIds.assign(selected.begin(), selected.end());
+    std::string error;
+    if (!saveCADFaceGroups(g.source, candidate, error)) {
+        replyCADFaceGroups(e, false, "Aggiornamento non salvato: " + error);
+        return;
+    }
+    g.cadFaceGroups = std::move(candidate);
+    replyCADFaceGroups(e, true, "Gruppo CAD «" + name + "» aggiornato: " +
+        std::to_string(selected.size()) + " facce.");
+}
+
 void deleteCADFaceGroupHandler(webui_event_t* e) {
     StateLock lock;
     if (!lock.ok()) { replyBusy(e); return; }
@@ -1496,6 +1547,7 @@ int main() {
     webui_bind(window, "openmodel_show_group", showGroupHandler);
     webui_bind(window, "openmodel_list_cad_face_groups", listCADFaceGroupsHandler);
     webui_bind(window, "openmodel_create_cad_face_group", createCADFaceGroupHandler);
+    webui_bind(window, "openmodel_update_cad_face_group", updateCADFaceGroupHandler);
     webui_bind(window, "openmodel_delete_cad_face_group", deleteCADFaceGroupHandler);
     webui_bind(window, "openmodel_write_input", writeInput);
     webui_bind(window, "openmodel_run_solver", runSolver);
