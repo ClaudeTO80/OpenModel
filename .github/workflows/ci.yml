@@ -104,6 +104,12 @@ jobs:
       - name: Run Assimp tests
         run: ctest --test-dir build-assimp --output-on-failure --parallel 2 -R '^assimp_'
 
+      - name: Install and consume Assimp package
+        run: |
+          cmake --install build-assimp --prefix "$PWD/install-assimp"
+          cmake -S examples/cmake-assimp-consumer -B consumer-assimp -DCMAKE_PREFIX_PATH="$PWD/install-assimp"
+          cmake --build consumer-assimp --parallel 4
+
   windows-mingw:
     name: Core, CLI and tests (Windows ${{ matrix.msystem }}, ${{ matrix.build_type }})
     runs-on: windows-latest
