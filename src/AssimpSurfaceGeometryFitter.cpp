@@ -152,7 +152,8 @@ bool coneFit(const std::vector<V>& points,const V& centroid,const V& axis,Candid
         angles.push_back(std::atan2(dot(radial,v),dot(radial,u)));
     }
     const double n=static_cast<double>(zr.size()),den=n*sumZZ-sumZ*sumZ;
-    if(std::abs(den)<1e-18||zMax-zMin<=1e-12)return false;
+    if(std::abs(den)<=std::numeric_limits<double>::epsilon()*
+        std::max(std::abs(n*sumZZ),std::abs(sumZ*sumZ))*64.0 || zMax-zMin<=1e-12)return false;
     const double slope=(n*sumZR-sumZ*sumR)/den;
     const double intercept=(sumR-slope*sumZ)/n;
     if(!std::isfinite(slope)||!std::isfinite(intercept)||intercept<=0.0)return false;
@@ -195,7 +196,8 @@ bool AssimpSurfaceGeometryFitter::fit(const std::vector<RenderSubMesh>& parts,
        !std::isfinite(options.maxRelativeMaxError)||options.maxRelativeMaxError<0||
        !std::isfinite(options.minAngularCoverageDegrees)||options.minAngularCoverageDegrees<0||
        options.minAngularCoverageDegrees>360||
-       !std::isfinite(options.minAxisExtentRatio)||options.minAxisExtentRatio<0){
+       !std::isfinite(options.minAxisExtentRatio)||options.minAxisExtentRatio<0||
+       options.minSampleCount<8){
         diagnostics.push_back("Invalid Assimp analytic surface fitting options.");return false;
     }
     for(std::size_t patchIndex=0;patchIndex<patches.size();++patchIndex){
@@ -229,6 +231,18 @@ bool AssimpSurfaceGeometryFitter::fit(const std::vector<RenderSubMesh>& parts,
 
         AssimpSurfaceFit result;result.patchIndex=patchIndex;result.center=centroid;
         result.sampleCount=points.size();
+        if (points.size()<options.minSampleCount) {
+            result.type=patch.kind==AssimpSurfacePatchKind::Planar
+                ? AssimpFittedSurfaceType::Planar : AssimpFittedSurfaceType::Freeform;
+            result.axis=patch.meanNormal;
+            result.maxError=patch.maxPlanarityDeviation;
+            result.rmsError=patch.maxPlanarityDeviation;
+            const double scale=std::max(norm(sub(patch.boundsMax,patch.boundsMin)),1e-30);
+            result.relativeMaxError=result.maxError/scale;
+            result.relativeRmsError=result.rmsError/scale;
+            results.push_back(result);
+            continue;
+        }
         if(patch.kind==AssimpSurfacePatchKind::Planar){
             result.type=AssimpFittedSurfaceType::Planar;result.axis=patch.meanNormal;
             if(!normalize(result.axis))result.axis={{0,0,1}};
