@@ -28,6 +28,8 @@ struct AssimpSurfaceFit {
     AssimpFittedSurfaceType type = AssimpFittedSurfaceType::Freeform;
     std::array<double, 3> center{{0.0, 0.0, 0.0}};
     std::array<double, 3> axis{{0.0, 0.0, 1.0}};
+    std::array<double, 3> apex{{0.0, 0.0, 0.0}}; // Cone apex; unused for other types
+    double coneSlope = 0.0; // Signed dr/dz along axis
     double radius = 0.0;
     double coneHalfAngleRadians = 0.0;
     double rmsError = 0.0;
