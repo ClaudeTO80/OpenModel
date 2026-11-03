@@ -52,3 +52,19 @@ core test suite.
 ## Phase 4.1 — Prescribed translations
 
 The `fix` command accepts `value=ux,uy,uz` in model length units. Values default to zero, preserving existing scripts. Only the degrees of freedom selected by `dof` are emitted. CalculiX/Abaqus and Code_Aster writers consume the same support values. Rotational DOFs, local coordinate systems and time-dependent amplitudes are outside this increment.
+
+
+## Phase 4.1 — Prescribed translations and support validation
+
+The analysis script accepts `value=ux,uy,uz` on `fix` commands. Values
+are in model length units; omitted values remain zero for compatibility.
+Only selected translational degrees of freedom are imposed.
+
+Both CalculiX/Abaqus and Code_Aster exporters reject non-finite active
+prescriptions and conflicting values assigned to the same node and degree of
+freedom by overlapping support selections. Equal overlapping prescriptions
+are accepted. Diagnostics identify both support declarations, the mesh node
+ID, and the conflicting degree of freedom.
+
+Rotational DOFs, local coordinate systems, time-dependent amplitudes and GUI
+symbol editing remain outside this increment.
