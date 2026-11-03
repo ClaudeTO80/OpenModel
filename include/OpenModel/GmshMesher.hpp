@@ -21,7 +21,18 @@
 #include <utility>
 #include <vector>
 
-// Gmsh owns process-global state. Calls made through this adapter are serialized.
+/** Per-Gmsh-surface audit record for CAD Face mapping. */
+struct CADFaceMappingRecord {
+    int gmshSurfaceTag = -1;
+    std::size_t elementCount = 0;
+    std::size_t sampledElementCount = 0;
+    std::size_t matchedSampleCount = 0;
+    double matchRatio = 0.0;
+    std::vector<int> cadFaceIds;
+    bool ambiguous = false;
+};
+
+/** Gmsh owns process-global state. Calls made through this adapter are serialized.
 // This adapter owns the Gmsh initialize/finalize lifecycle; do not call it while
 // another component independently manages a Gmsh session.
 class GmshMesher final : public Mesher {
@@ -31,6 +42,8 @@ public:
     const std::string& lastError() const noexcept ;
 
     const std::vector<std::string>& diagnostics() const override { return m_diagnostics; }
+    /** Audit data from the most recent buildMesh call, one record per meshed CAD surface. */
+    const std::vector<CADFaceMappingRecord>& faceMappingReport() const noexcept { return m_faceMappingReport; }
 
     bool buildMesh(const std::shared_ptr<CADModel>& cadModel,
                    const MeshingOptions& options,
@@ -66,4 +79,5 @@ private:
 
     std::string m_lastError;
     std::vector<std::string> m_diagnostics;
+    std::vector<CADFaceMappingRecord> m_faceMappingReport;
 };
