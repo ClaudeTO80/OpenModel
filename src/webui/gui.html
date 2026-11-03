@@ -746,9 +746,10 @@ function analysisCommand(line) {
   const command = text.split(/\s+/, 1)[0].toLowerCase();
   return ANALYSIS_COMMANDS.has(command) ? command : null;
 }
-function analysisTokens(line) {
+function analysisTokens(line, command) {
   const out = {};
   const tokens = line.trim().split(/\\s+/);
+  if (["fix", "force", "pressure"].includes(command)) out._selector = tokens[1] || "";
   for (let i = 1; i < tokens.length; ++i) {
     const eq = tokens[i].indexOf("=");
     if (eq > 0) out[tokens[i].slice(0, eq).toLowerCase()] = tokens[i].slice(eq + 1);
@@ -783,7 +784,7 @@ async function applyAnalysisEdit(replacement, id, originalLines, index) {
 }
 async function editAnalysisCondition(command, line, id, lines, index) {
   if (!["material", "fix", "force", "pressure"].includes(command)) return null;
-  const values = analysisTokens(line);
+  const values = analysisTokens(line, command);
   const dialog = $("analysisEditDialog"), fields = $("analysisEditFields");
   fields.replaceChildren();
   $("analysisEditTitle").textContent = "Modifica " + ({material:"materiale",fix:"vincolo",force:"forza",pressure:"pressione"}[command]);
