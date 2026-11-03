@@ -88,6 +88,13 @@ Each analyzed patch is classified as `Planar` or `NonPlanar`. The decision uses 
 The analyzer returns ordered patch records. `AssimpPatchGroupBuilder` converts one or more of those records into FEM groups without modifying the imported mesh:
 
 ```cpp
+AssimpSurfaceMesher mesher;
+MeshingOptions options;
+options.dimension = MeshDimension::Surface;
+MeshData mesh;
+if (!mesher.buildMesh(assimpModel, options, mesh))
+    throw std::runtime_error("Surface import failed");
+
 std::vector<AssimpSurfacePatch> patches;
 std::vector<std::string> diagnostics;
 if (!AssimpSurfacePatchAnalyzer::analyze(
@@ -100,11 +107,12 @@ fixed.patchIndices = {0, 1}; // indices into the analyzer result
 fixed.materialName = "STEEL";
 
 if (!AssimpPatchGroupBuilder::apply(
-        assimpModel->getRenderMeshes(), patches, {fixed}, mesh, diagnostics))
+        assimpModel->getRenderMeshes(), patches, mesher.sourceTriangleElementIds(),
+        {fixed}, mesh, diagnostics))
     throw std::runtime_error("Patch group conversion failed");
 ```
 
-The builder creates a dimension-2 imported `MeshGroup`, a physical group and a `<name>_NODES` node set. A definition can combine multiple connected patches. Element memberships are resolved against the imported source triangle order, including the importer's degenerate-triangle skipping rule. Invalid references are rejected before the mesh is modified. Groups are mesh-derived and do not carry CAD face identifiers.
+The builder creates a dimension-2 imported `MeshGroup`, a physical group and a `<name>_NODES` node set. A definition can combine multiple connected patches. Element memberships use the exact source-triangle-to-element map recorded by AssimpSurfaceMesher, including zero entries for skipped degenerate triangles; the builder does not reconstruct or guess this mapping. Invalid references are rejected before the mesh is modified. Groups are mesh-derived and do not carry CAD face identifiers.
 
 The patch analyzer uses a spatial hash with neighbouring-cell distance checks for welding, rather than rounded coordinate buckets. This avoids missing coincident endpoints merely because they fall on opposite quantization-cell boundaries. Normal statistics are winding-independent. It also reports non-manifold edges (edges shared by more than two triangles) separately from ordinary patch boundary edges.
 
