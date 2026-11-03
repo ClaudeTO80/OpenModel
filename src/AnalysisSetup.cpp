@@ -52,7 +52,10 @@ struct Parser {
         std::string value;
         const auto it = keys.find("id");
         if (it != keys.end()) { value = it->second; keys.erase(it); }
-        else value = kind + "-" + std::to_string(++idCounters[kind]);
+        else {
+            do { value = kind + "-" + std::to_string(++idCounters[kind]); }
+            while (conditionIds.count(value) != 0);
+        }
         const bool valid = !value.empty() && std::all_of(value.begin(), value.end(), [](unsigned char ch) {
             return std::isalnum(ch) || ch == '_' || ch == '-' || ch == '.';
         });
