@@ -7,6 +7,8 @@
 #include <string>
 #include <vector>
 
+enum class AssimpSurfacePatchKind { Planar, NonPlanar };
+
 // A connected component of imported triangles. Indices refer to the source
 // RenderSubMesh and its triangle order; they are not CAD face identifiers.
 struct AssimpSurfacePatch {
@@ -18,6 +20,9 @@ struct AssimpSurfacePatch {
     std::array<double, 3> boundsMin{{0.0, 0.0, 0.0}};
     std::array<double, 3> boundsMax{{0.0, 0.0, 0.0}};
     double maxPlanarityDeviation = 0.0;
+    double relativePlanarityDeviation = 0.0;
+    double normalCoherence = 0.0;
+    AssimpSurfacePatchKind kind = AssimpSurfacePatchKind::NonPlanar;
     std::size_t boundaryEdgeCount = 0;
 };
 
