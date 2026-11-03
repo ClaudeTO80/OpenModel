@@ -45,6 +45,10 @@ struct MeshingOptions {
      * exposes them as physical groups; TetGen uses facet markers and Netgen uses
      * geometric face queries. The workbench derives solver node sets from the
      * generic registry, never from backend-specific markers.
+     *
+     * CAD groups imported from the source may also have dimension 0 (vertex)
+     * and 1 (edge). Adapters without explicit lower-dimensional elements retain
+     * those memberships as node-only groups.
      */
     std::vector<CADGroup> additionalFaceGroups;
 };
