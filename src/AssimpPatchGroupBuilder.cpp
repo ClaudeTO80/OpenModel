@@ -102,11 +102,10 @@ bool AssimpPatchGroupBuilder::apply(const std::vector<RenderSubMesh>& parts,
         }
     }
 
-    int nextTag=1;
-    for (const auto& group:mesh.getPhysicalGroups()) {
-        if (group.tag>=nextTag && group.tag<std::numeric_limits<int>::max()) nextTag=group.tag+1;
-    }
-    if (definitions.size() > static_cast<std::size_t>(std::numeric_limits<int>::max()-nextTag)+1u) {
+    long long nextTag=1;
+    for (const auto& group:mesh.getPhysicalGroups())
+        if (static_cast<long long>(group.tag)>=nextTag) nextTag=static_cast<long long>(group.tag)+1;
+    if (!definitions.empty() && nextTag+static_cast<long long>(definitions.size())-1LL > std::numeric_limits<int>::max()) {
         diagnostics.push_back("Physical group tag range exhausted.");
         return false;
     }
@@ -151,7 +150,7 @@ bool AssimpPatchGroupBuilder::apply(const std::vector<RenderSubMesh>& parts,
         Prepared item;
         item.physical.name=definition.name;
         item.physical.dimension=2;
-        item.physical.tag=nextTag++;
+        item.physical.tag=static_cast<int>(nextTag++);
         item.physical.elementIds.assign(elements.begin(),elements.end());
         item.physical.materialName=definition.materialName;
         item.group.name=definition.name;
