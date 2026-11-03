@@ -611,19 +611,21 @@ bool OCCModel::loadWithStructure(const std::string& path, bool iges, TopoDS_Shap
         }
     };
     auto pushGroup = [&](const std::string& name, CADGroupKind kind, const EntityIds& ids) {
-        auto add = [&](const std::string& groupName, int dimension, const std::set<int>& values) {
+        bool primaryNameUsed = false;
+        auto add = [&](int dimension, const std::set<int>& values, const char* suffix) {
             if (values.empty()) return;
             CADGroup group;
-            group.name = groupName;
+            group.name = primaryNameUsed ? name + suffix : name;
+            primaryNameUsed = true;
             group.kind = kind;
             group.dimension = dimension;
             group.ids.assign(values.begin(), values.end());
             m_groups.push_back(std::move(group));
         };
-        add(name, 3, ids.solids);
-        add(name + " (faces)", 2, ids.faces);
-        add(name + " (edges)", 1, ids.edges);
-        add(name + " (vertices)", 0, ids.vertices);
+        add(3, ids.solids, " (solids)");
+        add(2, ids.faces, " (faces)");
+        add(1, ids.edges, " (edges)");
+        add(0, ids.vertices, " (vertices)");
     };
 
     TDF_LabelSequence layerLabels;
