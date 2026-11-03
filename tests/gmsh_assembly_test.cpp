@@ -104,6 +104,12 @@ int run(InterfaceMode mode, const std::string& step) {
     const auto* named = group(mesh, "TopFace");
     CHECK(layer && named && layer->dimension == 2 && named->dimension == 2);
     CHECK(!layer->elementIds.empty() && layer->elementIds == named->elementIds);
+    const auto* edgeGroup = mesh.getMeshGroupRegistry().find("EdgeLayer");
+    const auto* vertexGroup = mesh.getMeshGroupRegistry().find("VertexLayer");
+    CHECK(edgeGroup && edgeGroup->dimension == 1 && !edgeGroup->elementIds.empty());
+    CHECK(vertexGroup && vertexGroup->dimension == 0 && !vertexGroup->nodeIndices.empty());
+    CHECK(mesh.getNodeSets().count("EdgeLayer_NODES") == 1);
+    CHECK(mesh.getNodeSets().count("VertexLayer_NODES") == 1);
     for (const ElementId id : layer->elementIds) {
         const auto& at = elements.at(id);
         CHECK(at.block->type == ElementType::Triangle3);
