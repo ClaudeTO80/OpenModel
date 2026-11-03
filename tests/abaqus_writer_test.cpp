@@ -38,20 +38,7 @@ int main() {
 
     // Generic CAD groups are exported independently of mesher-specific physical groups.
     MeshData grouped;
-    const auto a = grouped.addNode(11, 0, 0, 0);
-    const auto b = grouped.addNode(12, 1, 0, 0);
-    const auto p = grouped.addNode(13, 1, 1, 0);
-    grouped.addElement("cad edge elements", ElementType::Line2, 701, {a, b});
-    grouped.addElement("cad point elements", ElementType::Point1, 702, {p});
-    grouped.addMeshGroup({"Edge_A", 1, MeshGroupSource::CAD, {4}, {701}, {a, b}});
-    grouped.addMeshGroup({"Vertex_A", 0, MeshGroupSource::CAD, {9}, {702}, {p}});
-    // Point elements are not supported by the Abaqus writer; represent the vertex as a node-only group.
-    // Keep its generic element membership empty, as produced by CAD vertex mapping.
-    MeshData vertexOnly;
-    const auto va = vertexOnly.addNode(13, 1, 1, 0);
-    vertexOnly.addMeshGroup({"Vertex_A", 0, MeshGroupSource::CAD, {9}, {}, {va}});
     // The edge set and node membership must survive as *ELSET and *NSET.
-    grouped = MeshData{};
     const auto ga = grouped.addNode(11, 0, 0, 0);
     const auto gb = grouped.addNode(12, 1, 0, 0);
     grouped.addElement("cad edge elements", ElementType::Line2, 701, {ga, gb});
