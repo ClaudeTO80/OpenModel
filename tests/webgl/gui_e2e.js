@@ -83,6 +83,10 @@ const check = (ok, text) => { console.log((ok ? 'PASS ' : 'FAIL ') + text); if (
   await page.waitForFunction(() => document.querySelector('#cadGrpList').textContent.includes('BladeRoot'), null, { timeout: 10000 });
   check(/Gruppi CAD utente: 1/.test(await message()) || (await page.textContent('#cadGrpList')).includes('BladeRoot'),
         'CAD face group is restored after reimporting the source STEP');
+  await page.locator('#cadGrpList button[data-cad-show]').first().click();
+  const shownCADFaces = await page.evaluate(() => document.getElementById('viewer').contentWindow.OpenModelViewer.pick.get().faces);
+  check(shownCADFaces.length > 0 && shownCADFaces.every((face) => Number.isInteger(face.cadFaceId)),
+        'showing a CAD group highlights its source B-Rep faces');
   const cadGroupDelete = page.locator('#cadGrpList button[data-cad-delete]').first();
   page.once('dialog', (dialog) => dialog.accept());
   await cadGroupDelete.click();
