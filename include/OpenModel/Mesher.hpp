@@ -38,6 +38,13 @@ struct MeshingOptions {
      * (dimension 3 for components, 2 for face groups). Needs a CADModel that reads that structure.
      */
     bool importCadGroups = true;
+
+    /**
+     * Additional user-defined CAD face groups. These are mapped geometrically
+     * by capable backends (currently Gmsh) and retained as dimension-2 physical
+     * groups. The workbench converts their boundary elements into FEM node sets.
+     */
+    std::vector<CADGroup> additionalFaceGroups;
 };
 
 class Mesher {
