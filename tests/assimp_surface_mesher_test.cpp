@@ -129,6 +129,12 @@ int main() {
                 "Two-triangle patch should have four boundary edges.");
         require(connected->maxPlanarityDeviation < 1e-6,
                 "Planar patch has an unexpected planarity deviation.");
+        require(connected->kind == AssimpSurfacePatchKind::Planar,
+                "Planar patch classification is incorrect.");
+        require(connected->normalCoherence > 0.999999,
+                "Planar patch normal coherence is incorrect.");
+        require(connected->relativePlanarityDeviation < 1e-6,
+                "Relative planarity deviation is incorrect.");
 
         // Keep the original plane-only API working for existing callers.
         AssimpPlaneSurfaceGroup legacyPlane;
