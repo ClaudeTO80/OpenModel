@@ -84,6 +84,17 @@ int main() {
             throw std::runtime_error("TetGen output failed geometric validation:" + details);
         }
 
+        auto quadraticOptions = options;
+        quadraticOptions.order = 2;
+        MeshData quadratic;
+        require(mesher.buildMesh(cad, quadraticOptions, quadratic), "TetGen quadratic meshing failed");
+        require(hasType(quadratic, ElementType::Tetrahedron10), "TetGen returned no quadratic tetrahedra");
+        require(hasType(quadratic, ElementType::Triangle6), "TetGen returned no quadratic boundary triangles");
+        const auto* quadraticFace = quadratic.getMeshGroupRegistry().find("All_Faces");
+        require(quadraticFace && !quadraticFace->nodeIndices.empty(),
+                "TetGen quadratic face group has no boundary nodes");
+        require(quadratic.validate().empty(), "TetGen quadratic mesh failed structural validation");
+
         MeshData unchanged;
         unchanged.addNode(999, 9.0, 9.0, 9.0);
         auto invalid = options;
