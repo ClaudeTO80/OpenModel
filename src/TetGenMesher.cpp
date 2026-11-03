@@ -1,6 +1,7 @@
 #include <OpenModel/TetGenMesher.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <array>
 #include <map>
 #include <limits>
