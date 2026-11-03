@@ -1298,10 +1298,46 @@ std::string cadFaceGroupsJson() {
     return out.str();
 }
 
+std::string nativeCADGroupsJson() {
+    std::ostringstream out;
+    out << '[';
+    if (g.cad) {
+        const auto& groups = g.cad->getGroups();
+        for (std::size_t i = 0; i < groups.size(); ++i) {
+            if (i) out << ',';
+            const auto& group = groups[i];
+            const char* kind = group.kind == CADGroupKind::Layer ? "layer" : "named-shape";
+            out << "{\"name\":\"" << jsonEscape(group.name) << "\",\"kind\":\"" << kind
+                << "\",\"dimension\":" << group.dimension << ",\"entityCount\":" << group.ids.size() << '}';
+        }
+    }
+    out << ']';
+    return out.str();
+}
+
+std::string genericMeshGroupsJson() {
+    std::ostringstream out;
+    out << '[';
+    const auto& groups = g.mesh.getMeshGroupRegistry().groups();
+    for (std::size_t i = 0; i < groups.size(); ++i) {
+        if (i) out << ',';
+        const auto& group = groups[i];
+        const char* source = group.source == MeshGroupSource::CAD ? "CAD" :
+            group.source == MeshGroupSource::Imported ? "Imported" : "UserDefined";
+        out << "{\"name\":\"" << jsonEscape(group.name) << "\",\"dimension\":" << group.dimension
+            << ",\"source\":\"" << source << "\",\"elementCount\":" << group.elementIds.size()
+            << ",\"nodeCount\":" << group.nodeIndices.size() << '}';
+    }
+    out << ']';
+    return out.str();
+}
+
 void replyCADFaceGroups(webui_event_t* e, bool ok, const std::string& message) {
     std::ostringstream out;
     out << "{\"ok\":" << (ok ? "true" : "false") << ",\"message\":\"" << jsonEscape(message)
-        << "\",\"cadGroups\":" << cadFaceGroupsJson() << '}';
+        << "\",\"cadGroups\":" << cadFaceGroupsJson()
+        << ",\"nativeCADGroups\":" << nativeCADGroupsJson()
+        << ",\"meshGroups\":" << genericMeshGroupsJson() << '}';
     webui_return_string(e, out.str().c_str());
 }
 
