@@ -1,6 +1,9 @@
 #include <OpenModel/AssimpSurfaceMesher.hpp>
+#include <OpenModel/AssimpSurfacePatchAnalyzer.hpp>
 #include <OpenModel/GltfWriter.hpp>
 
+#include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <iostream>
 #include <stdexcept>
@@ -25,10 +28,12 @@ int main() {
             // AABB selector: x=2
             2,0,0,  2,1,0,  2,0,1,
             // Cylinder side selector: radius=1 around the Z axis
-            1,0,0,  0,1,0,  1,0,1
+            1,0,0,  0,1,0,  1,0,1,
+            // Two adjacent triangles forming one planar connected patch
+            4,0,0,  4,1,0,  4,0,1,  4,1,1
         };
         part.indices = {
-            0,1,2, 3,4,5, 6,7,8, 9,10,11
+            0,1,2, 3,4,5, 6,7,8, 9,10,11, 12,13,14, 13,15,14
         };
         fixture.parts.push_back(part);
         const auto written = GltfWriter::writeGlbFile(path.string(), fixture);
@@ -107,7 +112,23 @@ int main() {
                 "AABB node set is missing or incorrect.");
         require(cylinderNodes != mesh.getNodeSets().end() && cylinderNodes->second.size() == 3,
                 "Cylinder node set is missing or incorrect.");
-        require(mesh.getNumElements() == 4, "Surface import did not preserve all source triangles.");
+        require(mesh.getNumElements() == 6, "Surface import did not preserve all source triangles.");
+
+        // Analyze connected patches independently of CAD topology.
+        std::vector<AssimpSurfacePatch> patches;
+        std::vector<std::string> patchDiagnostics;
+        require(AssimpSurfacePatchAnalyzer::analyze(model->getRenderMeshes(), 1e-6,
+                    patches, patchDiagnostics), "Connected patch analysis failed.");
+        require(patches.size() == 5, "Expected four isolated triangles and one two-triangle patch.");
+        const auto connected = std::find_if(patches.begin(), patches.end(),
+            [](const AssimpSurfacePatch& p) { return p.triangleIndices.size() == 2; });
+        require(connected != patches.end(), "Adjacent triangles were not merged into one patch.");
+        require(std::abs(connected->area - 1.0) < 1e-6,
+                "Connected patch area is incorrect.");
+        require(connected->boundaryEdgeCount == 4,
+                "Two-triangle patch should have four boundary edges.");
+        require(connected->maxPlanarityDeviation < 1e-6,
+                "Planar patch has an unexpected planarity deviation.");
 
         // Keep the original plane-only API working for existing callers.
         AssimpPlaneSurfaceGroup legacyPlane;
