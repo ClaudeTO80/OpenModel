@@ -3,12 +3,16 @@
 include(CMakeFindDependencyMacro)
 find_dependency(Threads)
 
+if(@OPENMODEL_BUILD_ASSIMP_BACKEND@)
+    find_dependency(assimp CONFIG REQUIRED)
+    set(OpenModel_Assimp_FOUND TRUE)
+endif()
+
 include("${CMAKE_CURRENT_LIST_DIR}/OpenModelTargets.cmake")
 
 set(OpenModel_VERSION "@PROJECT_VERSION@")
 set(OpenModel_Core_FOUND TRUE)
 
 # The core package needs only the system threads library (ProcessRunner).
-# Optional backend libraries are built separately and are not imported by
-# the core-only package configuration.
+# Optional backends are exported only when they were enabled at build time.
 check_required_components(OpenModel)
