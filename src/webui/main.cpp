@@ -1230,7 +1230,7 @@ std::string cadFaceGroupsJson() {
     for (std::size_t i = 0; i < g.cadFaceGroups.size(); ++i) {
         if (i) out << ',';
         const auto& group = g.cadFaceGroups[i];
-        out << "{\\\"name\\\":\\\"" << jsonEscape(group.name) << "\\\",\\\"faceCount\\\":" << group.faceIds.size() << ",\\\"faceIds\\\":[";
+        out << "{\"name\":\"" << jsonEscape(group.name) << "\",\"faceCount\":" << group.faceIds.size() << ",\"faceIds\":[";
         for (std::size_t j = 0; j < group.faceIds.size(); ++j) {
             if (j) out << ',';
             out << group.faceIds[j];
@@ -1243,8 +1243,8 @@ std::string cadFaceGroupsJson() {
 
 void replyCADFaceGroups(webui_event_t* e, bool ok, const std::string& message) {
     std::ostringstream out;
-    out << "{\\\"ok\\\":" << (ok ? "true" : "false") << ",\\\"message\\\":\\\"" << jsonEscape(message)
-        << "\\\",\\\"cadGroups\\\":" << cadFaceGroupsJson() << '}';
+    out << "{\"ok\":" << (ok ? "true" : "false") << ",\"message\":\"" << jsonEscape(message)
+        << "\",\"cadGroups\":" << cadFaceGroupsJson() << '}';
     webui_return_string(e, out.str().c_str());
 }
 
