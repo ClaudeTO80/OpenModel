@@ -1297,7 +1297,11 @@ std::string cadFaceGroupsJson() {
     for (std::size_t i = 0; i < g.cadFaceGroups.size(); ++i) {
         if (i) out << ',';
         const auto& group = g.cadFaceGroups[i];
-        out << "{\"name\":\"" << jsonEscape(group.name) << "\",\"faceCount\":" << group.faceIds.size() << ",\"faceIds\":[";
+        const std::string nodeSetName = group.name + "_NODES";
+        const auto nodeSet = g.mesh.getNodeSets().find(nodeSetName);
+        const std::size_t nodeCount = nodeSet == g.mesh.getNodeSets().end() ? 0 : nodeSet->second.size();
+        out << "{\"name\":\"" << jsonEscape(group.name) << "\",\"faceCount\":" << group.faceIds.size()
+            << ",\"nodeSetName\":\"" << jsonEscape(nodeSetName) << "\",\"nodeCount\":" << nodeCount << ",\"faceIds\":[";
         for (std::size_t j = 0; j < group.faceIds.size(); ++j) {
             if (j) out << ',';
             out << group.faceIds[j];
