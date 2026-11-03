@@ -212,17 +212,20 @@ std::string withExtension(const std::string& base, const std::string& ext) {
 
 /* ------------------------------------------------------------------- views */
 
-/** Converts the CAD tessellation into a triangle MeshData with one block per CAD face. */
+/** Converts the CAD tessellation into a triangle MeshData with explicit CAD-face provenance. */
 MeshData surfaceToMesh(const SurfaceMesh& surface, const CADModel* cad) {
     MeshData mesh;
-    // CAD structure: every leaf component becomes a group of its faces' triangles, so the viewer can
-    // colour, list and hide the model by component. Face -> first leaf component that owns it.
+    // CAD face groups are inserted first: WebViewWriter uses the first matching physical
+    // group as the region of a 2D element. This makes the CAD face id available to the
+    // viewer without confusing it with a generated triangle/element id.
+    std::map<int, std::vector<ElementId>> idsOfCadFace;
     std::map<int, int> componentOfFace;
     std::map<int, std::vector<ElementId>> idsOfComponent;
     if (cad)
         for (const auto& component : cad->getComponents())
             if (!component.isAssembly)
                 for (const int face : component.faceIds) componentOfFace.emplace(face, component.id);
+
     NodeId nextNode = 1;
     ElementId nextElement = 1;
     std::size_t partIndex = 0;
@@ -236,12 +239,15 @@ MeshData surfaceToMesh(const SurfaceMesh& surface, const CADModel* cad) {
         for (std::size_t i = 0; i + 2 < part.indices.size(); i += 3) {
             const auto a = part.indices[i], b = part.indices[i + 1], c = part.indices[i + 2];
             if (a >= vertexCount || b >= vertexCount || c >= vertexCount) continue;
+            if (part.sourceFaceId >= 0) idsOfCadFace[part.sourceFaceId].push_back(nextElement);
             const auto owner = componentOfFace.find(part.sourceFaceId);
             if (owner != componentOfFace.end()) idsOfComponent[owner->second].push_back(nextElement);
             mesh.addElement(name, ElementType::Triangle3, nextElement++, {base + a, base + b, base + c});
         }
     }
     int tag = 1;
+    for (const auto& [faceId, ids] : idsOfCadFace)
+        mesh.addPhysicalGroup("__openmodel_cad_face_" + std::to_string(faceId), 2, tag++, ids);
     for (const auto& [componentId, ids] : idsOfComponent)
         mesh.addPhysicalGroup(cad->getComponents()[static_cast<std::size_t>(componentId)].path, 2, tag++, ids);
     return mesh;
