@@ -150,7 +150,7 @@ The repository example `examples/cmake-assimp-consumer` is built in the Assimp C
 
 ## Analytic surface fitting from patches
 
-`AssimpSurfaceGeometryFitter` estimates simple geometric primitives from each patch's unique mesh vertices. It supports planar, cylindrical, spherical and conical fits; patches that do not meet the residual and sampling criteria remain `Freeform`. Results include fitted center/axis, radius, cone half-angle, sample count, angular coverage and absolute/relative RMS and maximum residuals.
+`AssimpSurfaceGeometryFitter` estimates simple geometric primitives from each patch's unique mesh vertices. It supports planar, cylindrical, spherical and conical fits; patches that do not meet the residual and sampling criteria remain `Freeform`. Results include fitted center/axis, cone apex and signed radius slope, radius, cone half-angle, sample count, angular coverage and absolute/relative RMS and maximum residuals.
 
 ```cpp
 AssimpSurfaceFitOptions fitOptions;
