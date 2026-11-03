@@ -79,8 +79,8 @@ const check = (ok, text) => { console.log((ok ? 'PASS ' : 'FAIL ') + text); if (
   check(/Gruppi CAD utente: 1/.test(await message()) || (await page.textContent('#cadGrpList')).includes('BladeRoot'),
         'CAD face group is restored after reimporting the source STEP');
   const cadGroupDelete = page.locator('#cadGrpList button[data-cad-delete]').first();
-  await cadGroupDelete.click();
   page.once('dialog', (dialog) => dialog.accept());
+  await cadGroupDelete.click();
   await waitIdle();
   check(!(await page.textContent('#cadGrpList')).includes('BladeRoot'),
         'CAD face group can be deleted and the sidecar is updated');
