@@ -33,8 +33,8 @@ identifier in that API. OpenModel therefore:
 
 1. Imports Netgen volume elements.
 2. Imports supported surface element types as 2D elements.
-3. Computes a surface-element centroid from its corner nodes.
-4. Queries `CADModel::facesContainingPoint` to identify candidate CAD faces.
+3. Queries `CADModel::facesContainingPoint` at each corner node.
+4. Intersects the candidate face IDs, retaining only CAD faces common to all corners.
 5. Builds generic groups and node memberships from the geometric associations.
 
 Supported surface types are NG_TRIG, NG_QUAD, NG_TRIG6 and NG_QUAD8. NG_QUAD6
