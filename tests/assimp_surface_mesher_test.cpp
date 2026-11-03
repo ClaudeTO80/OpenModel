@@ -44,7 +44,15 @@ RenderSubMesh makeCone(double bottomRadius, double topRadius, double height,
     for (unsigned int ring=0; ring<3; ++ring) {
         const double fraction=ring/2.0;
         const double radius=bottomRadius+(topRadius-bottomRadius)*fraction;
-        for (unsigned int band=0; band<2; ++band)
+        for (unsigned int i=0; i<segments; ++i) {
+            const double angle=2.0*3.14159265358979323846*i/segments;
+            part.vertices.insert(part.vertices.end(), {
+                static_cast<float>(radius*std::cos(angle)),
+                static_cast<float>(radius*std::sin(angle)),
+                static_cast<float>(ring*height/2.0)});
+        }
+    }
+    for (unsigned int band=0; band<2; ++band)
         for (unsigned int i=0; i<segments; ++i) {
             const unsigned int j=(i+1)%segments;
             const unsigned int bi=band*segments+i, bj=band*segments+j;
