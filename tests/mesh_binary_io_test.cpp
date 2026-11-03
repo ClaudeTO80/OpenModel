@@ -30,6 +30,10 @@ int main() {
                                   {101, 102}, {12}, {a, b, c}});
     source.addMeshGroup(MeshGroup{"ImportedRegion", 3, MeshGroupSource::Imported,
                                   {}, {90001}, {a, b, c, d}});
+    source.addMeshGroup(MeshGroup{"CAD_Edge_A", 1, MeshGroupSource::CAD,
+                                  {201}, {}, {a, b}});
+    source.addMeshGroup(MeshGroup{"CAD_Vertex_A", 0, MeshGroupSource::CAD,
+                                  {301}, {}, {a}});
     assert(source.validate().empty());
 
     MeshBinaryIO::write(path, source);
@@ -52,7 +56,7 @@ int main() {
     assert(loaded.getPhysicalGroups().size() == 2);
     assert(loaded.getPhysicalGroups()[0].name == "solid");
     assert(loaded.getPhysicalGroups()[0].materialName == "steel");
-    assert(loaded.getMeshGroupRegistry().groups().size() == 2);
+    assert(loaded.getMeshGroupRegistry().groups().size() == 4);
     const auto* loadedFace = loaded.getMeshGroupRegistry().find("CAD_Face_A");
     assert(loadedFace && loadedFace->dimension == 2);
     assert(loadedFace->source == MeshGroupSource::CAD);
@@ -62,6 +66,12 @@ int main() {
     const auto* loadedSolid = loaded.getMeshGroupRegistry().find("ImportedRegion");
     assert(loadedSolid && loadedSolid->source == MeshGroupSource::Imported);
     assert((loadedSolid->nodeIndices == std::vector<NodeIndex>{0, 1, 2, 3}));
+    const auto* loadedEdge = loaded.getMeshGroupRegistry().find("CAD_Edge_A");
+    const auto* loadedVertex = loaded.getMeshGroupRegistry().find("CAD_Vertex_A");
+    assert(loadedEdge && loadedEdge->dimension == 1 && loadedEdge->elementIds.empty());
+    assert((loadedEdge->sourceEntityIds == std::vector<int>{201}));
+    assert((loadedEdge->nodeIndices == std::vector<NodeIndex>{0, 1}));
+    assert(loadedVertex && loadedVertex->dimension == 0 && loadedVertex->nodeIndices == std::vector<NodeIndex>{0});
     assert(loaded.validate().empty());
 
     // Backward compatibility: convert this fixture to the old v1.0 layout by
