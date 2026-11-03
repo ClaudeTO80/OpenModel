@@ -49,6 +49,7 @@
 #include <iomanip>
 #include <memory>
 #include <map>
+#include <limits>
 #include <mutex>
 #include <set>
 #include <stdexcept>
@@ -1488,6 +1489,9 @@ int main() {
     webui_bind(window, "openmodel_create_group", createGroupHandler);
     webui_bind(window, "openmodel_list_groups", listGroupsHandler);
     webui_bind(window, "openmodel_show_group", showGroupHandler);
+    webui_bind(window, "openmodel_list_cad_face_groups", listCADFaceGroupsHandler);
+    webui_bind(window, "openmodel_create_cad_face_group", createCADFaceGroupHandler);
+    webui_bind(window, "openmodel_delete_cad_face_group", deleteCADFaceGroupHandler);
     webui_bind(window, "openmodel_write_input", writeInput);
     webui_bind(window, "openmodel_run_solver", runSolver);
     webui_bind(window, "openmodel_solver_status", solverStatus);
