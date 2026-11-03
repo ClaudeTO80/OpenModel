@@ -756,14 +756,25 @@ function renderAnalysisConditions() {
     content.style.cssText = "flex:1;overflow-wrap:anywhere;white-space:pre-wrap";
     const edit = document.createElement("button");
     edit.type = "button"; edit.textContent = "Modifica";
-    edit.addEventListener("click", () => {
+    edit.addEventListener("click", async () => {
       const replacement = prompt("Modifica la condizione (comando " + command + "):", line.trim());
       if (replacement === null) return;
       if (analysisCommand(replacement) !== command) {
         show("La riga modificata deve mantenere il comando " + command + ".", "bad"); return;
       }
-      lines[index] = replacement;
-      $("anScript").value = lines.join("\n");
+      const candidate = lines.slice();
+      candidate[index] = replacement;
+      const script = candidate.join("\n");
+      if (idMatch && idMatch[1]) {
+        const updated = await act("openmodel_analysis_update", idMatch[1], script);
+        if (!updated || !updated.ok) return;
+        $("anScript").value = updated.message;
+      } else {
+        $("anScript").value = script;
+        const synced = await act("openmodel_analysis_load", script);
+        if (!synced || !synced.ok) return;
+        $("anScript").value = synced.message;
+      }
       renderAnalysisConditions();
     });
     const remove = document.createElement("button");
