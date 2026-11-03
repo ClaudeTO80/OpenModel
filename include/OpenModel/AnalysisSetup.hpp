@@ -96,7 +96,10 @@ struct AnalysisParseResult {
 };
 
 /** @brief Read a script (see the file comment). Errors carry the line number; all of them are collected. */
-AnalysisParseResult parseAnalysisScript(const std::string& text);\n\n/** @brief Serialize an analysis model to a round-trippable script, including stable condition IDs. */\nstd::string serializeAnalysisScript(const AnalysisModel& model);
+AnalysisParseResult parseAnalysisScript(const std::string& text);
+
+/** @brief Serialize an analysis model to a round-trippable script, including stable condition IDs. */
+std::string serializeAnalysisScript(const AnalysisModel& model);
 
 /** @brief A small example script for a static analysis, for the user interfaces. */
 std::string exampleAnalysisScript();
