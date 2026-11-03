@@ -111,7 +111,7 @@ bool GmshMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Mesh
             // Keep top-dimensional elements and their codimension-one boundary
             // elements. Point elements and 3-D curve elements are not part of
             // this adapter's current FEM transfer contract.
-            const int minimumExtractedDimension = options.importCadGroups ? 0 : meshDimension - 1;
+            const int minimumExtractedDimension = (options.importCadGroups && meshDimension == 3) ? 0 : meshDimension - 1;
             for (int dim = minimumExtractedDimension; dim <= meshDimension; ++dim) {
                 std::vector<std::pair<int, int>> dimensionEntities;
                 gmsh::model::getEntities(dimensionEntities, dim);
