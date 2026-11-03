@@ -107,6 +107,7 @@ bool AssimpSurfacePatchAnalyzer::analyze(const std::vector<RenderSubMesh>& parts
                 }
                 patch.centroid=mul(weighted,1.0/patch.area);
                 const double nl=length(normalSum);
+                patch.normalCoherence=std::max(0.0,std::min(1.0,nl/patch.area));
                 if(nl>1e-14) patch.meanNormal=mul(normalSum,1.0/nl);
                 for(const auto& e:localEdges) if(e.second==1) ++patch.boundaryEdgeCount;
                 if(nl>1e-14) {
@@ -116,6 +117,11 @@ bool AssimpSurfacePatchAnalyzer::analyze(const std::vector<RenderSubMesh>& parts
                 } else {
                     patch.maxPlanarityDeviation=std::numeric_limits<double>::infinity();
                 }
+                const V extent=sub(patch.boundsMax,patch.boundsMin);
+                const double diagonal=length(extent);
+                patch.relativePlanarityDeviation = diagonal > 0.0 ? patch.maxPlanarityDeviation / diagonal : std::numeric_limits<double>::infinity();
+                const double planarityLimit=std::max(1e-9, diagonal*1e-6);
+                patch.kind = (patch.maxPlanarityDeviation <= planarityLimit && patch.normalCoherence >= 0.999999) ? AssimpSurfacePatchKind::Planar : AssimpSurfacePatchKind::NonPlanar;
                 patches.push_back(std::move(patch));
             }
         }
