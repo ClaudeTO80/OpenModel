@@ -60,7 +60,7 @@ enum class CADGroupKind {
     NamedShape    ///< A named sub-shape (typically a named face or solid inside a part).
 };
 
-/** @brief A named set of faces or solids stored in the CAD file. */
+/** @brief A named set of topological entities (vertices, edges, faces or solids) stored in the CAD file. */
 struct CADGroup {
     std::string name;             ///< Name as written in the CAD file.
     CADGroupKind kind = CADGroupKind::Layer;
