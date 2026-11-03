@@ -194,7 +194,8 @@ bool GmshMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Mesh
             }
 
             if (options.importCadGroups && meshDimension == 3)
-                mapCadGroups(*cadModel, candidate, nodeTagToIndex, elementIdsByEntity, usedPhysicalNames);
+                mapCadGroups(*cadModel, candidate, nodeTagToIndex, elementIdsByEntity, usedPhysicalNames,
+                             options.additionalFaceGroups);
 
             const auto structuralErrors = candidate.validate();
             if (!structuralErrors.empty())
@@ -258,10 +259,11 @@ ElementType GmshMesher::mapElementType(int gmshType) noexcept {
 void GmshMesher::mapCadGroups(const CADModel& cad, MeshData& mesh,
                               const std::unordered_map<std::size_t, NodeIndex>& nodeTagToIndex,
                               const std::map<std::pair<int, int>, std::vector<ElementId>>& elementIdsByEntity,
-                              std::set<std::string>& usedPhysicalNames) {
+                              std::set<std::string>& usedPhysicalNames,
+                              const std::vector<CADGroup>& additionalFaceGroups) {
     const auto& components = cad.getComponents();
     const auto& cadGroups = cad.getGroups();
-    if (components.empty() && cadGroups.empty()) {
+    if (components.empty() && cadGroups.empty() && additionalFaceGroups.empty()) {
         m_diagnostics.push_back("The CAD model carries no assembly structure or groups: no CAD groups were created.");
         return;
     }
@@ -372,7 +374,7 @@ void GmshMesher::mapCadGroups(const CADModel& cad, MeshData& mesh,
     }
 
     // ---- Surfaces -> CAD faces -------------------------------------------------------------------
-    bool anyFaceGroup = false;
+    bool anyFaceGroup = !additionalFaceGroups.empty();
     for (const auto& group : cadGroups) anyFaceGroup = anyFaceGroup || group.dimension == 2;
     if (anyFaceGroup) {
         // Which leaf components own each CAD face, to tell apart coincident faces of different solids.
@@ -431,6 +433,42 @@ void GmshMesher::mapCadGroups(const CADModel& cad, MeshData& mesh,
             const auto ids = collect(2, surfaceTags);
             if (ids.empty()) {
                 m_diagnostics.push_back("CAD face group '" + group.name + "' matched no mesh surface (not created).");
+                continue;
+            }
+            mesh.addPhysicalGroup(uniqueName(group.name, 2), 2, nextTag(2), ids);
+            ++faceGroups;
+        }
+
+        // User-defined groups are strict: do not create a partial physical group.
+        // A partial support would silently leave part of a requested constraint free.
+        for (const auto& group : additionalFaceGroups) {
+            if (group.dimension != 2 || group.ids.empty()) {
+                m_diagnostics.push_back("User CAD face group '" + group.name + "' is empty or has an invalid dimension.");
+                continue;
+            }
+            const std::set<int> requestedFaces(group.ids.begin(), group.ids.end());
+            std::set<int> mappedFaces;
+            std::set<int> surfaceTags;
+            for (const auto& [surfaceTag, surfaceFaces] : facesOfSurface) {
+                for (const int faceId : surfaceFaces) {
+                    if (requestedFaces.count(faceId)) {
+                        mappedFaces.insert(faceId);
+                        surfaceTags.insert(surfaceTag);
+                    }
+                }
+            }
+            if (mappedFaces.size() != requestedFaces.size()) {
+                std::string missing;
+                for (const int faceId : requestedFaces)
+                    if (!mappedFaces.count(faceId))
+                        missing += (missing.empty() ? "" : ", ") + std::to_string(faceId);
+                m_diagnostics.push_back("User CAD face group '" + group.name +
+                    "' was not mapped completely; missing CAD face id(s): " + missing + ". No physical group was created.");
+                continue;
+            }
+            const auto ids = collect(2, surfaceTags);
+            if (ids.empty()) {
+                m_diagnostics.push_back("User CAD face group '" + group.name + "' matched no boundary elements.");
                 continue;
             }
             mesh.addPhysicalGroup(uniqueName(group.name, 2), 2, nextTag(2), ids);
