@@ -91,7 +91,8 @@ int main() {
         require(!mesher.buildMesh(cad, invalid, unchanged), "TetGen accepted an invalid element size");
 
         std::cout << "TetGen integration passed: " << volume.getNumNodes() << " nodes, "
-                  << volume.getNumElements() << " tetrahedra\n";
+                  << volume.getElementBlock("TetGen_Volume").size() << " tetrahedra and "
+                  << volume.getElementBlock("TetGen_Surface").size() << " boundary triangles\n";
         return EXIT_SUCCESS;
     } catch (const std::exception& error) {
         std::cerr << "TetGen integration failed: " << error.what() << '\n';
