@@ -1,5 +1,10 @@
 #include <OpenModel/NetgenMesher.hpp>
 
+#include <algorithm>
+#include <map>
+#include <set>
+#include <unordered_map>
+
 std::string NetgenMesher::getName() const  {
  return "Netgen Mesher"; 
 }
@@ -88,6 +93,109 @@ bool NetgenMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Me
                 candidate.addElement("Netgen_Volume", type,
                                      static_cast<ElementId>(i), connectivity);
             }
+
+            // Export Netgen's boundary elements as first-class OpenModel
+            // elements. The C API does not expose a stable CAD face ID for
+            // each surface element, so map element centroids through CADModel.
+            const int surfaceCount = Ng_GetNSE(mesh);
+            if (surfaceCount < 0) throw std::runtime_error("Netgen returned a negative surface-element count");
+            std::map<int, std::vector<ElementId>> elementsByCadFace;
+            std::map<int, std::vector<NodeIndex>> nodesByCadFace;
+            std::array<double, 3> lower{{1e300, 1e300, 1e300}};
+            std::array<double, 3> upper{{-1e300, -1e300, -1e300}};
+            for (int i = 1; i <= pointCount; ++i) {
+                double xyz[3] = {};
+                Ng_GetPoint(mesh, i, xyz);
+                for (int k = 0; k < 3; ++k) {
+                    lower[static_cast<std::size_t>(k)] = std::min(lower[static_cast<std::size_t>(k)], xyz[k]);
+                    upper[static_cast<std::size_t>(k)] = std::max(upper[static_cast<std::size_t>(k)], xyz[k]);
+                }
+            }
+            const double dx = upper[0] - lower[0], dy = upper[1] - lower[1], dz = upper[2] - lower[2];
+            const double mappingTolerance = std::max(1e-6 * std::sqrt(dx * dx + dy * dy + dz * dz), 1e-9);
+
+            for (int i = 1; i <= surfaceCount; ++i) {
+                int pointIds[NG_SURFACE_ELEMENT_MAXPOINTS] = {};
+                const auto nativeType = Ng_GetSurfaceElement(mesh, i, pointIds);
+                ElementType type = ElementType::Unknown;
+                std::size_t cornerCount = 0;
+                switch (nativeType) {
+                case NG_TRIG: type = ElementType::Triangle3; cornerCount = 3; break;
+                case NG_QUAD: type = ElementType::Quadrilateral4; cornerCount = 4; break;
+                case NG_TRIG6: type = ElementType::Triangle6; cornerCount = 3; break;
+                case NG_QUAD8: type = ElementType::Quadrilateral8; cornerCount = 4; break;
+                case NG_QUAD6:
+                    throw std::runtime_error("Netgen returned NG_QUAD6, which has no matching OpenModel element topology");
+                default:
+                    throw std::runtime_error("Netgen returned an unsupported surface element type");
+                }
+                const auto nodeCount = elementNodeCount(type);
+                if (nodeCount == 0) throw std::runtime_error("Netgen surface element topology is unsupported");
+                std::vector<NodeIndex> connectivity;
+                connectivity.reserve(nodeCount);
+                std::array<double, 3> centroid{{0.0, 0.0, 0.0}};
+                for (std::size_t local = 0; local < nodeCount; ++local) {
+                    if (pointIds[local] < 1 || pointIds[local] > pointCount)
+                        throw std::runtime_error("Netgen surface element references an invalid point number");
+                    const auto index = static_cast<NodeIndex>(pointIds[local] - 1);
+                    connectivity.push_back(index);
+                    if (local < cornerCount) {
+                        const auto xyz = candidate.nodeCoordinates(index);
+                        for (int k = 0; k < 3; ++k)
+                            centroid[static_cast<std::size_t>(k)] += xyz[static_cast<std::size_t>(k)] /
+                                                                      static_cast<double>(cornerCount);
+                    }
+                }
+                const ElementId surfaceId = static_cast<ElementId>(elementCount) + static_cast<ElementId>(i);
+                candidate.addElement("Netgen_Surface", type, surfaceId, connectivity);
+                const auto faceHits = cadModel->facesContainingPoint(centroid, mappingTolerance);
+                for (const int faceId : faceHits) {
+                    elementsByCadFace[faceId].push_back(surfaceId);
+                    auto& faceNodes = nodesByCadFace[faceId];
+                    faceNodes.insert(faceNodes.end(), connectivity.begin(), connectivity.end());
+                }
+            }
+
+            std::vector<CADGroup> requestedFaceGroups;
+            for (const auto& group : cadModel->getGroups())
+                if (group.dimension == 2) requestedFaceGroups.push_back(group);
+            requestedFaceGroups.insert(requestedFaceGroups.end(),
+                                       options.additionalFaceGroups.begin(),
+                                       options.additionalFaceGroups.end());
+            std::set<std::string> usedGroupNames;
+            for (const auto& group : requestedFaceGroups) {
+                if (group.dimension != 2 || group.ids.empty()) continue;
+                const std::set<int> faceIds(group.ids.begin(), group.ids.end());
+                std::vector<ElementId> elementIds;
+                std::vector<NodeIndex> nodeIndices;
+                std::vector<int> missing;
+                for (const int faceId : faceIds) {
+                    const auto elements = elementsByCadFace.find(faceId);
+                    const auto nodes = nodesByCadFace.find(faceId);
+                    if (elements == elementsByCadFace.end() || nodes == nodesByCadFace.end()) {
+                        missing.push_back(faceId);
+                        continue;
+                    }
+                    elementIds.insert(elementIds.end(), elements->second.begin(), elements->second.end());
+                    nodeIndices.insert(nodeIndices.end(), nodes->second.begin(), nodes->second.end());
+                }
+                if (!missing.empty()) {
+                    std::string message = "Netgen could not map every CAD face in group '" + group.name + "'. Missing face IDs:";
+                    for (const int id : missing) message += " " + std::to_string(id);
+                    throw std::runtime_error(message);
+                }
+                if (elementIds.empty()) continue;
+                std::sort(nodeIndices.begin(), nodeIndices.end());
+                nodeIndices.erase(std::unique(nodeIndices.begin(), nodeIndices.end()), nodeIndices.end());
+                const std::string name = group.name.empty() ? "CAD_Face_Group" : group.name;
+                if (!usedGroupNames.insert(name).second)
+                    throw std::runtime_error("Netgen CAD face groups contain duplicate names: " + name);
+                candidate.addMeshGroup(MeshGroup{name, 2, MeshGroupSource::CAD,
+                                                  std::vector<int>(faceIds.begin(), faceIds.end()),
+                                                  std::move(elementIds), std::move(nodeIndices)});
+            }
+            if (!requestedFaceGroups.empty() && elementsByCadFace.empty())
+                throw std::runtime_error("Netgen surface mesh could not be mapped to CAD face IDs.");
 
             const auto structuralErrors = candidate.validate();
             if (!structuralErrors.empty())
