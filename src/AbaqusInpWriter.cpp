@@ -3,6 +3,7 @@
 std::string AbaqusInpWriter::abaqusElementType(ElementType type) {
 
         switch (type) {
+        case ElementType::Line2: return "T3D2";
         case ElementType::Triangle3: return "S3";
         case ElementType::Triangle6: return "S6";
         case ElementType::Quadrilateral4: return "S4";
