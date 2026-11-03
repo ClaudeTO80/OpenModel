@@ -247,9 +247,9 @@ void testGenericMeshGroupExport() {
     CHECK(error.empty());
     if (error.empty()) {
         const auto mail = slurp(dir / "groups.mail");
-        CHECK(contains(mail, "GROUP_MA NOM = CAD_EDGE\\n M101\\nFINSF"));
-        CHECK(contains(mail, "GROUP_NO NOM = CAD_EDGE_NODES\\n N1 N2\\nFINSF"));
-        CHECK(contains(mail, "GROUP_NO NOM = CAD_VERTEX_NODES\\n N3\\nFINSF"));
+        CHECK(contains(mail, "GROUP_MA NOM = CAD_EDGE\n M101\nFINSF"));
+        CHECK(contains(mail, "GROUP_NO NOM = CAD_EDGE_NODES\n N1 N2\nFINSF"));
+        CHECK(contains(mail, "GROUP_NO NOM = CAD_VERTEX_NODES\n N3\nFINSF"));
     }
     fs::remove_all(dir);
 }
