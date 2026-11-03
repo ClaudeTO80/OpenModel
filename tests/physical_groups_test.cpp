@@ -81,6 +81,18 @@ int main() {
     assert(faceB->nodeIndices.size() == 3);
     assert(faceA->nodeIndices[1] == faceB->nodeIndices[0]); // shared node is retained in both groups
 
+    // Lower-dimensional groups may be node-only when a backend cannot export
+    // explicit CAD curve/point elements.
+    grouped.addMeshGroup(MeshGroup{"CAD_Edge_1", 1, MeshGroupSource::CAD,
+                                   {21}, {}, {g0, g1}});
+    grouped.addMeshGroup(MeshGroup{"CAD_Vertex_1", 0, MeshGroupSource::CAD,
+                                   {31}, {}, {g0}});
+    const auto* edgeGroup = grouped.getMeshGroupRegistry().find("CAD_Edge_1");
+    const auto* vertexGroup = grouped.getMeshGroupRegistry().find("CAD_Vertex_1");
+    assert(edgeGroup && edgeGroup->dimension == 1 && edgeGroup->elementIds.empty());
+    assert(vertexGroup && vertexGroup->dimension == 0 && vertexGroup->nodeIndices.size() == 1);
+    assert(grouped.validate().empty());
+
     bool duplicateGroupRejected = false;
     try { grouped.addMeshGroup(MeshGroup{"CAD_Face_A", 2, MeshGroupSource::CAD, {}, {}, {}}); }
     catch (const std::invalid_argument&) { duplicateGroupRejected = true; }
