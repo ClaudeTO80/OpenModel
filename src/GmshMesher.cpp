@@ -568,8 +568,10 @@ void GmshMesher::mapCadGroups(const CADModel& cad, MeshData& mesh,
             }
             const auto groupName = uniqueName(group.name, 1);
             mesh.addPhysicalGroup(groupName, 1, nextTag(1), ids);
+            const auto edgeNodes = collectNodes(ids);
+            mesh.addNodeSet(groupName + "_NODES", edgeNodes);
             mesh.addMeshGroup(MeshGroup{groupName, 1, MeshGroupSource::CAD,
-                                        group.ids, ids, collectNodes(ids)});
+                                        group.ids, ids, edgeNodes});
             ++edgeGroups;
         }
     }
@@ -604,6 +606,7 @@ void GmshMesher::mapCadGroups(const CADModel& cad, MeshData& mesh,
             std::sort(nodes.begin(), nodes.end());
             nodes.erase(std::unique(nodes.begin(), nodes.end()), nodes.end());
             const auto groupName = uniqueName(group.name, 0);
+            mesh.addNodeSet(groupName + "_NODES", nodes);
             mesh.addMeshGroup(MeshGroup{groupName, 0, MeshGroupSource::CAD,
                                         group.ids, {}, std::move(nodes)});
             ++vertexGroups;
