@@ -1,6 +1,8 @@
 #include <OpenModel/OpenModelProject.hpp>
 
 #include <algorithm>
+#include <cctype>
+#include <iterator>
 #include <fstream>
 #include <iomanip>
 #include <set>
