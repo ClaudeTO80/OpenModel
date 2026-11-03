@@ -139,7 +139,7 @@ function countPixels(png, pred) {
   check(/TetGen/.test(tmsg) && /does not transfer CAD components/.test(tmsg), 'TetGen reports that it does not transfer CAD groups');
 
   // 6. Analysis conditions are listed and can be edited/removed without editing unrelated lines.
-  await page.fill('#anScript', 'material E=210000 nu=0.3\\nfix group:CLAMP dof=1,2,3 value=0,0,0\\nforce group:LOAD F=0,0,-10\\nstep static\\n');
+  await page.fill('#anScript', 'material E=210000 nu=0.3\nfix group:CLAMP dof=1,2,3 value=0,0,0\nforce group:LOAD F=0,0,-10\nstep static\n');
   await page.waitForFunction(() => document.querySelectorAll('#analysisConditions > li button').length === 8);
   check(await page.locator('#analysisConditions > li').count() === 4, 'analysis condition list recognises material, support, load and step');
   page.once('dialog', (dialog) => dialog.accept('fix group:CLAMP dof=1,2 value=0.1,0,0'));
