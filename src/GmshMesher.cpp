@@ -415,7 +415,14 @@ void GmshMesher::mapCadGroups(const CADModel& cad, MeshData& mesh,
             }
             for (const int f : common) {
                 const auto owners = ownersOfFace.find(f);
-                if (owners == ownersOfFace.end()) continue;
+                // Some neutral CAD files have no assembly/component metadata. In
+                // that case geometric face matching plus adjacency to a CAD solid
+                // is the available evidence; otherwise use ownership to disambiguate
+                // coincident faces belonging to different component instances.
+                if (owners == ownersOfFace.end()) {
+                    if (components.empty()) facesOfSurface[surface.second].insert(f);
+                    continue;
+                }
                 bool owned = false;
                 for (const CADComponent* component : owners->second)
                     for (const int s : component->solidIds)
