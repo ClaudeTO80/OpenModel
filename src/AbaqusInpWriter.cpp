@@ -90,7 +90,11 @@ AbaqusWriteResult AbaqusInpWriter::writeFile(const std::string& path,
         for (const auto& group : mesh.getMeshGroupRegistry().groups()) {
             const auto base = sanitizeName(group.name);
             if (base.empty()) result.errors.push_back("Mesh group name has no valid Abaqus set-name characters: '" + group.name + "'");
-            if (!group.elementIds.empty() && !exportedSetNames.insert(base).second)
+            bool representedByPhysicalGroup = false;
+            for (const auto& physical : mesh.getPhysicalGroups())
+                if (physical.name == group.name && physical.dimension == group.dimension &&
+                    physical.elementIds == group.elementIds) { representedByPhysicalGroup = true; break; }
+            if (!group.elementIds.empty() && !representedByPhysicalGroup && !exportedSetNames.insert(base).second)
                 result.errors.push_back("Mesh group element-set name collides after Abaqus name sanitization: '" + group.name + "'");
             if (!group.nodeIndices.empty()) {
                 const auto nodeName = sanitizeName(group.name + "_NODES");
@@ -184,6 +188,11 @@ AbaqusWriteResult AbaqusInpWriter::writeFile(const std::string& path,
         }
         for (const auto& group : mesh.getMeshGroupRegistry().groups()) {
             if (group.elementIds.empty()) continue;
+            bool representedByPhysicalGroup = false;
+            for (const auto& physical : mesh.getPhysicalGroups())
+                if (physical.name == group.name && physical.dimension == group.dimension &&
+                    physical.elementIds == group.elementIds) { representedByPhysicalGroup = true; break; }
+            if (representedByPhysicalGroup) continue;
             content << "** MESH_GROUP, DIMENSION=" << group.dimension
                     << ", SOURCE=" << (group.source == MeshGroupSource::CAD ? "CAD" :
                         group.source == MeshGroupSource::Imported ? "IMPORTED" : "USER_DEFINED") << "\n";
