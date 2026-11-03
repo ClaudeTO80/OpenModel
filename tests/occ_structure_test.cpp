@@ -94,6 +94,15 @@ int main() {
     CHECK(top && top->dimension == 2 && top->ids.size() == 1);
     CHECK(layer->ids == top->ids);
 
+    const auto* edgeLayer = findGroup(groups, "EdgeLayer");
+    const auto* vertexLayer = findGroup(groups, "VertexLayer");
+    const auto* namedEdge = findGroup(groups, "BaseEdge");
+    const auto* namedVertex = findGroup(groups, "BaseVertex");
+    CHECK(edgeLayer && edgeLayer->dimension == 1 && !edgeLayer->ids.empty());
+    CHECK(vertexLayer && vertexLayer->dimension == 0 && !vertexLayer->ids.empty());
+    CHECK(namedEdge && namedEdge->dimension == 1 && !namedEdge->ids.empty());
+    CHECK(namedVertex && namedVertex->dimension == 0 && !namedVertex->ids.empty());
+
     // Geometric queries: the named face lies at z = 10; (5,5,12) is inside the cover; (5,5,5) inside the base.
     const double tol = 1e-6;
     const auto onTop = model.facesContainingPoint({{5, 5, 10}}, tol);
