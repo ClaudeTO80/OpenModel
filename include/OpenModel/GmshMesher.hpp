@@ -61,7 +61,8 @@ private:
     void mapCadGroups(const CADModel& cad, MeshData& mesh,
                       const std::unordered_map<std::size_t, NodeIndex>& nodeTagToIndex,
                       const std::map<std::pair<int, int>, std::vector<ElementId>>& elementIdsByEntity,
-                      std::set<std::string>& usedPhysicalNames);
+                      std::set<std::string>& usedPhysicalNames,
+                      const std::vector<CADGroup>& additionalFaceGroups);
 
     std::string m_lastError;
     std::vector<std::string> m_diagnostics;
