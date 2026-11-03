@@ -638,7 +638,7 @@ function showCADFaceGroup(group) {
   const faces = [];
   for (let t = 0; t < m.triRegion.length; ++t) {
     const region = m.triRegion[t], pg = region > 0 ? m.meta.groups[region - 1] : null;
-    const match = pg && /^__openmodel_cad_face_(\\d+)$/.exec(pg.name);
+    const match = pg && /^__openmodel_cad_face_(\d+)$/.exec(pg.name);
     if (!match || !wanted.has(Number(match[1]))) continue;
     faces.push({element: m.triElementId[t], nodes: [0,1,2].map((k) => m.vertexNodeId[m.triIndices[3*t+k]])});
   }
