@@ -39,7 +39,7 @@ struct CompiledSelector {
 bool matches(const CompiledSelector& compiled, const Vec3& a, const Vec3& b,
              const Vec3& c, const Vec3& triangleNormal) {
     const auto& s = compiled.selector;
-    if (s.constrainNormal &&
+    if ((s.kind == AssimpSurfaceSelectorKind::Normal || s.constrainNormal) &&
         std::abs(dot(triangleNormal, compiled.unitDirection)) + 1e-12 < s.minNormalAlignment)
         return false;
 
