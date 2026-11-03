@@ -1,5 +1,7 @@
 #include <OpenModel/MeshData.hpp>
 
+#include <type_traits>
+
 std::size_t elementNodeCount(ElementType type) noexcept {
     switch (type) {
     case ElementType::Point1: return 1;
