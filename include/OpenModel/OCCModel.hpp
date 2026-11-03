@@ -55,7 +55,7 @@ private:
     std::vector<Bnd_Box> m_edgeBoxes;
     std::vector<Bnd_Box> m_vertexBoxes;
 
-    /** @brief Fill the unique solid/face maps and their bounding boxes from m_rawShape. */
+    /** @brief Fill unique solid/face/edge/vertex maps and their bounding boxes from m_rawShape. */
     void indexShape();
 
     /**
