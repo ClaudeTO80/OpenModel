@@ -150,6 +150,13 @@ void testStableConditionIds() {
     CHECK(!duplicate.success && hasCode(duplicate.diagnostics, "SCRIPT_DUPLICATE_ID"));
     const auto invalid = parseAnalysisScript("material id=bad/id E=1 nu=0.3\n");
     CHECK(!invalid.success && hasCode(invalid.diagnostics, "SCRIPT_BAD_ID"));
+    const auto generatedCollision = parseAnalysisScript(
+        "material E=1 nu=0.3\n"
+        "fix id=fix-1 all\n"
+        "fix all\n");
+    CHECK(generatedCollision.success);
+    CHECK(generatedCollision.model.supports[0].id == "fix-1");
+    CHECK(generatedCollision.model.supports[1].id == "fix-2");
 }
 
 void testParser() {
