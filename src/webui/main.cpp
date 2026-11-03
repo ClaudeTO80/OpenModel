@@ -213,6 +213,112 @@ fs::path absolutePath(const std::string& text) {
     return ec ? fs::path(text) : path;
 }
 
+/** Sidecar identity: face indices are only meaningful for the exact imported source file. */
+bool cadSourceFingerprint(const fs::path& source, std::uintmax_t& size, long long& modified) {
+    std::error_code ec;
+    size = fs::file_size(source, ec);
+    if (ec) return false;
+    const auto stamp = fs::last_write_time(source, ec);
+    if (ec) return false;
+    modified = static_cast<long long>(stamp.time_since_epoch().count());
+    return true;
+}
+
+fs::path cadGroupsPath(const std::string& source) {
+    return fs::path(source + ".omgroups");
+}
+
+bool saveCADFaceGroups(const std::string& source, const std::vector<UserCADFaceGroup>& groups, std::string& error) {
+    std::uintmax_t size = 0;
+    long long modified = 0;
+    if (!cadSourceFingerprint(source, size, modified)) {
+        error = "Impossibile leggere dimensione/data del file CAD per salvare i gruppi.";
+        return false;
+    }
+    const auto target = cadGroupsPath(source);
+    const auto temporary = fs::path(target.string() + ".tmp");
+    {
+        std::ofstream out(temporary, std::ios::trunc);
+        if (!out) { error = "Impossibile creare il sidecar dei gruppi CAD: " + temporary.string(); return false; }
+        out << "OPENMODEL_CAD_FACE_GROUPS 1\\n" << std::quoted(source) << ' ' << size << ' ' << modified << '\\n';
+        out << groups.size() << '\\n';
+        for (const auto& group : groups) {
+            out << std::quoted(group.name) << ' ' << group.faceIds.size();
+            for (const int id : group.faceIds) out << ' ' << id;
+            out << '\\n';
+        }
+        if (!out) { error = "Scrittura del sidecar dei gruppi CAD fallita."; return false; }
+    }
+    std::error_code ec;
+    fs::rename(temporary, target, ec);
+    if (ec) {
+        // Windows does not replace an existing destination with rename().
+        std::error_code removeError;
+        fs::remove(target, removeError);
+        ec.clear();
+        fs::rename(temporary, target, ec);
+    }
+    if (ec) { error = "Impossibile finalizzare il sidecar: " + ec.message(); return false; }
+    return true;
+}
+
+bool loadCADFaceGroups(const std::string& source, const SurfaceMesh& surface,
+                       std::vector<UserCADFaceGroup>& groups, std::string& note) {
+    groups.clear();
+    const auto path = cadGroupsPath(source);
+    std::error_code ec;
+    if (!fs::exists(path, ec)) return true;
+    std::ifstream in(path);
+    std::string magic;
+    int version = 0;
+    std::string storedSource;
+    std::uintmax_t storedSize = 0;
+    long long storedModified = 0;
+    if (!(in >> magic >> version) || magic != "OPENMODEL_CAD_FACE_GROUPS" || version != 1 ||
+        !(in >> std::quoted(storedSource) >> storedSize >> storedModified)) {
+        note = "Sidecar dei gruppi CAD non valido: ignorato.";
+        return false;
+    }
+    std::uintmax_t actualSize = 0;
+    long long actualModified = 0;
+    if (!cadSourceFingerprint(source, actualSize, actualModified) ||
+        storedSource != source || storedSize != actualSize || storedModified != actualModified) {
+        note = "Sidecar dei gruppi CAD riferito a una versione diversa del file: ignorato per evitare associazioni errate.";
+        return false;
+    }
+    std::set<int> availableFaces;
+    for (const auto& part : surface.parts) if (part.sourceFaceId >= 0) availableFaces.insert(part.sourceFaceId);
+    std::size_t count = 0;
+    if (!(in >> count) || count > 10000) { note = "Numero di gruppi CAD non valido: sidecar ignorato."; return false; }
+    std::vector<UserCADFaceGroup> loaded;
+    std::set<std::string> names;
+    for (std::size_t i = 0; i < count; ++i) {
+        UserCADFaceGroup group;
+        std::size_t faceCount = 0;
+        if (!(in >> std::quoted(group.name) >> faceCount) || group.name.empty() || faceCount == 0 || faceCount > availableFaces.size() ||
+            !names.insert(group.name).second) {
+            note = "Definizione di gruppo CAD non valida: sidecar ignorato.";
+            return false;
+        }
+        for (std::size_t j = 0; j < faceCount; ++j) {
+            int id = -1;
+            if (!(in >> id) || availableFaces.count(id) == 0) {
+                note = "Il sidecar contiene un ID faccia non presente nel CAD importato: gruppi ignorati.";
+                return false;
+            }
+            group.faceIds.push_back(id);
+        }
+        std::sort(group.faceIds.begin(), group.faceIds.end());
+        if (std::adjacent_find(group.faceIds.begin(), group.faceIds.end()) != group.faceIds.end()) {
+            note = "Il sidecar contiene facce duplicate: gruppi ignorati.";
+            return false;
+        }
+        loaded.push_back(std::move(group));
+    }
+    groups = std::move(loaded);
+    return true;
+}
+
 /** Appends extension to a base name unless it is already present. */
 std::string withExtension(const std::string& base, const std::string& ext) {
     if (lowerExtension(fs::path(base)) == ext) return base;
