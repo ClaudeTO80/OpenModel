@@ -28,7 +28,7 @@ int main() {
             // AABB selector: x=2
             2,0,0,  2,1,0,  2,0,1,
             // Cylinder side selector: radius=1 around the Z axis
-            1,0,0,  0,1,0,  1,0,1,
+            -1,0,0,  0,-1,0,  -1,0,1,
             // Two adjacent triangles forming one planar connected patch
             4,0,0,  4,1,0,  4,0,1,  4,1,1
         };
