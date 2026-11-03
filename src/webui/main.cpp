@@ -46,6 +46,7 @@
 #include <cmath>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <iomanip>
 #include <memory>
 #include <map>
@@ -644,6 +645,8 @@ void importModel(webui_event_t* e) {
     reply(e, true, "Modello importato e triangolato.\nFile: " + g.source + structure + "\nParti: " + std::to_string(g.surface.parts.size()) +
         "\nVertici: " + std::to_string(g.surface.vertexCount()) + "\nTriangoli: " + std::to_string(g.surface.triangleCount()) +
         "\nDeflessione lineare: " + std::to_string(g.linearDeflection) + "\nDeflessione angolare: " + std::to_string(g.angularDeflection) +
+        "\nGruppi CAD utente: " + std::to_string(g.cadFaceGroups.size()) +
+        (g.cadGroupsNote.empty() ? "" : "\n" + g.cadGroupsNote) +
         (g.viewNote.empty() ? "" : "\n" + g.viewNote));
 }
 
@@ -1349,6 +1352,8 @@ void getStatus(webui_event_t* e) {
     if (g.surface.empty()) out << "\nSuperficie CAD: non disponibile";
     else out << "\nSuperficie CAD: " << g.surface.parts.size() << " parti, " << g.surface.vertexCount() << " vertici, "
              << g.surface.triangleCount() << " triangoli (deflessioni " << g.linearDeflection << " / " << g.angularDeflection << ")";
+    out << "\nGruppi di facce CAD: " << g.cadFaceGroups.size();
+    if (!g.cadGroupsNote.empty()) out << "\n" << g.cadGroupsNote;
     if (g.mesh.getNumNodes() == 0) {
         out << "\nMesh volumetrica: non disponibile";
     } else {
