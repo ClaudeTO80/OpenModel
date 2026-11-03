@@ -325,6 +325,8 @@ iframe{display:block;width:100%;height:100%;border:0;background:#10141b}
     <button id="btnGrpFace" onclick="makeGroup('face')" style="margin-top:6px">Gruppo facce</button>
     <label for="asDof">Vincolo: gradi di libertà (1,2,3 = x,y,z)</label>
     <input id="asDof" value="1,2,3">
+    <label for="asValue">Spostamento prescritto ux,uy,uz (unità del modello)</label>
+    <input id="asValue" value="0,0,0">
     <label for="asForce">Forza totale Fx,Fy,Fz</label>
     <input id="asForce" value="0,0,-100">
     <label for="asPress">Pressione (positiva = verso il corpo)</label>
@@ -649,8 +651,19 @@ async function createCADFaceGroup() {
   const r = await act("openmodel_create_cad_face_group", name, selectedCadFaceIds.join(","));
   if (r && r.ok) $("cadGrpName").value = "";
 }
+function buildFixedSupportLine(selector) {
+  const dofs = $("asDof").value.split(",").map((x) => x.trim()).filter(Boolean);
+  if (!dofs.length || !dofs.every((d) => ["1", "2", "3"].includes(d)) || new Set(dofs).size !== dofs.length) {
+    show("Gradi di libertà non validi: usa 1, 2, 3 senza duplicati.", "bad"); return null;
+  }
+  const value = numList($("asValue").value, 3);
+  if (!value) { show("Lo spostamento prescritto richiede tre numeri ux,uy,uz.", "bad"); return null; }
+  const dofText = dofs.length === 3 ? "" : " dof=" + dofs.join(",");
+  return "fix " + selector + dofText + " value=" + value.join(",");
+}
 function addCADGroupFixedSupport(nodeSetName) {
-  const line = "fix group:" + nodeSetName + " dof=1,2,3";
+  const line = buildFixedSupportLine("group:" + nodeSetName);
+  if (!line) return;
   const editor = $("anScript");
   const lines = editor.value.split(/\r?\n/);
   if (lines.some((existing) => existing.trim().toLowerCase() === line.toLowerCase())) {
@@ -720,9 +733,8 @@ async function assign(type) {
   if (!sel) { show("Seleziona prima nodi, elementi o facce nel viewer.", "bad"); return; }
   let line, kind = "node";
   if (type === "fix") {
-    const dofs = $("asDof").value.split(",").map((x) => x.trim()).filter(Boolean);
-    if (!dofs.length || !dofs.every((d) => ["1", "2", "3"].includes(d))) { show("Gradi di libertà non validi: usa 1, 2, 3 separati da virgole.", "bad"); return; }
-    line = (g) => "fix group:" + g + (dofs.length === 3 && new Set(dofs).size === 3 ? "" : " dof=" + [...new Set(dofs)].join(","));
+    line = (g) => buildFixedSupportLine("group:" + g);
+    if (!line("VALIDATION_ONLY")) return;
   } else if (type === "force") {
     const f = numList($("asForce").value, 3);
     if (!f) { show("La forza richiede tre numeri Fx,Fy,Fz separati da virgole.", "bad"); return; }
