@@ -414,6 +414,10 @@ SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& mo
             solid.addPhysicalGroup(g.name, g.dimension, g.tag, ids, g.materialName);
         }
     }
+    // Preserve user/imported node sets in the analysis deck. The volume-only
+    // mesh retains all original nodes, so their node-index memberships remain valid.
+    for (const auto& nodeSet : mesh.getNodeSets())
+        solid.addNodeSet(nodeSet.first, nodeSet.second);
     r.nodes = solid.getNumNodes();
     r.elements = volumeIds.size();
 
