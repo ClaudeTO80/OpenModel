@@ -115,6 +115,14 @@ int main() {
         require(cylinderNodes != mesh.getNodeSets().end() && cylinderNodes->second.size() == 3,
                 "Cylinder node set is missing or incorrect.");
         require(mesh.getNumElements() == 6, "Surface import did not preserve all source triangles.");
+        require(mesher.sourceTriangleElementIds().size() == model->getRenderMeshes().size(),
+                "Assimp source-triangle map does not contain every imported part.");
+        std::size_t mappedElements = 0;
+        for (const auto& partMap : mesher.sourceTriangleElementIds())
+            mappedElements += static_cast<std::size_t>(std::count_if(partMap.begin(), partMap.end(),
+                [](ElementId id) { return id != 0; }));
+        require(mappedElements == mesh.getNumElements(),
+                "Assimp source-triangle map does not cover imported FEM elements exactly.");
 
         // Analyze connected patches independently of CAD topology.
         std::vector<AssimpSurfacePatch> patches;
@@ -237,6 +245,8 @@ int main() {
         MeshData rejected;
         require(!mesher.buildMesh(model, volumeOptions, std::vector<AssimpSurfaceSelector>{plane}, rejected),
                 "Assimp surface adapter must reject volume-mesh requests.");
+        require(mesher.sourceTriangleElementIds().empty(),
+                "Rejected Assimp build retained a stale source-element map.");
 
         std::error_code ec;
         std::filesystem::remove(path, ec);
