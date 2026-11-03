@@ -1315,6 +1315,16 @@ void replyCADFaceGroups(webui_event_t* e, bool ok, const std::string& message) {
     webui_return_string(e, out.str().c_str());
 }
 
+/** A changed CAD group invalidates a generated mesh and its derived Node Sets. */
+void invalidateGeneratedMeshForCADGroups() {
+    if (g.origin != MeshOrigin::Generated) return;
+    clearResults();
+    g.mesh = MeshData{};
+    g.origin = MeshOrigin::None;
+    g.meshLabel.clear();
+    updateView();
+}
+
 void listCADFaceGroupsHandler(webui_event_t* e) {
     StateLock lock;
     if (!lock.ok()) { replyBusy(e); return; }
@@ -1377,6 +1387,7 @@ void createCADFaceGroupHandler(webui_event_t* e) {
     }
     g.cadFaceGroups = std::move(candidate);
     g.cadGroupsNote.clear();
+    invalidateGeneratedMeshForCADGroups();
     replyCADFaceGroups(e, true, "Gruppo CAD «" + name + "» creato e salvato (" +
         std::to_string(group.faceIds.size()) + " facce). Sidecar: " + cadGroupsPath(g.source).string());
 }
@@ -1428,6 +1439,7 @@ void updateCADFaceGroupHandler(webui_event_t* e) {
         return;
     }
     g.cadFaceGroups = std::move(candidate);
+    invalidateGeneratedMeshForCADGroups();
     replyCADFaceGroups(e, true, "Gruppo CAD «" + name + "» aggiornato: " +
         std::to_string(selected.size()) + " facce.");
 }
@@ -1450,6 +1462,7 @@ void deleteCADFaceGroupHandler(webui_event_t* e) {
         return;
     }
     g.cadFaceGroups = std::move(candidate);
+    invalidateGeneratedMeshForCADGroups();
     replyCADFaceGroups(e, true, "Gruppo CAD «" + name + "» eliminato.");
 }
 
