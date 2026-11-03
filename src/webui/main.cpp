@@ -1223,6 +1223,114 @@ void showGroupHandler(webui_event_t* e) {
     replyGroups(e, true, skipped ? std::to_string(skipped) + " elementi di superficie non corrispondono a una faccia e non sono mostrati." : "", selection.mode, selectionPayload(selection));
 }
 
+std::string cadFaceGroupsJson() {
+    std::ostringstream out;
+    out << '[';
+    for (std::size_t i = 0; i < g.cadFaceGroups.size(); ++i) {
+        if (i) out << ',';
+        const auto& group = g.cadFaceGroups[i];
+        out << "{\\\"name\\\":\\\"" << jsonEscape(group.name) << "\\\",\\\"faceCount\\\":" << group.faceIds.size() << ",\\\"faceIds\\\":[";
+        for (std::size_t j = 0; j < group.faceIds.size(); ++j) {
+            if (j) out << ',';
+            out << group.faceIds[j];
+        }
+        out << "]}";
+    }
+    out << ']';
+    return out.str();
+}
+
+void replyCADFaceGroups(webui_event_t* e, bool ok, const std::string& message) {
+    std::ostringstream out;
+    out << "{\\\"ok\\\":" << (ok ? "true" : "false") << ",\\\"message\\\":\\\"" << jsonEscape(message)
+        << "\\\",\\\"cadGroups\\\":" << cadFaceGroupsJson() << '}';
+    webui_return_string(e, out.str().c_str());
+}
+
+void listCADFaceGroupsHandler(webui_event_t* e) {
+    StateLock lock;
+    if (!lock.ok()) { replyBusy(e); return; }
+    replyCADFaceGroups(e, true, g.cadGroupsNote);
+}
+
+void createCADFaceGroupHandler(webui_event_t* e) {
+    StateLock lock;
+    if (!lock.ok()) { replyBusy(e); return; }
+    if (!g.cad || g.surface.empty() || g.source.empty()) {
+        replyCADFaceGroups(e, false, "Importa prima un modello CAD e triangolalo.");
+        return;
+    }
+    const std::string name = getStringArg(e, 0);
+    if (!OpenModel::isValidGroupName(name)) {
+        replyCADFaceGroups(e, false, "Nome non valido: usa lettere, cifre, underscore, trattino o punto.");
+        return;
+    }
+    if (std::any_of(g.cadFaceGroups.begin(), g.cadFaceGroups.end(), [&](const auto& group) { return group.name == name; })) {
+        replyCADFaceGroups(e, false, "Esiste già un gruppo CAD chiamato «" + name + "».");
+        return;
+    }
+    std::set<int> available;
+    for (const auto& part : g.surface.parts) if (part.sourceFaceId >= 0) available.insert(part.sourceFaceId);
+    std::set<int> selected;
+    std::stringstream input(getStringArg(e, 1));
+    std::string token;
+    while (std::getline(input, token, ',')) {
+        if (token.empty()) continue;
+        try {
+            std::size_t used = 0;
+            const long value = std::stol(token, &used);
+            if (used != token.size() || value < 0 || value > std::numeric_limits<int>::max() ||
+                available.count(static_cast<int>(value)) == 0) {
+                replyCADFaceGroups(e, false, "La selezione contiene un ID faccia non valido per il CAD corrente.");
+                return;
+            }
+            selected.insert(static_cast<int>(value));
+        } catch (...) {
+            replyCADFaceGroups(e, false, "La selezione degli ID faccia non è valida.");
+            return;
+        }
+    }
+    if (selected.empty()) {
+        replyCADFaceGroups(e, false, "Seleziona almeno una faccia CAD nel viewer.");
+        return;
+    }
+    UserCADFaceGroup group;
+    group.name = name;
+    group.faceIds.assign(selected.begin(), selected.end());
+    auto candidate = g.cadFaceGroups;
+    candidate.push_back(group);
+    std::string error;
+    if (!saveCADFaceGroups(g.source, candidate, error)) {
+        replyCADFaceGroups(e, false, "Gruppo non salvato: " + error);
+        return;
+    }
+    g.cadFaceGroups = std::move(candidate);
+    g.cadGroupsNote.clear();
+    replyCADFaceGroups(e, true, "Gruppo CAD «" + name + "» creato e salvato (" +
+        std::to_string(group.faceIds.size()) + " facce). Sidecar: " + cadGroupsPath(g.source).string());
+}
+
+void deleteCADFaceGroupHandler(webui_event_t* e) {
+    StateLock lock;
+    if (!lock.ok()) { replyBusy(e); return; }
+    const std::string name = getStringArg(e, 0);
+    auto candidate = g.cadFaceGroups;
+    const auto oldSize = candidate.size();
+    candidate.erase(std::remove_if(candidate.begin(), candidate.end(),
+        [&](const auto& group) { return group.name == name; }), candidate.end());
+    if (candidate.size() == oldSize) {
+        replyCADFaceGroups(e, false, "Gruppo CAD non trovato: " + name);
+        return;
+    }
+    std::string error;
+    if (!saveCADFaceGroups(g.source, candidate, error)) {
+        replyCADFaceGroups(e, false, "Eliminazione non salvata: " + error);
+        return;
+    }
+    g.cadFaceGroups = std::move(candidate);
+    replyCADFaceGroups(e, true, "Gruppo CAD «" + name + "» eliminato.");
+}
+
 void clearResultsHandler(webui_event_t* e) {
     StateLock lock;
     if (!lock.ok()) { replyBusy(e); return; }
