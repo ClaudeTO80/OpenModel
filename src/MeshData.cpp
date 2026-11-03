@@ -180,11 +180,10 @@ void MeshData::addNodeSet(const std::string& setName, const std::vector<NodeInde
             if (index >= m_nodeIds.size()) throw std::out_of_range("MeshData: node set index out of range");
         }
         auto& nodes = m_nodeSets[setName];
-        for (const auto index : indices) {
-            bool found = false;
-            for (const auto existing : nodes) if (existing == index) { found = true; break; }
-            if (!found) nodes.push_back(index);
-        }
+        std::unordered_set<NodeIndex> seen(nodes.begin(), nodes.end());
+        seen.reserve(nodes.size() + indices.size());
+        for (const auto index : indices)
+            if (seen.insert(index).second) nodes.push_back(index);
     
 }
 
