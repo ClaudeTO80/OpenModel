@@ -189,7 +189,7 @@ int main() {
         patchGroups.push_back(filteredPatchGroup);
         std::vector<std::string> groupDiagnostics;
         require(AssimpPatchGroupBuilder::apply(model->getRenderMeshes(), patches,
-                    patchGroups, mesh, groupDiagnostics),
+                    mesher.sourceTriangleElementIds(), patchGroups, mesh, groupDiagnostics),
                 "Assimp patch-to-FEM group conversion failed.");
         const auto* connectedGroup = mesh.getMeshGroupRegistry().find("CONNECTED_PATCH");
         require(connectedGroup && connectedGroup->elementIds.size() == 2 &&
@@ -213,6 +213,7 @@ int main() {
 
         std::vector<std::string> invalidGroupDiagnostics;
         require(!AssimpPatchGroupBuilder::apply(model->getRenderMeshes(), patches,
+                    mesher.sourceTriangleElementIds(),
                     {{"INVALID_PATCH", {patches.size()}, ""}}, mesh, invalidGroupDiagnostics),
                 "Invalid patch references must be rejected.");
         require(mesh.getMeshGroupRegistry().find("INVALID_PATCH") == nullptr,
