@@ -122,6 +122,7 @@ bool AssimpSurfaceMesher::buildMesh(
 
     outMesh.clear();
     m_diagnostics.clear();
+    m_sourceTriangleElementIds.clear();
     if (!model) {
         m_diagnostics.push_back("Assimp model is null.");
         return false;
@@ -189,6 +190,8 @@ bool AssimpSurfaceMesher::buildMesh(
     ElementId nextElementId = 1;
     int physicalTag = 1;
     std::size_t totalTriangles = 0;
+    std::vector<std::vector<ElementId>> sourceTriangleElementIds;
+
 
     for (std::size_t partIndex = 0; partIndex < parts.size(); ++partIndex) {
         const auto& part = parts[partIndex];
@@ -200,6 +203,7 @@ bool AssimpSurfaceMesher::buildMesh(
             return false;
         }
         const std::size_t vertexCount = part.vertices.size() / 3;
+        sourceTriangleElementIds.emplace_back(part.indices.size() / 3, ElementId{0});
         std::vector<NodeIndex> localNodes;
         localNodes.reserve(vertexCount);
         for (std::size_t v = 0; v < vertexCount; ++v) {
@@ -240,6 +244,7 @@ bool AssimpSurfaceMesher::buildMesh(
                                        rawNormal[2] / area2}};
             const ElementId elementId = nextElementId++;
             outMesh.addElement(name, ElementType::Triangle3, elementId, {a, b, c});
+            sourceTriangleElementIds.back()[t / 3] = elementId;
             ++totalTriangles;
 
             for (std::size_t g = 0; g < compiled.size(); ++g) {
@@ -276,6 +281,7 @@ bool AssimpSurfaceMesher::buildMesh(
                                 std::to_string(nodes.size()) + " node(s).");
     }
 
+    m_sourceTriangleElementIds = std::move(sourceTriangleElementIds);
     m_diagnostics.push_back("Assimp surface import: " + std::to_string(parts.size()) +
                             " part(s), " + std::to_string(totalTriangles) + " non-degenerate triangle(s).");
     return !outMesh.isEmpty();
