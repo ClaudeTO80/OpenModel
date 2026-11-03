@@ -111,7 +111,7 @@ bool GmshMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Mesh
             // Keep top-dimensional elements and their codimension-one boundary
             // elements. Point elements and 3-D curve elements are not part of
             // this adapter's current FEM transfer contract.
-            const int minimumExtractedDimension = meshDimension - 1;
+            const int minimumExtractedDimension = options.importCadGroups ? 0 : meshDimension - 1;
             for (int dim = minimumExtractedDimension; dim <= meshDimension; ++dim) {
                 std::vector<std::pair<int, int>> dimensionEntities;
                 gmsh::model::getEntities(dimensionEntities, dim);
@@ -513,6 +513,103 @@ void GmshMesher::mapCadGroups(const CADModel& cad, MeshData& mesh,
             ++faceGroups;
         }
     }
+    // ---- Curves -> CAD edges ---------------------------------------------------------------
+    std::size_t edgeGroups = 0, vertexGroups = 0;
+    bool anyEdgeGroup = false;
+    for (const auto& group : cadGroups) anyEdgeGroup = anyEdgeGroup || group.dimension == 1;
+    if (anyEdgeGroup) {
+        std::vector<std::pair<int, int>> curves;
+        gmsh::model::getEntities(curves, 1);
+        std::map<int, std::set<int>> edgesOfCurve;
+        for (const auto& curve : curves) {
+            std::vector<std::size_t> tags;
+            std::vector<double> xyz, parametric;
+            gmsh::model::mesh::getNodes(tags, xyz, parametric, 1, curve.second, false, false);
+            if (tags.empty())
+                gmsh::model::mesh::getNodes(tags, xyz, parametric, 1, curve.second, true, false);
+            if (tags.empty()) continue;
+            std::set<int> common;
+            bool first = true;
+            for (std::size_t i = 0; i < tags.size(); ++i) {
+                const auto hit = cad.edgesContainingPoint({{xyz[3 * i], xyz[3 * i + 1], xyz[3 * i + 2]}}, tolerance);
+                const std::set<int> hits(hit.begin(), hit.end());
+                if (first) { common = hits; first = false; }
+                else {
+                    std::set<int> intersection;
+                    std::set_intersection(common.begin(), common.end(), hits.begin(), hits.end(),
+                                          std::inserter(intersection, intersection.begin()));
+                    common = std::move(intersection);
+                }
+                if (common.empty()) break;
+            }
+            if (!common.empty()) edgesOfCurve[curve.second] = std::move(common);
+        }
+
+        for (const auto& group : cadGroups) {
+            if (group.dimension != 1 || group.ids.empty()) continue;
+            const std::set<int> requested(group.ids.begin(), group.ids.end());
+            std::set<int> mapped;
+            std::set<int> curveTags;
+            for (const auto& [curveTag, edgeIds] : edgesOfCurve)
+                for (const int edgeId : edgeIds)
+                    if (requested.count(edgeId)) { mapped.insert(edgeId); curveTags.insert(curveTag); }
+            if (mapped.size() != requested.size()) {
+                std::string missing;
+                for (const int id : requested)
+                    if (!mapped.count(id)) missing += (missing.empty() ? "" : ", ") + std::to_string(id);
+                m_diagnostics.push_back("CAD edge group '" + group.name +
+                    "' could not be mapped completely; missing edge id(s): " + missing + ".");
+                continue;
+            }
+            const auto ids = collect(1, curveTags);
+            if (ids.empty()) {
+                m_diagnostics.push_back("CAD edge group '" + group.name + "' matched no 1D mesh elements.");
+                continue;
+            }
+            const auto groupName = uniqueName(group.name, 1);
+            mesh.addPhysicalGroup(groupName, 1, nextTag(1), ids);
+            mesh.addMeshGroup(MeshGroup{groupName, 1, MeshGroupSource::CAD,
+                                        group.ids, ids, collectNodes(ids)});
+            ++edgeGroups;
+        }
+    }
+
+    // ---- CAD vertices -> FEM nodes ----------------------------------------------------------
+    bool anyVertexGroup = false;
+    for (const auto& group : cadGroups) anyVertexGroup = anyVertexGroup || group.dimension == 0;
+    if (anyVertexGroup) {
+        std::map<int, std::vector<NodeIndex>> nodesOfVertex;
+        for (const auto& [nodeTag, nodeIndex] : nodeTagToIndex) {
+            const auto p = mesh.nodeCoordinates(nodeIndex);
+            const auto hits = cad.verticesContainingPoint(p, tolerance);
+            for (const int vertexId : hits) nodesOfVertex[vertexId].push_back(nodeIndex);
+        }
+        for (const auto& group : cadGroups) {
+            if (group.dimension != 0 || group.ids.empty()) continue;
+            const std::set<int> requested(group.ids.begin(), group.ids.end());
+            std::vector<NodeIndex> nodes;
+            std::vector<int> missing;
+            for (const int vertexId : requested) {
+                const auto found = nodesOfVertex.find(vertexId);
+                if (found == nodesOfVertex.end() || found->second.empty()) missing.push_back(vertexId);
+                else nodes.insert(nodes.end(), found->second.begin(), found->second.end());
+            }
+            if (!missing.empty()) {
+                std::string message;
+                for (const int id : missing) message += (message.empty() ? "" : ", ") + std::to_string(id);
+                m_diagnostics.push_back("CAD vertex group '" + group.name +
+                    "' could not be mapped completely; missing vertex id(s): " + message + ".");
+                continue;
+            }
+            std::sort(nodes.begin(), nodes.end());
+            nodes.erase(std::unique(nodes.begin(), nodes.end()), nodes.end());
+            const auto groupName = uniqueName(group.name, 0);
+            mesh.addMeshGroup(MeshGroup{groupName, 0, MeshGroupSource::CAD,
+                                        group.ids, {}, std::move(nodes)});
+            ++vertexGroups;
+        }
+    }
+
     m_diagnostics.push_back("CAD groups created: " + std::to_string(componentGroups) + " components, " +
-                            std::to_string(solidGroups) + " solid groups, " + std::to_string(faceGroups) + " face groups.");
+                            std::to_string(solidGroups) + " solid groups, " + std::to_string(faceGroups) + " face groups, " + std::to_string(edgeGroups) + " edge groups and " + std::to_string(vertexGroups) + " vertex groups.");
 }
