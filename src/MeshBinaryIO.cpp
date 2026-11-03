@@ -247,10 +247,10 @@ FileLayout parseFileLayout(std::istream& in, std::uint64_t actualSize) {
 
     const auto major = readLE<std::uint16_t>(in);
     const auto minor = readLE<std::uint16_t>(in);
-    layout.minorVersion = minor;
     const auto endian = readLE<std::uint32_t>(in);
     const auto flags = readLE<std::uint64_t>(in);
     FileLayout layout;
+    layout.minorVersion = minor;
     layout.nodeCount = readLE<std::uint64_t>(in);
     layout.elementCount = readLE<std::uint64_t>(in);
     layout.blockCount = readLE<std::uint32_t>(in);
