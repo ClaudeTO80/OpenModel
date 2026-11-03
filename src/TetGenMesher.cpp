@@ -269,6 +269,20 @@ bool TetGenMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Me
                                                std::vector<int>(uniqueFaces.begin(), uniqueFaces.end()),
                                                std::move(elements), std::move(nodes)});
             }
+            double xmin = std::numeric_limits<double>::max();
+            double ymin = std::numeric_limits<double>::max();
+            double zmin = std::numeric_limits<double>::max();
+            double xmax = std::numeric_limits<double>::lowest();
+            double ymax = std::numeric_limits<double>::lowest();
+            double zmax = std::numeric_limits<double>::lowest();
+            for (NodeIndex node = 0; node < outMesh.getNumNodes(); ++node) {
+                const auto p = outMesh.nodeCoordinates(node);
+                xmin = std::min(xmin, p[0]); ymin = std::min(ymin, p[1]); zmin = std::min(zmin, p[2]);
+                xmax = std::max(xmax, p[0]); ymax = std::max(ymax, p[1]); zmax = std::max(zmax, p[2]);
+            }
+            const double dx = xmax - xmin, dy = ymax - ymin, dz = zmax - zmin;
+            const double mappingTolerance = std::max(1e-6 * std::sqrt(dx * dx + dy * dy + dz * dz), 1e-9);
+
             // Edge and vertex groups are transferred as geometric node
             // memberships in TetGen/Netgen. These C adapters do not currently
             // expose stable 1D CAD-curve element ownership.
