@@ -809,7 +809,15 @@ void generateVolume(webui_event_t* e) {
     updateView();
     std::string noteText;
     for (const auto& note : notes) noteText += "\n" + note;
-    reply(e, true, "Mesh volumetrica generata e validata con " + label + ".\n" + meshSummary() + "\nOrdine: " + std::to_string(order) +
+    std::string cadNodeSetSummary;
+    for (const auto& userGroup : g.cadFaceGroups) {
+        const auto set = g.mesh.getNodeSets().find(userGroup.name + "_NODES");
+        if (set != g.mesh.getNodeSets().end())
+            cadNodeSetSummary += "\nNode Set " + userGroup.name + "_NODES: " +
+                std::to_string(set->second.size()) + " nodi";
+    }
+    reply(e, true, "Mesh volumetrica generata e validata con " + label + ".\n" + meshSummary() +
+        cadNodeSetSummary + "\nOrdine: " + std::to_string(order) +
         "\nDimensione massima richiesta: " + std::to_string(size) +
         "\nInterfacce tra solidi: " + (conformal ? "conformi (nodi condivisi)" : "indipendenti") + noteText +
         (g.viewNote.empty() ? "" : "\n" + g.viewNote));
