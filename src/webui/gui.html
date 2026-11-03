@@ -395,7 +395,7 @@ async function act(name, ...args) {
   if (r.view !== undefined && r.view !== viewVersion) { viewVersion = r.view; loadView(r.viewLabel || ""); }
   if (r.groups) renderGroups(r.groups);
   if (r.cadGroups) renderCADFaceGroups(r.cadGroups);
-  else if (r.ok && ["openmodel_import_model", "openmodel_load_mesh", "openmodel_create_demo", "openmodel_generate_volume"].includes(name)) refreshCADFaceGroups();
+  else if (r.ok && ["openmodel_import_model", "openmodel_load_mesh", "openmodel_create_demo", "openmodel_generate_volume"].includes(name)) await refreshCADFaceGroups();
   if (!r.groups && r.ok && ["openmodel_load_mesh", "openmodel_create_demo", "openmodel_generate_volume"].includes(name)) refreshGroups();
   return r;
 }
