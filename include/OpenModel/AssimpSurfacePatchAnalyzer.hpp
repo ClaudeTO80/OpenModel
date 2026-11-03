@@ -29,5 +29,6 @@ public:
     static bool analyze(const std::vector<RenderSubMesh>& parts,
                         double weldTolerance,
                         std::vector<AssimpSurfacePatch>& patches,
-                        std::vector<std::string>& diagnostics);
+                        std::vector<std::string>& diagnostics,
+                        double maxDihedralAngleDegrees = 45.0);
 };
