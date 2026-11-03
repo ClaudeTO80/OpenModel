@@ -98,6 +98,9 @@ const check = (ok, text) => { console.log((ok ? 'PASS ' : 'FAIL ') + text); if (
   check(gm && /Tetrahedron4/.test(gm.types) && gm.elements > 1000, 'viewer shows the Gmsh tetrahedra (' + (gm && gm.elements) + ' elements)');
   check(/Node Set BladeRoot_NODES: [1-9][0-9]* nodi/.test(await message()),
         'Gmsh maps the CAD face group to a non-empty FEM node set');
+  await page.click('#cadGrpList button[data-cad-fix]');
+  check((await page.inputValue('#anScript')).includes('fix group:BladeRoot_NODES dof=1,2,3'),
+        'the CAD group Vincola action inserts a fully fixed support into the analysis script');
   await shot('2_gmsh.png');
 
   // 3. Save / export in every format.
