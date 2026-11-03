@@ -29,4 +29,8 @@ const std::vector<CADGroup>& CADModel::getGroups() const {
 
 std::vector<int> CADModel::solidsContainingPoint(const std::array<double, 3>&, double) const { return {}; }
 
-std::vector<int> CADModel::facesContainingPoint(const std::array<double, 3>&, double) const { return {}; }\n\nstd::vector<int> CADModel::edgesContainingPoint(const std::array<double, 3>&, double) const { return {}; }\n\nstd::vector<int> CADModel::verticesContainingPoint(const std::array<double, 3>&, double) const { return {}; }
+std::vector<int> CADModel::facesContainingPoint(const std::array<double, 3>&, double) const { return {}; }
+
+std::vector<int> CADModel::edgesContainingPoint(const std::array<double, 3>&, double) const { return {}; }
+
+std::vector<int> CADModel::verticesContainingPoint(const std::array<double, 3>&, double) const { return {}; }
