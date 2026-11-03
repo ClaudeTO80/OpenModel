@@ -1111,7 +1111,7 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
         // Keep the original FEM face-selection contract and add CAD provenance only when present.
         const region = m.triRegion[t];
         const group = region > 0 ? m.meta.groups[region - 1] : null;
-        const match = group && /^__openmodel_cad_face_(\\d+)$/.exec(group.name);
+        const match = group && /^__openmodel_cad_face_(\d+)$/.exec(group.name);
         if (match) selectedFace.cadFaceId = Number(match[1]);
         out.faces.push(selectedFace);
       }
