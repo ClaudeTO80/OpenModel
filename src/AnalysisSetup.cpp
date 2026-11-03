@@ -430,7 +430,8 @@ SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& mo
         if (!error.empty()) return failed(r, "fix #" + std::to_string(i + 1) + ": " + error);
         if (!model.supports[i].dof[0] && !model.supports[i].dof[1] && !model.supports[i].dof[2])
             return failed(r, "fix #" + std::to_string(i + 1) + " constrains no direction");
-        for (int d = 0; d < 3; ++d) {
+        for (const NodeIndex n : supportNodes.back()) {
+          for (int d = 0; d < 3; ++d) {
             const double value = model.supports[i].displacement[static_cast<std::size_t>(d)];
             if (model.supports[i].dof[static_cast<std::size_t>(d)] && !std::isfinite(value))
                 return failed(r, "fix #" + std::to_string(i + 1) + " has a non-finite prescribed displacement");
@@ -446,6 +447,7 @@ SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& mo
                                     " and fix #" + std::to_string(i + 1) + " assign different values to node " +
                                     std::to_string(mesh.nodeId(n)) + " degree of freedom " + std::to_string(d + 1));
             }
+          }
         }
         for (const NodeIndex n : supportNodes.back()) constrained[n] = 1;
     }
