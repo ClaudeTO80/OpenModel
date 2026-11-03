@@ -48,8 +48,12 @@ private:
     std::vector<CADGroup> m_groups;
     TopTools_IndexedMapOfShape m_solidMap; ///< Unique solids of m_rawShape; id = index - 1.
     TopTools_IndexedMapOfShape m_faceMap;  ///< Unique faces of m_rawShape; id = index - 1.
+    TopTools_IndexedMapOfShape m_edgeMap;  ///< Unique edges of m_rawShape; id = index - 1.
+    TopTools_IndexedMapOfShape m_vertexMap;///< Unique vertices of m_rawShape; id = index - 1.
     std::vector<Bnd_Box> m_solidBoxes;
     std::vector<Bnd_Box> m_faceBoxes;
+    std::vector<Bnd_Box> m_edgeBoxes;
+    std::vector<Bnd_Box> m_vertexBoxes;
 
     /** @brief Fill the unique solid/face maps and their bounding boxes from m_rawShape. */
     void indexShape();
@@ -87,5 +91,7 @@ public:
     const std::vector<CADGroup>& getGroups() const override;
     std::vector<int> solidsContainingPoint(const std::array<double, 3>& point, double tolerance) const override;
     std::vector<int> facesContainingPoint(const std::array<double, 3>& point, double tolerance) const override;
+    std::vector<int> edgesContainingPoint(const std::array<double, 3>& point, double tolerance) const override;
+    std::vector<int> verticesContainingPoint(const std::array<double, 3>& point, double tolerance) const override;
     bool hasShape() const ;
 };
