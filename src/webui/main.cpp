@@ -625,6 +625,9 @@ void importModel(webui_event_t* e) {
         reply(e, false, "Tessellazione fallita: " + error); return;
     }
     g.source = file.string();
+    g.cadFaceGroups.clear();
+    g.cadGroupsNote.clear();
+    loadCADFaceGroups(g.source, g.surface, g.cadFaceGroups, g.cadGroupsNote);
     clearResults();
     g.mesh = MeshData{};
     g.origin = MeshOrigin::None;
