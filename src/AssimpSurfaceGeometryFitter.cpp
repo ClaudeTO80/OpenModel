@@ -161,8 +161,8 @@ bool coneFit(const std::vector<V>& points,const V& centroid,const V& axis,Candid
     for(const auto& item:zr)errors.push_back(std::abs(item[1]-(intercept+slope*item[0])));
     candidate.type=std::abs(slope)>1e-3?AssimpFittedSurfaceType::Conical:AssimpFittedSurfaceType::Cylindrical;
     candidate.center=centroid;candidate.axis=axis;candidate.radius=intercept;
-    candidate.slope=slope;
-    candidate.apex=add(centroid,mul(axis,-intercept/slope));
+    candidate.slope=std::abs(slope)>1e-3?slope:0.0;
+    candidate.apex=std::abs(slope)>1e-3 ? add(centroid,mul(axis,-intercept/slope)) : centroid;
     candidate.angle=std::atan(std::abs(slope));candidate.coverage=angularCoverage(angles);
     radialMetrics(errors,intercept,candidate.rms,candidate.max,candidate.relativeRms,candidate.relativeMax);
     candidate.valid=true;return true;
