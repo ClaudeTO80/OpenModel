@@ -21,7 +21,7 @@
  * Script syntax (one command per line, `#` starts a comment, names must not contain blanks):
  * @code
  * material E=210000 nu=0.3 rho=7.85e-9 [name=STEEL]
- * fix plane:x=0 [dof=1,2,3] [tol=1e-6]          # default: all three translations
+ * fix plane:x=0 [dof=1,2,3] [value=0,0,0] [tol=1e-6] # prescribed ux,uy,uz; defaults to zero
  * fix group:BladeRoot_NODES dof=1,2,3           # Node Set generated from a CAD face group
  * force plane:x=10 F=0,-100,0                   # total force, shared equally by the selected nodes
  * pressure group:Top p=2.5                      # on a dimension-2 surface group; positive = pushing into the body
@@ -56,6 +56,8 @@ struct AnalysisMaterial {
 struct FixedSupport {
     NodeSelector where;
     std::array<bool, 3> dof{{true, true, true}};
+    /** Prescribed translations in model length units; zero preserves fixed-support behaviour. */
+    std::array<double, 3> displacement{{0.0, 0.0, 0.0}};
 };
 
 struct NodalForce {
