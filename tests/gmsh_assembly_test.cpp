@@ -43,6 +43,22 @@ const MeshPhysicalGroup* group(const MeshData& mesh, const std::string& name) {
     return nullptr;
 }
 
+bool validFaceAudit(const GmshMesher& mesher) {
+    const auto& report = mesher.faceMappingReport();
+    if (report.empty()) return false;
+    std::set<int> seenSurfaces;
+    for (const auto& record : report) {
+        if (!seenSurfaces.insert(record.gmshSurfaceTag).second) return false;
+        if (record.matchedSampleCount > record.sampledElementCount) return false;
+        if (record.sampledElementCount > record.elementCount) return false;
+        if (record.matchRatio < 0.0 || record.matchRatio > 1.0) return false;
+        if (record.elementCount > 0 && record.sampledElementCount == 0) return false;
+        if (!record.cadFaceIds.empty() && record.matchRatio < 0.8) return false;
+        if (record.ambiguous && !record.cadFaceIds.empty()) return false;
+    }
+    return true;
+}
+
 /** Sum of tetrahedron volumes of a group; also collects the node indices lying on the plane z = 10. */
 double groupVolume(const MeshData& mesh, const std::map<ElementId, Located>& elements, const MeshPhysicalGroup& g,
                    std::set<NodeIndex>* nodesOnPlane) {
@@ -77,6 +93,7 @@ int run(InterfaceMode mode, const std::string& step) {
     GmshMesher mesher;
     MeshData mesh;
     CHECK(mesher.buildMesh(cad, options, mesh));
+    CHECK(validFaceAudit(mesher));
     const char* label = mode == InterfaceMode::Conformal ? "conformal" : "independent";
     std::cout << "--- " << label << ": " << mesh.getNumNodes() << " nodes, " << mesh.getNumElements() << " elements\n";
     for (const auto& line : mesher.diagnostics()) std::cout << "    " << line << '\n';
@@ -146,6 +163,7 @@ int runSurfaceOnly(const std::string& step) {
     GmshMesher mesher;
     MeshData mesh;
     CHECK(mesher.buildMesh(cad, options, mesh));
+    CHECK(validFaceAudit(mesher));
     CHECK(mesh.getNumElements() > 0);
     for (const auto& block : mesh.getElementBlocks())
         CHECK(block.type != ElementType::Tetrahedron4 && block.type != ElementType::Tetrahedron10);
