@@ -46,6 +46,40 @@ bool ElementBlock::empty() const noexcept {
  return ids.empty(); 
 }
 
+void MeshGroupRegistry::clear() noexcept {
+    m_groups.clear();
+}
+
+void MeshGroupRegistry::add(MeshGroup group) {
+    if (group.name.empty()) throw std::invalid_argument("MeshGroupRegistry: group name cannot be empty");
+    if (group.dimension < 0 || group.dimension > 3)
+        throw std::invalid_argument("MeshGroupRegistry: group dimension must be 0..3");
+    if (find(group.name)) throw std::invalid_argument("MeshGroupRegistry: duplicate group name");
+    auto uniquePreservingOrder = [](auto& values) {
+        using Value = typename std::decay<decltype(values)>::type::value_type;
+        std::unordered_set<Value> seen;
+        seen.reserve(values.size());
+        auto out = values.begin();
+        for (auto it = values.begin(); it != values.end(); ++it)
+            if (seen.insert(*it).second) *out++ = *it;
+        values.erase(out, values.end());
+    };
+    uniquePreservingOrder(group.sourceEntityIds);
+    uniquePreservingOrder(group.elementIds);
+    uniquePreservingOrder(group.nodeIndices);
+    m_groups.push_back(std::move(group));
+}
+
+const std::vector<MeshGroup>& MeshGroupRegistry::groups() const noexcept {
+    return m_groups;
+}
+
+const MeshGroup* MeshGroupRegistry::find(const std::string& name) const noexcept {
+    for (const auto& group : m_groups)
+        if (group.name == name) return &group;
+    return nullptr;
+}
+
 void MeshData::clear() noexcept {
 
         m_nodeIds.clear();
@@ -55,6 +89,7 @@ void MeshData::clear() noexcept {
         m_blockLookup.clear();
         m_nodeSets.clear();
         m_physicalGroups.clear();
+        m_groupRegistry.clear();
     
 }
 
@@ -194,7 +229,18 @@ const std::unordered_map<std::string, std::vector<NodeIndex>>& MeshData::getNode
 }
 
 const std::vector<MeshPhysicalGroup>& MeshData::getPhysicalGroups() const noexcept {
- return m_physicalGroups; 
+ return m_physicalGroups;
+}
+
+void MeshData::addMeshGroup(MeshGroup group) {
+    for (const auto index : group.nodeIndices)
+        if (index >= m_nodeIds.size())
+            throw std::out_of_range("MeshData: mesh group node index out of range");
+    m_groupRegistry.add(std::move(group));
+}
+
+const MeshGroupRegistry& MeshData::getMeshGroupRegistry() const noexcept {
+    return m_groupRegistry;
 }
 
 const std::vector<NodeId>& MeshData::getNodeIds() const noexcept {
@@ -256,6 +302,30 @@ const ElementBlock& MeshData::getElementBlock(const std::string& name) const {
                 }
                 if (it->second != group.dimension) {
                     errors.emplace_back("Physical group dimension does not match element ID: " + std::to_string(id));
+                    break;
+                }
+            }
+        }
+        std::unordered_set<std::string> meshGroupNames;
+        for (const auto& group : m_groupRegistry.groups()) {
+            if (group.name.empty() || !meshGroupNames.insert(group.name).second)
+                errors.emplace_back("Empty or duplicate mesh group name: " + group.name);
+            if (group.dimension < 0 || group.dimension > 3)
+                errors.emplace_back("Invalid mesh group dimension: " + group.name);
+            for (const auto index : group.nodeIndices) {
+                if (index >= m_nodeIds.size()) {
+                    errors.emplace_back("Mesh group references invalid node index: " + group.name);
+                    break;
+                }
+            }
+            for (const auto id : group.elementIds) {
+                const auto it = elementDimensions.find(id);
+                if (it == elementDimensions.end()) {
+                    errors.emplace_back("Mesh group references unknown element ID: " + std::to_string(id));
+                    break;
+                }
+                if (it->second != group.dimension) {
+                    errors.emplace_back("Mesh group dimension does not match element ID: " + std::to_string(id));
                     break;
                 }
             }
