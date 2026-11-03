@@ -48,7 +48,9 @@ When CAD group import is enabled, the adapter now extracts 0D and 1D mesh
 entities in addition to the existing 2D and 3D entities.
 
 - CAD edge groups are mapped to Gmsh curves by intersecting CAD edge candidates
-  found at the curve's mesh nodes. Their 1D elements and nodes are registered.
+  found at the curve's interior mesh nodes. Their 1D elements and nodes are registered.
+  Curves with no interior mesh nodes are left unmapped rather than inferred from
+  shared endpoints, which could belong to several adjacent CAD edges.
 - CAD vertex groups are mapped by querying all mesh nodes against the CAD
   vertex geometry. These groups are node-based; a solver point load or
   displacement constraint can use the resulting node membership.
@@ -80,5 +82,8 @@ constraints and point/edge support selection.
   cross-revision identity contract is a separate concern.
 - Edge and vertex groups from STEP/XDE depend on the source file actually
   carrying named subshape or layer membership for those entities.
+- OCC geometric queries and MGMB 1.1 serialization are covered by integration
+  and round-trip tests; backend-specific edge/vertex transfer still requires
+  optional TetGen/Netgen/Gmsh builds to be exercised in CI.
 - The Netgen/TetGen edge representation is node-only; only Gmsh currently
   retains explicit 1D elements for CAD edge groups.
