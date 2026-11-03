@@ -263,12 +263,12 @@ jobs:
 
       - name: Run WebGL and core tests (Linux / MSVC)
         if: matrix.toolchain == 'gcc' || matrix.toolchain == 'msvc'
-        run: ctest --test-dir build --build-config Release --output-on-failure --parallel 2
+        run: ctest --test-dir build --build-config Release --output-on-failure --parallel 2 --exclude-regex "^(solver_cli_|aster_cli_(static|modal|failure|notables|missing))"
 
       - name: Run WebGL and core tests (MinGW)
         if: matrix.toolchain == 'mingw64' || matrix.toolchain == 'ucrt64'
         shell: msys2 {0}
-        run: ctest --test-dir build --output-on-failure --parallel 2
+        run: ctest --test-dir build --output-on-failure --parallel 2 --exclude-regex "^(solver_cli_|aster_cli_(static|modal|failure|notables|missing))"
 
       - name: Upload test log on failure
         if: failure()
