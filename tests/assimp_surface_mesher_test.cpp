@@ -96,6 +96,16 @@ RenderSubMesh makeSphere(double radius, unsigned int latitudeSegments,
     }
     return part;
 }
+
+SurfaceMesh asSurfaceMesh(const RenderSubMesh& source) {
+    SurfaceMesh mesh;
+    SurfaceMeshPart part;
+    part.name = source.name;
+    part.positions = source.vertices;
+    part.indices = source.indices;
+    mesh.parts.push_back(std::move(part));
+    return mesh;
+}
 }
 
 int main() {
@@ -309,6 +319,56 @@ int main() {
                 "Cone geometry fitting failed.");
         require(fits.size() == 1 && fits.front().type == AssimpFittedSurfaceType::Conical,
                 "Analytic cone frustum was not recognized.");
+
+        // Re-import analytic fixtures and exercise the sphere/cone selectors
+        // through the same Assimp -> MeshData path used by real models.
+        const auto spherePath = std::filesystem::temp_directory_path() / "openmodel_assimp_sphere_selector.glb";
+        const auto sphereGlb = GltfWriter::writeGlbFile(spherePath.string(), asSurfaceMesh(spherePart));
+        require(sphereGlb.success, "Could not write sphere selector fixture: " + sphereGlb.error);
+        auto sphereModel = std::make_shared<AssimpModel>();
+        require(sphereModel->loadFromFile(spherePath.string()),
+                "Could not import sphere selector fixture: " + sphereModel->getLastError());
+        AssimpSurfaceSelector sphereSelector;
+        sphereSelector.name = "SPHERE_SURFACE";
+        sphereSelector.kind = AssimpSurfaceSelectorKind::SphereSurface;
+        sphereSelector.point = {{0,0,0}};
+        sphereSelector.radius = 1.75;
+        sphereSelector.tolerance = 1e-5;
+        MeshingOptions selectorOptions;
+        selectorOptions.dimension = MeshDimension::Surface;
+        AssimpSurfaceMesher selectorMesher;
+        MeshData sphereSelection;
+        require(selectorMesher.buildMesh(sphereModel, selectorOptions, {sphereSelector}, sphereSelection),
+                "Sphere surface selector failed.");
+        const auto* sphereGroup = sphereSelection.getMeshGroupRegistry().find("SPHERE_SURFACE");
+        require(sphereGroup && sphereGroup->elementIds.size() == sphereSelection.getNumElements(),
+                "Sphere selector did not select the complete tessellated sphere.");
+
+        const auto conePath = std::filesystem::temp_directory_path() / "openmodel_assimp_cone_selector.glb";
+        const auto coneGlb = GltfWriter::writeGlbFile(conePath.string(), asSurfaceMesh(conePart));
+        require(coneGlb.success, "Could not write cone selector fixture: " + coneGlb.error);
+        auto coneModel = std::make_shared<AssimpModel>();
+        require(coneModel->loadFromFile(conePath.string()),
+                "Could not import cone selector fixture: " + coneModel->getLastError());
+        AssimpSurfaceSelector coneSelector;
+        coneSelector.name = "CONE_SURFACE";
+        coneSelector.kind = AssimpSurfaceSelectorKind::ConeSide;
+        coneSelector.point = {{0,0,4.8}};
+        coneSelector.direction = {{0,0,-1}};
+        coneSelector.coneHalfAngleRadians = std::atan((2.0-0.75)/3.0);
+        coneSelector.axialMin = 1.8;
+        coneSelector.axialMax = 4.8;
+        coneSelector.tolerance = 1e-5;
+        MeshData coneSelection;
+        require(selectorMesher.buildMesh(coneModel, selectorOptions, {coneSelector}, coneSelection),
+                "Cone surface selector failed.");
+        const auto* coneGroup = coneSelection.getMeshGroupRegistry().find("CONE_SURFACE");
+        require(coneGroup && coneGroup->elementIds.size() == coneSelection.getNumElements(),
+                "Cone selector did not select the complete tessellated cone.");
+
+        std::error_code fixtureError;
+        std::filesystem::remove(spherePath, fixtureError);
+        std::filesystem::remove(conePath, fixtureError);
 
 
         const auto connectedPatchIndex = static_cast<std::size_t>(
