@@ -404,6 +404,8 @@ function loadView(label) {
   if (!w || !w.OpenModelViewer) { pendingView = true; return; }
   pendingView = false;
   if (viewVersion < 0) return;
+  selectedCadFaceIds = [];
+  $("cadFaceInfo").textContent = "Facce CAD: nessuna selezionata.";
   // The viewer reports the selected B-Rep face ids when the displayed model is the CAD surface.
   // FEM selections remain unchanged; they simply have no cadFaceId field.
   w.OpenModelViewer.onSelect = (selection) => {
