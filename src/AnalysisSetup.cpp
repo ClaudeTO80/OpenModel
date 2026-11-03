@@ -141,6 +141,9 @@ struct Parser {
                     else { error("SCRIPT_BAD_DOF", "dof must list 1, 2, 3 (x, y, z) separated by commas, or 'all'"); return; }
                 }
             }
+            std::string prescribed;
+            if (take("value", prescribed) && !parseVector3(prescribed, f.displacement))
+                error("SCRIPT_BAD_VECTOR", "'" + prescribed + "' is not three comma separated prescribed translations (value)");
             if (take("tol", tol) && !parseNumber(tol, f.where.tolerance)) error("SCRIPT_BAD_NUMBER", "'" + tol + "' is not a number (tol)");
             leftovers();
             if (result.diagnostics.size() == errorsBefore) result.model.supports.push_back(f);
@@ -527,7 +530,9 @@ SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& mo
         out << "*BOUNDARY\n";
         for (std::size_t i = 0; i < model.supports.size(); ++i)
             for (int d = 0; d < 3; ++d)
-                if (model.supports[i].dof[static_cast<std::size_t>(d)]) out << "MG_FIX" << i + 1 << ", " << d + 1 << ", " << d + 1 << ", 0.\n";
+                if (model.supports[i].dof[static_cast<std::size_t>(d)])
+                    out << "MG_FIX" << i + 1 << ", " << d + 1 << ", " << d + 1 << ", "
+                        << model.supports[i].displacement[static_cast<std::size_t>(d)] << "\n";
     }
     out << "*STEP\n";
     if (model.step == StepType::Static) {
