@@ -113,6 +113,45 @@ fs::path tempDir() {
     return d;
 }
 
+void testStableConditionIds() {
+    const auto parsed = parseAnalysisScript(
+        "material id=steel-main E=210000 nu=0.3 rho=7.85e-9 name=steel\n"
+        "fix id=clamp-west group:CLAMP dof=1,2,3 value=0,0,0\n"
+        "fix group:SECONDARY dof=3 value=0,0,-0.25\n"
+        "force id=tip-load plane:x=10 F=0,0,-100 tol=1e-8\n"
+        "pressure id=top-pressure group:TOP p=2.5\n"
+        "gravity g=0,0,-9.81\n"
+        "step frequency modes=8\n");
+    CHECK(parsed.success);
+    CHECK(parsed.model.material.id == "steel-main");
+    CHECK(parsed.model.supports.size() == 2);
+    CHECK(parsed.model.supports[0].id == "clamp-west");
+    CHECK(parsed.model.supports[1].id == "fix-1");
+    CHECK(parsed.model.forces.size() == 1 && parsed.model.forces[0].id == "tip-load");
+    CHECK(parsed.model.pressures.size() == 1 && parsed.model.pressures[0].id == "top-pressure");
+
+    const std::string serialized = serializeAnalysisScript(parsed.model);
+    const auto roundTrip = parseAnalysisScript(serialized);
+    CHECK(roundTrip.success);
+    CHECK(roundTrip.model.material.id == "steel-main");
+    CHECK(roundTrip.model.supports.size() == 2);
+    CHECK(roundTrip.model.supports[0].id == "clamp-west");
+    CHECK(roundTrip.model.supports[1].id == "fix-1");
+    CHECK(roundTrip.model.supports[1].displacement[2] == -0.25);
+    CHECK(roundTrip.model.forces.size() == 1 && roundTrip.model.forces[0].id == "tip-load");
+    CHECK(roundTrip.model.forces[0].where.tolerance == 1e-8);
+    CHECK(roundTrip.model.pressures.size() == 1 && roundTrip.model.pressures[0].id == "top-pressure");
+    CHECK(roundTrip.model.hasGravity && roundTrip.model.gravity[2] == -9.81);
+    CHECK(roundTrip.model.step == StepType::Frequency && roundTrip.model.modes == 8);
+
+    const auto duplicate = parseAnalysisScript(
+        "material id=shared E=1 nu=0.3\n"
+        "fix id=shared all\n");
+    CHECK(!duplicate.success && hasCode(duplicate.diagnostics, "SCRIPT_DUPLICATE_ID"));
+    const auto invalid = parseAnalysisScript("material id=bad/id E=1 nu=0.3\n");
+    CHECK(!invalid.success && hasCode(invalid.diagnostics, "SCRIPT_BAD_ID"));
+}
+
 void testParser() {
     const auto model = parseOk(
         "# comment\n"
@@ -385,6 +424,7 @@ void testRunner() {
 
 int main() {
     testParser();
+    testStableConditionIds();
     testSelectors();
     testWriterStatic();
     testTetFaces();
