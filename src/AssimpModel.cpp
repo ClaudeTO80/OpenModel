@@ -1,6 +1,7 @@
 #include <OpenModel/AssimpModel.hpp>
 
 #include <stdexcept>
+#include <limits>
 
 std::string AssimpModel::lower(std::string s) {
 
@@ -130,15 +131,27 @@ void AssimpModel::readMaterial(const aiScene* scene, const aiMesh* mesh, const s
     
 }
 
+bool AssimpModel::setImportOptions(const AssimpImportOptions& options, std::string* error) {
+    if (!std::isfinite(options.coordinateScale) || options.coordinateScale <= 0.0) {
+        if (error) *error = "Assimp coordinateScale must be finite and positive.";
+        return false;
+    }
+    m_importOptions = options;
+    if (error) error->clear();
+    return true;
+}
+
 bool AssimpModel::loadFromFile(const std::string& filepath)  {
 
         m_filepath = filepath;
         m_lastError.clear();
         m_renderMeshes.clear();
         Assimp::Importer importer;
-        const aiScene* scene = importer.ReadFile(filepath,
-            aiProcess_Triangulate | aiProcess_GenSmoothNormals | aiProcess_JoinIdenticalVertices |
-            aiProcess_ValidateDataStructure);
+        unsigned int importFlags = aiProcess_Triangulate | aiProcess_ValidateDataStructure;
+        if (m_importOptions.generateNormals) importFlags |= aiProcess_GenSmoothNormals;
+        if (m_importOptions.joinIdenticalVertices) importFlags |= aiProcess_JoinIdenticalVertices;
+        if (m_importOptions.flipUVs) importFlags |= aiProcess_FlipUVs;
+        const aiScene* scene = importer.ReadFile(filepath, importFlags);
         if (!scene || (scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE) || !scene->mRootNode) {
             m_lastError = importer.GetErrorString();
             if (m_lastError.empty()) m_lastError = "Assimp could not load the model.";
@@ -208,10 +221,16 @@ RenderSubMesh AssimpModel::processMesh(const aiMesh* mesh, const aiScene* scene,
     out.normals.reserve(static_cast<std::size_t>(nv) * 3);
     if (mesh->HasTextureCoords(0)) out.texcoords.reserve(static_cast<std::size_t>(nv) * 2);
     for (unsigned int i = 0; i < nv; ++i) {
-        const aiVector3D position = transform * mesh->mVertices[i];
-        if (!std::isfinite(position.x) || !std::isfinite(position.y) || !std::isfinite(position.z))
-            throw std::runtime_error("Assimp mesh '" + out.name + "' produced a non-finite transformed vertex.");
-        out.vertices.insert(out.vertices.end(), {position.x, position.y, position.z});
+        const aiVector3D transformed = transform * mesh->mVertices[i];
+        const double x = static_cast<double>(transformed.x) * m_importOptions.coordinateScale;
+        const double y = static_cast<double>(transformed.y) * m_importOptions.coordinateScale;
+        const double z = static_cast<double>(transformed.z) * m_importOptions.coordinateScale;
+        const double floatLimit = std::numeric_limits<float>::max();
+        if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z) ||
+            std::abs(x) > floatLimit || std::abs(y) > floatLimit || std::abs(z) > floatLimit)
+            throw std::runtime_error("Assimp mesh '" + out.name + "' produced an invalid scaled vertex.");
+        out.vertices.insert(out.vertices.end(), {
+            static_cast<float>(x), static_cast<float>(y), static_cast<float>(z)});
 
         if (mesh->HasNormals()) {
             aiVector3D normal = normalTransform * mesh->mNormals[i];
