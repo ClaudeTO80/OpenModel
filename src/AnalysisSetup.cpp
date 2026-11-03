@@ -10,6 +10,7 @@
 #include <limits>
 #include <map>
 #include <sstream>
+#include <set>
 #include <unordered_map>
 
 namespace OpenModel {
@@ -44,6 +45,21 @@ struct Parser {
     AnalysisParseResult result;
     bool haveMaterial = false, haveStep = false;
     std::size_t line = 0;
+    std::map<std::string, std::size_t> idCounters;
+    std::set<std::string> conditionIds;
+
+    std::string conditionId(const std::string& kind, std::map<std::string, std::string>& keys) {
+        std::string value;
+        const auto it = keys.find("id");
+        if (it != keys.end()) { value = it->second; keys.erase(it); }
+        else value = kind + "-" + std::to_string(++idCounters[kind]);
+        const bool valid = !value.empty() && std::all_of(value.begin(), value.end(), [](unsigned char ch) {
+            return std::isalnum(ch) || ch == '_' || ch == '-' || ch == '.';
+        });
+        if (!valid) { error("SCRIPT_BAD_ID", "Condition id must contain only letters, digits, underscore, hyphen or dot"); return {}; }
+        if (!conditionIds.insert(value).second) { error("SCRIPT_DUPLICATE_ID", "Condition id '" + value + "' is used more than once"); return {}; }
+        return value;
+    }
 
     void error(std::string code, std::string message) {
         result.diagnostics.push_back({ImportDiagnosticLevel::Error, std::move(code), std::move(message), line});
@@ -125,6 +141,7 @@ struct Parser {
             number("rho", m.density, false);
             std::string name;
             if (take("name", name)) m.name = name;
+            m.id = conditionId("material", keys);
             if (!positional.empty()) error("SCRIPT_UNEXPECTED", "Unexpected '" + positional[0] + "' after material");
             leftovers();
             if (result.diagnostics.size() == errorsBefore) { result.model.material = m; haveMaterial = true; }
@@ -145,6 +162,7 @@ struct Parser {
             if (take("value", prescribed) && !parseVector3(prescribed, f.displacement))
                 error("SCRIPT_BAD_VECTOR", "'" + prescribed + "' is not three comma separated prescribed translations (value)");
             if (take("tol", tol) && !parseNumber(tol, f.where.tolerance)) error("SCRIPT_BAD_NUMBER", "'" + tol + "' is not a number (tol)");
+            f.id = conditionId("fix", keys);
             leftovers();
             if (result.diagnostics.size() == errorsBefore) result.model.supports.push_back(f);
         } else if (command == "force") {
@@ -153,6 +171,7 @@ struct Parser {
             vector3("f", f.total);
             std::string tol;
             if (take("tol", tol) && !parseNumber(tol, f.where.tolerance)) error("SCRIPT_BAD_NUMBER", "'" + tol + "' is not a number (tol)");
+            f.id = conditionId("force", keys);
             leftovers();
             if (result.diagnostics.size() == errorsBefore) result.model.forces.push_back(f);
         } else if (command == "pressure") {
@@ -164,6 +183,7 @@ struct Parser {
             }
             p.group = sel.name;
             number("p", p.pressure, true);
+            p.id = conditionId("pressure", keys);
             leftovers();
             if (result.diagnostics.size() == errorsBefore) result.model.pressures.push_back(p);
         } else if (command == "gravity") {
@@ -224,6 +244,58 @@ AnalysisParseResult parseAnalysisScript(const std::string& text) {
     p.result.success = std::none_of(p.result.diagnostics.begin(), p.result.diagnostics.end(),
                                     [](const ImportDiagnostic& d) { return d.level == ImportDiagnosticLevel::Error; });
     return std::move(p.result);
+}
+
+std::string serializeAnalysisScript(const AnalysisModel& model) {
+    std::ostringstream out;
+    out << std::setprecision(17);
+    out << "material";
+    if (!model.material.id.empty()) out << " id=" << model.material.id;
+    out << " E=" << model.material.youngModulus << " nu=" << model.material.poisson
+        << " rho=" << model.material.density << " name=" << model.material.name << '\n';
+    auto selectorText = [](const NodeSelector& selector) {
+        if (selector.kind == SelectorKind::All) return std::string("all");
+        if (selector.kind == SelectorKind::Group) return std::string("group:") + selector.name;
+        std::ostringstream value;
+        value << "plane:" << "xyz"[std::max(0, std::min(2, selector.axis))] << '=' << selector.position;
+        return value.str();
+    };
+    for (const auto& support : model.supports) {
+        out << "fix";
+        if (!support.id.empty()) out << " id=" << support.id;
+        out << ' ' << selectorText(support.where) << " dof=";
+        const bool all = support.dof[0] && support.dof[1] && support.dof[2];
+        if (all) out << "all";
+        else {
+            bool first = true;
+            for (std::size_t i = 0; i < 3; ++i) if (support.dof[i]) {
+                if (!first) out << ',';
+                out << (i + 1); first = false;
+            }
+        }
+        out << " value=" << support.displacement[0] << ',' << support.displacement[1] << ',' << support.displacement[2];
+        if (support.where.tolerance >= 0.0) out << " tol=" << support.where.tolerance;
+        out << '\n';
+    }
+    for (const auto& force : model.forces) {
+        out << "force";
+        if (!force.id.empty()) out << " id=" << force.id;
+        out << ' ' << selectorText(force.where) << " F=" << force.total[0] << ',' << force.total[1] << ',' << force.total[2];
+        if (force.where.tolerance >= 0.0) out << " tol=" << force.where.tolerance;
+        out << '\n';
+    }
+    for (const auto& pressure : model.pressures) {
+        out << "pressure";
+        if (!pressure.id.empty()) out << " id=" << pressure.id;
+        out << " group:" << pressure.group << " p=" << pressure.pressure << '\n';
+    }
+    if (model.hasGravity)
+        out << "gravity g=" << model.gravity[0] << ',' << model.gravity[1] << ',' << model.gravity[2] << '\n';
+    out << "step " << (model.step == StepType::Static ? "static" : "frequency");
+    if (model.step == StepType::Frequency) out << " modes=" << model.modes;
+    out << '\n';
+    out << "output element=" << (model.elementPrint > 0 ? "on" : model.elementPrint == 0 ? "off" : "auto") << '\n';
+    return out.str();
 }
 
 std::string exampleAnalysisScript() {
