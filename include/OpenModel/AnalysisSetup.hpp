@@ -47,6 +47,7 @@ struct NodeSelector {
 };
 
 struct AnalysisMaterial {
+    std::string id;             ///< Stable condition identifier; generated when omitted from the script.
     std::string name = "MATERIAL";
     double youngModulus = 0.0;
     double poisson = 0.0;
@@ -54,6 +55,7 @@ struct AnalysisMaterial {
 };
 
 struct FixedSupport {
+    std::string id;             ///< Stable condition identifier.
     NodeSelector where;
     std::array<bool, 3> dof{{true, true, true}};
     /** Prescribed translations in model length units; zero preserves fixed-support behaviour. */
@@ -61,11 +63,13 @@ struct FixedSupport {
 };
 
 struct NodalForce {
+    std::string id;             ///< Stable condition identifier.
     NodeSelector where;
     std::array<double, 3> total{{0.0, 0.0, 0.0}};   ///< Whole force; each selected node gets total / count.
 };
 
 struct SurfacePressure {
+    std::string id;             ///< Stable condition identifier.
     std::string group;         ///< Physical group of surface elements (dimension 2).
     double pressure = 0.0;     ///< Positive acts into the body (compressive), as in Abaqus and CalculiX.
 };
@@ -92,7 +96,7 @@ struct AnalysisParseResult {
 };
 
 /** @brief Read a script (see the file comment). Errors carry the line number; all of them are collected. */
-AnalysisParseResult parseAnalysisScript(const std::string& text);
+AnalysisParseResult parseAnalysisScript(const std::string& text);\n\n/** @brief Serialize an analysis model to a round-trippable script, including stable condition IDs. */\nstd::string serializeAnalysisScript(const AnalysisModel& model);
 
 /** @brief A small example script for a static analysis, for the user interfaces. */
 std::string exampleAnalysisScript();
