@@ -190,8 +190,11 @@ const std::string& AssimpModel::getLastError() const  {
 
 void AssimpModel::processNode(const aiNode* node, const aiScene* scene, const std::filesystem::path& modelDir, const aiMatrix4x4& parentTransform) {
 
+        if (!node || !scene) throw std::runtime_error("Assimp returned an invalid scene node.");
         const aiMatrix4x4 transform = parentTransform * node->mTransformation;
         for (unsigned int i = 0; i < node->mNumMeshes; ++i) {
+            if (node->mMeshes[i] >= scene->mNumMeshes || !scene->mMeshes)
+                throw std::runtime_error("Assimp node references an invalid mesh index.");
             const aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
             auto imported = processMesh(mesh, scene, modelDir, transform);
             if (!imported.indices.empty()) m_renderMeshes.push_back(std::move(imported));
