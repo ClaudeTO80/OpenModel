@@ -748,7 +748,7 @@ function analysisCommand(line) {
 }
 function analysisTokens(line, command) {
   const out = {};
-  const tokens = line.trim().split(/\\s+/);
+  const tokens = line.trim().split(/\s+/);
   if (["fix", "force", "pressure"].includes(command)) out._selector = tokens[1] || "";
   for (let i = 1; i < tokens.length; ++i) {
     const eq = tokens[i].indexOf("=");
@@ -769,7 +769,7 @@ function analysisField(parent, labelText, name, value, hint) {
 async function applyAnalysisEdit(replacement, id, originalLines, index) {
   const candidate = originalLines.slice();
   candidate[index] = replacement;
-  const script = candidate.join("\\n");
+  const script = candidate.join("\n");
   if (id) {
     const updated = await act("openmodel_analysis_update", id, script);
     if (!updated || !updated.ok) return false;
