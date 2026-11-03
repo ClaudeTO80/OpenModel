@@ -42,12 +42,12 @@ bool AssimpPatchGroupBuilder::apply(const std::vector<RenderSubMesh>& parts,
     for (const auto& group:mesh.getMeshGroupRegistry().groups()) existingNames.insert(group.name);
     for (const auto& group:mesh.getPhysicalGroups()) existingNames.insert(group.name);
     for (const auto& item:mesh.getNodeSets()) existingNames.insert(item.first);
-    std::unordered_set<std::string> requestedNames;
+    std::unordered_set<std::string> reservedNames;
     for (const auto& definition:definitions) {
         if (definition.name.empty() || definition.patchIndices.empty() ||
-            !requestedNames.insert(definition.name).second ||
-            existingNames.count(definition.name) ||
-            existingNames.count(definition.name+"_NODES")) {
+            existingNames.count(definition.name) || existingNames.count(definition.name+"_NODES") ||
+            !reservedNames.insert(definition.name).second ||
+            !reservedNames.insert(definition.name+"_NODES").second) {
             diagnostics.push_back("Invalid, empty, or conflicting patch group name/definition: '"+definition.name+"'.");
             return false;
         }
@@ -105,6 +105,10 @@ bool AssimpPatchGroupBuilder::apply(const std::vector<RenderSubMesh>& parts,
     int nextTag=1;
     for (const auto& group:mesh.getPhysicalGroups()) {
         if (group.tag>=nextTag && group.tag<std::numeric_limits<int>::max()) nextTag=group.tag+1;
+    }
+    if (definitions.size() > static_cast<std::size_t>(std::numeric_limits<int>::max()-nextTag)+1u) {
+        diagnostics.push_back("Physical group tag range exhausted.");
+        return false;
     }
     struct Prepared {
         MeshPhysicalGroup physical;
