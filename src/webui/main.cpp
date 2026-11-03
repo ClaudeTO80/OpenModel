@@ -1030,6 +1030,51 @@ void analysisGet(webui_event_t* e) {
     reply(e, true, OpenModel::serializeAnalysisScript(g.analysis));
 }
 
+/** Update exactly one existing condition from a validated candidate script, preserving its stable ID. */
+void analysisUpdate(webui_event_t* e) {
+    StateLock lock;
+    if (!lock.ok()) { replyBusy(e); return; }
+    if (!g.hasAnalysis) { reply(e, false, "Nessun modello di analisi caricato."); return; }
+
+    const std::string id = getStringArg(e, 0);
+    const auto parsed = OpenModel::parseAnalysisScript(getStringArg(e, 1));
+    if (!parsed.success) {
+        reply(e, false, "Modifica rifiutata: script non valido:" + analysisDiagnosticsText(parsed.diagnostics));
+        return;
+    }
+
+    std::string error;
+    bool updated = false;
+    if (!id.empty() && id == g.analysis.material.id) {
+        if (parsed.model.material.id != id) {
+            reply(e, false, "La modifica deve mantenere l'ID del materiale: " + id);
+            return;
+        }
+        updated = OpenModel::updateMaterial(g.analysis, id, parsed.model.material, error);
+    } else if (OpenModel::findSupport(g.analysis, id)) {
+        const auto* replacement = OpenModel::findSupport(parsed.model, id);
+        if (!replacement) { reply(e, false, "Il candidato non contiene il vincolo con ID " + id); return; }
+        updated = OpenModel::updateSupport(g.analysis, id, *replacement, error);
+    } else if (OpenModel::findForce(g.analysis, id)) {
+        const auto* replacement = OpenModel::findForce(parsed.model, id);
+        if (!replacement) { reply(e, false, "Il candidato non contiene la forza con ID " + id); return; }
+        updated = OpenModel::updateForce(g.analysis, id, *replacement, error);
+    } else if (OpenModel::findPressure(g.analysis, id)) {
+        const auto* replacement = OpenModel::findPressure(parsed.model, id);
+        if (!replacement) { reply(e, false, "Il candidato non contiene la pressione con ID " + id); return; }
+        updated = OpenModel::updatePressure(g.analysis, id, *replacement, error);
+    } else {
+        reply(e, false, "Condizione non trovata: " + id);
+        return;
+    }
+
+    if (!updated) {
+        reply(e, false, "Aggiornamento rifiutato: " + error);
+        return;
+    }
+    reply(e, true, OpenModel::serializeAnalysisScript(g.analysis));
+}
+
 /** Delete a support, force or pressure by stable ID. The required material cannot be deleted. */
 void analysisDelete(webui_event_t* e) {
     StateLock lock;
@@ -1693,6 +1738,7 @@ int main() {
     webui_bind(window, "openmodel_default_analysis", defaultAnalysis);
     webui_bind(window, "openmodel_analysis_load", analysisLoad);
     webui_bind(window, "openmodel_analysis_get", analysisGet);
+    webui_bind(window, "openmodel_analysis_update", analysisUpdate);
     webui_bind(window, "openmodel_analysis_delete", analysisDelete);
     webui_bind(window, "openmodel_create_group", createGroupHandler);
     webui_bind(window, "openmodel_list_groups", listGroupsHandler);
