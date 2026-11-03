@@ -93,8 +93,8 @@ double angularCoverage(const std::vector<double>& angles){
 
 struct Candidate {
     AssimpFittedSurfaceType type=AssimpFittedSurfaceType::Freeform;
-    V center{{0,0,0}},axis{{0,0,1}};
-    double radius=0,angle=0,rms=0,max=0,relativeRms=std::numeric_limits<double>::infinity();
+    V center{{0,0,0}},axis{{0,0,1}},apex{{0,0,0}};
+    double radius=0,angle=0,slope=0,rms=0,max=0,relativeRms=std::numeric_limits<double>::infinity();
     double relativeMax=std::numeric_limits<double>::infinity(),coverage=0;
     bool valid=false;
 };
@@ -161,6 +161,8 @@ bool coneFit(const std::vector<V>& points,const V& centroid,const V& axis,Candid
     for(const auto& item:zr)errors.push_back(std::abs(item[1]-(intercept+slope*item[0])));
     candidate.type=std::abs(slope)>1e-3?AssimpFittedSurfaceType::Conical:AssimpFittedSurfaceType::Cylindrical;
     candidate.center=centroid;candidate.axis=axis;candidate.radius=intercept;
+    candidate.slope=slope;
+    candidate.apex=add(centroid,mul(axis,-intercept/slope));
     candidate.angle=std::atan(std::abs(slope));candidate.coverage=angularCoverage(angles);
     radialMetrics(errors,intercept,candidate.rms,candidate.max,candidate.relativeRms,candidate.relativeMax);
     candidate.valid=true;return true;
@@ -303,6 +305,7 @@ bool AssimpSurfaceGeometryFitter::fit(const std::vector<RenderSubMesh>& parts,
         if(best.valid){
             result.type=best.type;result.center=best.center;result.axis=best.axis;
             result.radius=best.radius;result.coneHalfAngleRadians=best.angle;
+            result.apex=best.apex;result.coneSlope=best.slope;
             result.rmsError=best.rms;result.maxError=best.max;
             result.relativeRmsError=best.relativeRms;result.relativeMaxError=best.relativeMax;
             result.angularCoverageDegrees=best.coverage;
