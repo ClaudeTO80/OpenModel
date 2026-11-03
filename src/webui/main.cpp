@@ -1343,11 +1343,15 @@ void createCADFaceGroupHandler(webui_event_t* e) {
         replyCADFaceGroups(e, false, "Nome non valido: usa lettere, cifre, underscore, trattino o punto.");
         return;
     }
+    const std::string normalizedNodeSetName = AbaqusInpWriter::sanitizeName(name + "_NODES");
+    const bool sanitizedNameCollision = std::any_of(g.cadFaceGroups.begin(), g.cadFaceGroups.end(),
+        [&](const auto& group) { return AbaqusInpWriter::sanitizeName(group.name + "_NODES") == normalizedNodeSetName; });
     if (std::any_of(g.cadFaceGroups.begin(), g.cadFaceGroups.end(), [&](const auto& group) { return group.name == name; }) ||
+        sanitizedNameCollision ||
         std::any_of(g.cad->getGroups().begin(), g.cad->getGroups().end(), [&](const auto& group) { return group.name == name; }) ||
         std::any_of(g.cad->getComponents().begin(), g.cad->getComponents().end(),
             [&](const auto& component) { return !component.isAssembly && component.path == name; })) {
-        replyCADFaceGroups(e, false, "Il nome del gruppo CAD è già usato da un gruppo o componente importato.");
+        replyCADFaceGroups(e, false, "Il nome del gruppo CAD è già usato oppure collide con un altro Node Set dopo la conversione del nome per i solutori.");
         return;
     }
     std::set<int> available;
