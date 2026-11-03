@@ -68,27 +68,41 @@ int main() {
         cylinder.tolerance = 1e-6;
         cylinder.constrainNormal = false;
 
+        AssimpSurfaceSelector normal;
+        normal.name = "Z_NORMAL_PATCH";
+        normal.kind = AssimpSurfaceSelectorKind::Normal;
+        normal.direction = {{0,0,1}};
+        normal.constrainNormal = true;
+        normal.minNormalAlignment = 0.99;
+
         AssimpSurfaceMesher mesher;
         MeshData mesh;
-        require(mesher.buildMesh(model, options, {plane, box, cylinder}, mesh),
+        require(mesher.buildMesh(model, options, {plane, normal, box, cylinder}, mesh),
                 "Assimp surface meshing failed.");
 
         const auto* planeGroup = mesh.getMeshGroupRegistry().find("FIXED_END");
+        const auto* normalGroup = mesh.getMeshGroupRegistry().find("Z_NORMAL_PATCH");
         const auto* boxGroup = mesh.getMeshGroupRegistry().find("BOX_PATCH");
         const auto* cylinderGroup = mesh.getMeshGroupRegistry().find("CYLINDER_SIDE");
-        require(planeGroup && boxGroup && cylinderGroup, "One or more geometric groups are missing.");
+        require(planeGroup && normalGroup && boxGroup && cylinderGroup,
+                "One or more geometric groups are missing.");
         require(planeGroup->source == MeshGroupSource::Imported && planeGroup->dimension == 2,
                 "Imported group metadata is incorrect.");
         require(planeGroup->elementIds.size() == 1, "Plane selector did not isolate one triangle.");
+        require(normalGroup->elementIds.size() == 2,
+                "Normal selector did not isolate both +Z-facing triangles.");
         require(boxGroup->elementIds.size() == 1, "AABB selector did not isolate one triangle.");
         require(cylinderGroup->elementIds.size() == 1, "Cylinder selector did not isolate one triangle.");
         require(planeGroup->nodeIndices.size() == 3, "Plane selector did not create a 3-node set.");
 
         const auto planeNodes = mesh.getNodeSets().find("FIXED_END_NODES");
+        const auto normalNodes = mesh.getNodeSets().find("Z_NORMAL_PATCH_NODES");
         const auto boxNodes = mesh.getNodeSets().find("BOX_PATCH_NODES");
         const auto cylinderNodes = mesh.getNodeSets().find("CYLINDER_SIDE_NODES");
         require(planeNodes != mesh.getNodeSets().end() && planeNodes->second.size() == 3,
                 "Plane node set is missing or incorrect.");
+        require(normalNodes != mesh.getNodeSets().end() && normalNodes->second.size() == 6,
+                "Normal node set is missing or incorrect.");
         require(boxNodes != mesh.getNodeSets().end() && boxNodes->second.size() == 3,
                 "AABB node set is missing or incorrect.");
         require(cylinderNodes != mesh.getNodeSets().end() && cylinderNodes->second.size() == 3,
@@ -116,7 +130,7 @@ int main() {
 
         std::error_code ec;
         std::filesystem::remove(path, ec);
-        std::cout << "Assimp plane, AABB and cylinder surface selection passed.\n";
+        std::cout << "Assimp plane, normal, AABB and cylinder surface selection passed.\n";
         return 0;
     } catch (const std::exception& error) {
         std::error_code ec;
