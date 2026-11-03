@@ -303,6 +303,14 @@ iframe{display:block;width:100%;height:100%;border:0;background:#10141b}
     <p class="hint">Comandi: <code>material E= nu= rho=</code>, <code>fix plane:x=0 [dof=1,2,3]</code>, <code>force plane:x=10 F=fx,fy,fz</code>, <code>pressure group:NOME p=</code>, <code>gravity g=gx,gy,gz</code>, <code>step static</code> o <code>step frequency modes=N</code>. Selettori: <code>all</code>, <code>group:NOME</code>, <code>plane:x|y|z=VALORE</code>. Unità coerenti a scelta dell'utente. Al termine i risultati si caricano da soli.</p>
   </section>
 
+  <dialog id="analysisEditDialog" style="max-width:520px;width:calc(100% - 32px);border:1px solid var(--border,#888);border-radius:8px;background:var(--panel,#fff);color:var(--text,inherit)">
+    <form id="analysisEditForm">
+      <h3 id="analysisEditTitle">Modifica condizione</h3>
+      <div id="analysisEditFields" class="stack"></div>
+      <div class="grid2" style="margin-top:12px"><button type="button" id="analysisEditCancel">Annulla</button><button type="submit" class="primary">Applica</button></div>
+    </form>
+  </dialog>
+
   <section id="secSel">
     <h2>7 · Selezione e gruppi</h2>
     <label for="selMode">Seleziona nel viewer</label>
@@ -738,6 +746,106 @@ function analysisCommand(line) {
   const command = text.split(/\s+/, 1)[0].toLowerCase();
   return ANALYSIS_COMMANDS.has(command) ? command : null;
 }
+function analysisTokens(line) {
+  const out = {};
+  const tokens = line.trim().split(/\\s+/);
+  for (let i = 1; i < tokens.length; ++i) {
+    const eq = tokens[i].indexOf("=");
+    if (eq > 0) out[tokens[i].slice(0, eq).toLowerCase()] = tokens[i].slice(eq + 1);
+    else if (!out._selector) out._selector = tokens[i];
+  }
+  return out;
+}
+function analysisField(parent, labelText, name, value, hint) {
+  const wrap = document.createElement("label");
+  wrap.textContent = labelText;
+  const input = document.createElement("input");
+  input.name = name; input.value = value || ""; input.required = true;
+  input.style.width = "100%";
+  if (hint) input.placeholder = hint;
+  wrap.append(input); parent.append(wrap);
+}
+async function applyAnalysisEdit(replacement, id, originalLines, index) {
+  const candidate = originalLines.slice();
+  candidate[index] = replacement;
+  const script = candidate.join("\\n");
+  if (id) {
+    const updated = await act("openmodel_analysis_update", id, script);
+    if (!updated || !updated.ok) return false;
+    $("anScript").value = updated.message;
+  } else {
+    const synced = await act("openmodel_analysis_load", script);
+    if (!synced || !synced.ok) return false;
+    $("anScript").value = synced.message;
+  }
+  renderAnalysisConditions();
+  return true;
+}
+async function editAnalysisCondition(command, line, id, lines, index) {
+  if (!["material", "fix", "force", "pressure"].includes(command)) return null;
+  const values = analysisTokens(line);
+  const dialog = $("analysisEditDialog"), fields = $("analysisEditFields");
+  fields.replaceChildren();
+  $("analysisEditTitle").textContent = "Modifica " + ({material:"materiale",fix:"vincolo",force:"forza",pressure:"pressione"}[command]);
+  const positional = values._selector || "";
+  if (command === "material") {
+    analysisField(fields, "Modulo elastico E", "E", values.e);
+    analysisField(fields, "Coefficiente di Poisson nu", "nu", values.nu);
+    analysisField(fields, "Densità rho", "rho", values.rho || "0");
+    analysisField(fields, "Nome materiale", "name", values.name || "MATERIAL");
+  } else if (command === "fix") {
+    analysisField(fields, "Selettore (all, group:NAME, plane:x=VALUE)", "selector", positional);
+    analysisField(fields, "Gradi di libertà (1,2,3 oppure all)", "dof", values.dof || "1,2,3");
+    analysisField(fields, "Spostamento prescritto ux,uy,uz", "value", values.value || "0,0,0");
+    analysisField(fields, "Tolleranza (opzionale)", "tol", values.tol || "");
+  } else if (command === "force") {
+    analysisField(fields, "Selettore (all, group:NAME, plane:x=VALUE)", "selector", positional);
+    analysisField(fields, "Forza totale Fx,Fy,Fz", "F", values.f || "0,0,0");
+    analysisField(fields, "Tolleranza (opzionale)", "tol", values.tol || "");
+  } else {
+    analysisField(fields, "Gruppo di superficie", "selector", positional);
+    analysisField(fields, "Pressione", "p", values.p || "0");
+  }
+  return new Promise(resolve => {
+    let finished = false;
+    const close = value => {
+      if (finished) return;
+      finished = true;
+      dialog.close();
+      $("analysisEditForm").removeEventListener("submit", submit);
+      $("analysisEditCancel").removeEventListener("click", cancel);
+      resolve(value);
+    };
+    const cancel = () => close(false);
+    const submit = async event => {
+      event.preventDefault();
+      const data = new FormData($("analysisEditForm"));
+      const get = name => String(data.get(name) || "").trim();
+      const parts = [];
+      if (command === "material") {
+        parts.push("E=" + get("E"), "nu=" + get("nu"), "rho=" + get("rho"), "name=" + get("name"));
+      } else if (command === "fix") {
+        parts.push(get("selector"), "dof=" + get("dof"), "value=" + get("value"));
+        if (get("tol")) parts.push("tol=" + get("tol"));
+      } else if (command === "force") {
+        parts.push(get("selector"), "F=" + get("F"));
+        if (get("tol")) parts.push("tol=" + get("tol"));
+      } else {
+        parts.push(get("selector"), "p=" + get("p"));
+      }
+      if (id) parts.push("id=" + id);
+      const replacement = command + " " + parts.join(" ");
+      if (!await applyAnalysisEdit(replacement, id, lines, index)) {
+        close(false);
+        return;
+      }
+      close(true);
+    };
+    $("analysisEditForm").addEventListener("submit", submit);
+    $("analysisEditCancel").addEventListener("click", cancel);
+    dialog.showModal();
+  }).then(value => value === true ? false : value === false ? false : null);
+}
 function renderAnalysisConditions() {
   const list = $("analysisConditions");
   if (!list) return;
@@ -757,25 +865,16 @@ function renderAnalysisConditions() {
     const edit = document.createElement("button");
     edit.type = "button"; edit.textContent = "Modifica";
     edit.addEventListener("click", async () => {
-      const replacement = prompt("Modifica la condizione (comando " + command + "):", line.trim());
-      if (replacement === null) return;
-      if (analysisCommand(replacement) !== command) {
-        show("La riga modificata deve mantenere il comando " + command + ".", "bad"); return;
+      const structured = await editAnalysisCondition(command, line.trim(), idMatch && idMatch[1], lines, index);
+      if (structured !== null) return;
+      {
+        const replacement = prompt("Modifica la condizione (comando " + command + "):", line.trim());
+        if (replacement === null) return;
+        if (analysisCommand(replacement) !== command) {
+          show("La riga modificata deve mantenere il comando " + command + ".", "bad"); return;
+        }
+        await applyAnalysisEdit(replacement, idMatch && idMatch[1], lines, index);
       }
-      const candidate = lines.slice();
-      candidate[index] = replacement;
-      const script = candidate.join("\n");
-      if (idMatch && idMatch[1]) {
-        const updated = await act("openmodel_analysis_update", idMatch[1], script);
-        if (!updated || !updated.ok) return;
-        $("anScript").value = updated.message;
-      } else {
-        $("anScript").value = script;
-        const synced = await act("openmodel_analysis_load", script);
-        if (!synced || !synced.ok) return;
-        $("anScript").value = synced.message;
-      }
-      renderAnalysisConditions();
     });
     const remove = document.createElement("button");
     remove.type = "button"; remove.textContent = "Rimuovi";
