@@ -67,10 +67,10 @@ int main() {
         {
             std::ifstream input(gltfPath, std::ios::binary);
             std::string json((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
-            const std::string node = "\\"mesh\\":0}";
+            const std::string node = R"glb("mesh":0})glb";
             const auto position = json.find(node);
             require(position != std::string::npos, "Could not locate glTF mesh node for mirrored fixture.");
-            json.replace(position, node.size(), "\\"mesh\\":0,\\"scale\\":[-1,1,1]}");
+            json.replace(position, node.size(), R"glb("mesh":0,"scale":[-1,1,1]})glb");
             std::ofstream output(gltfPath, std::ios::binary | std::ios::trunc);
             output.write(json.data(), static_cast<std::streamsize>(json.size()));
             require(static_cast<bool>(output), "Could not write mirrored glTF fixture.");
