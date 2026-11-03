@@ -56,6 +56,10 @@ void MeshGroupRegistry::add(MeshGroup group) {
     if (group.name.empty()) throw std::invalid_argument("MeshGroupRegistry: group name cannot be empty");
     if (group.dimension < 0 || group.dimension > 3)
         throw std::invalid_argument("MeshGroupRegistry: group dimension must be 0..3");
+    if (group.source != MeshGroupSource::UserDefined &&
+        group.source != MeshGroupSource::CAD &&
+        group.source != MeshGroupSource::Imported)
+        throw std::invalid_argument("MeshGroupRegistry: invalid group source");
     if (find(group.name)) throw std::invalid_argument("MeshGroupRegistry: duplicate group name");
     auto uniquePreservingOrder = [](auto& values) {
         using Value = typename std::decay<decltype(values)>::type::value_type;
