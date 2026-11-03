@@ -24,11 +24,11 @@
  * fix plane:x=0 [dof=1,2,3] [tol=1e-6]          # default: all three translations
  * fix group:BladeRoot_NODES dof=1,2,3           # Node Set generated from a CAD face group
  * force plane:x=10 F=0,-100,0                   # total force, shared equally by the selected nodes
- * pressure group:Top p=2.5                      # on a surface group; positive = pushing into the body
+ * pressure group:Top p=2.5                      # on a dimension-2 surface group; positive = pushing into the body
  * gravity g=0,0,-9810                           # acceleration vector (needs rho)
  * step static                                   # or: step frequency modes=6
  * @endcode
- * Node selectors: `all`, `group:NAME` (node set, or the nodes of a physical group of any dimension) and
+ * Node selectors: `all`, `group:NAME` (node set, generic mesh group, or the nodes of a physical group of any dimension) and
  * `plane:x=VALUE` (also y, z): nodes whose coordinate lies within `tol` of VALUE (default 1e-6 times the model diagonal).
  * Units are the user's: use a consistent set (for example mm, N, tonne, s as in the examples).
  */
