@@ -458,11 +458,21 @@ CodeAsterExportResult writeCodeAsterCase(const MeshData& mesh, const AnalysisMod
             for (const auto& block : mesh.getElementBlocks())
                 for (std::size_t e = 0; e < block.size(); ++e) location.emplace(block.ids[e], std::make_pair(&block, e));
         for (const auto& p : model.pressures) {
-            const MeshPhysicalGroup* group = findGroup(mesh, p.group);
-            if (!group) return fail(r, "pressure: unknown surface group '" + p.group + "'");
-            if (group->dimension != 2) return fail(r, "pressure: group '" + p.group + "' is not a surface group (dimension " + std::to_string(group->dimension) + ")");
+            const std::vector<ElementId>* groupElements = nullptr;
+            int groupDimension = -1;
+            const MeshPhysicalGroup* physical = findGroup(mesh, p.group);
+            if (physical) { groupElements = &physical->elementIds; groupDimension = physical->dimension; }
+            else {
+                const MeshGroup* generic = mesh.getMeshGroupRegistry().find(p.group);
+                if (!generic)
+                    for (const auto& g : mesh.getMeshGroupRegistry().groups())
+                        if (lowered(g.name) == lowered(p.group)) { generic = &g; break; }
+                if (generic) { groupElements = &generic->elementIds; groupDimension = generic->dimension; }
+            }
+            if (!groupElements) return fail(r, "pressure: unknown surface group '" + p.group + "'");
+            if (groupDimension != 2) return fail(r, "pressure: group '" + p.group + "' is not a surface group (dimension " + std::to_string(groupDimension) + ")");
             std::size_t unmatched = 0, shared = 0;
-            for (const ElementId id : group->elementIds) {
+            for (const ElementId id : *groupElements) {
                 const auto at = location.find(id);
                 const int corners = at == location.end() ? 0 : surfaceCornerCount(at->second.first->type);
                 if (corners == 0) { ++unmatched; continue; }
