@@ -24,6 +24,7 @@ struct AssimpSurfacePatch {
     double normalCoherence = 0.0;
     AssimpSurfacePatchKind kind = AssimpSurfacePatchKind::NonPlanar;
     std::size_t boundaryEdgeCount = 0;
+    std::size_t nonManifoldEdgeCount = 0;
 };
 
 // Finds edge-connected patches in an Assimp triangle mesh. Geometric vertex
