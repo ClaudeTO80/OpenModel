@@ -3,6 +3,9 @@
 #include <algorithm>
 #include <array>
 #include <map>
+#include <set>
+#include <unordered_map>
+#include <unordered_set>
 
 std::string TetGenMesher::getName() const  {
  return "TetGen Mesher"; 
@@ -66,6 +69,7 @@ bool TetGenMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Me
 
         std::vector<std::array<double, 3>> points;
         std::vector<std::array<int, 3>> triangles;
+        std::vector<int> triangleFaceIds;
         {
             std::map<std::array<long long, 3>, std::vector<int>> grid; // cell -> welded point ids
             auto cellOf = [&](const std::array<double, 3>& p) {
@@ -99,6 +103,7 @@ bool TetGenMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Me
                     const int a = local.at(sub.indices[i]), b = local.at(sub.indices[i + 1]), c = local.at(sub.indices[i + 2]);
                     if (a == b || b == c || a == c) { ++degenerate; continue; }
                     triangles.push_back({{a, b, c}});
+                    triangleFaceIds.push_back(sub.sourceFaceId);
                 }
             }
             if (degenerate)
@@ -115,6 +120,14 @@ bool TetGenMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Me
         in.numberoffacets = static_cast<int>(triangles.size());
         in.facetlist = new tetgenio::facet[triangles.size()];
         in.facetmarkerlist = new int[triangles.size()];
+        std::map<int, int> markerToCadFace;
+        std::map<int, int> cadFaceToMarker;
+        for (const int faceId : triangleFaceIds) {
+            if (faceId < 0 || cadFaceToMarker.count(faceId)) continue;
+            const int marker = static_cast<int>(markerToCadFace.size()) + 1;
+            cadFaceToMarker.emplace(faceId, marker);
+            markerToCadFace.emplace(marker, faceId);
+        }
         for (std::size_t i = 0; i < triangles.size(); ++i) {
             tetgenio::facet* f = &in.facetlist[i];
             tetgenio::init(f);
@@ -124,14 +137,15 @@ bool TetGenMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Me
             f->polygonlist[0].numberofvertices = 3;
             f->polygonlist[0].vertexlist = new int[3];
             for (std::size_t k = 0; k < 3; ++k) f->polygonlist[0].vertexlist[k] = triangles[i][k];
-            in.facetmarkerlist[i] = 1;
+            const auto marker = cadFaceToMarker.find(triangleFaceIds[i]);
+            in.facetmarkerlist[i] = marker == cadFaceToMarker.end() ? 0 : marker->second;
         }
 
         // Stringa di comando per TetGen (es. "p" = PLS, "q" = qualità raggio-limite, "a" = volume massimo)
         // "a" bounds the tetrahedron volume. Derive it from the requested edge length
         // (regular tetrahedron: V = L^3 / (6*sqrt(2))) so that elementSize is a length.
         const double maxVolume = options.elementSize * options.elementSize * options.elementSize / (6.0 * std::sqrt(2.0));
-        std::string cmd = "pq1.4a" + std::to_string(maxVolume);
+        std::string cmd = "pq1.4fa" + std::to_string(maxVolume);
         if (options.order == 2) cmd += "o2"; // Tetraedri del 2° ordine
 
         try {
@@ -164,6 +178,73 @@ bool TetGenMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Me
                 outMesh.addElement("TetGen_Volume", type,
                     static_cast<ElementId>(i + 1), connectivity);
             }
+
+            // TetGen's -f output returns boundary triangles and their propagated
+            // facet markers. Store these as genuine 2D mesh elements so the
+            // CAD-to-FEM mapping survives independently of node markers.
+            std::map<int, std::vector<ElementId>> elementsByCadFace;
+            std::map<int, std::vector<NodeIndex>> nodesByCadFace;
+            const ElementId surfaceIdBase = static_cast<ElementId>(out.numberoftetrahedra) + 1;
+            for (int i = 0; i < out.numberoftrifaces; ++i) {
+                const int marker = out.trifacemarkerlist ? out.trifacemarkerlist[i] : 0;
+                const auto face = markerToCadFace.find(marker);
+                std::vector<NodeIndex> connectivity;
+                connectivity.reserve(3);
+                for (int n = 0; n < 3; ++n) {
+                    const int nodeIdx = out.trifacelist[i * 3 + n];
+                    if (nodeIdx < 0 || nodeIdx >= out.numberofpoints)
+                        throw std::runtime_error("TetGen boundary face references an invalid node");
+                    connectivity.push_back(static_cast<NodeIndex>(nodeIdx));
+                }
+                const ElementId elementId = surfaceIdBase + static_cast<ElementId>(i);
+                outMesh.addElement("TetGen_Surface", ElementType::Triangle3, elementId, connectivity);
+                if (face != markerToCadFace.end()) {
+                    elementsByCadFace[face->second].push_back(elementId);
+                    auto& nodes = nodesByCadFace[face->second];
+                    nodes.insert(nodes.end(), connectivity.begin(), connectivity.end());
+                }
+            }
+
+            std::vector<CADGroup> requestedFaceGroups;
+            for (const auto& group : cadModel->getGroups())
+                if (group.dimension == 2) requestedFaceGroups.push_back(group);
+            requestedFaceGroups.insert(requestedFaceGroups.end(),
+                                       options.additionalFaceGroups.begin(),
+                                       options.additionalFaceGroups.end());
+            std::set<std::string> usedNames;
+            for (const auto& group : requestedFaceGroups) {
+                if (group.dimension != 2 || group.ids.empty()) continue;
+                std::vector<ElementId> elements;
+                std::vector<NodeIndex> nodes;
+                std::set<int> uniqueFaces(group.ids.begin(), group.ids.end());
+                std::vector<int> missingFaces;
+                for (const int faceId : uniqueFaces) {
+                    const auto e = elementsByCadFace.find(faceId);
+                    const auto n = nodesByCadFace.find(faceId);
+                    if (e == elementsByCadFace.end() || n == nodesByCadFace.end()) {
+                        missingFaces.push_back(faceId);
+                        continue;
+                    }
+                    elements.insert(elements.end(), e->second.begin(), e->second.end());
+                    nodes.insert(nodes.end(), n->second.begin(), n->second.end());
+                }
+                if (!missingFaces.empty()) {
+                    std::string message = "TetGen could not map every CAD face in group '" + group.name + "'. Missing face IDs:";
+                    for (const int id : missingFaces) message += " " + std::to_string(id);
+                    throw std::runtime_error(message);
+                }
+                if (elements.empty()) continue;
+                std::sort(nodes.begin(), nodes.end());
+                nodes.erase(std::unique(nodes.begin(), nodes.end()), nodes.end());
+                std::string name = group.name.empty() ? "CAD_Face_Group" : group.name;
+                if (!usedNames.insert(name).second)
+                    throw std::runtime_error("TetGen CAD face groups contain duplicate names: " + name);
+                outMesh.addMeshGroup(MeshGroup{name, 2, MeshGroupSource::CAD,
+                                               std::vector<int>(uniqueFaces.begin(), uniqueFaces.end()),
+                                               std::move(elements), std::move(nodes)});
+            }
+            if (!requestedFaceGroups.empty() && markerToCadFace.empty())
+                throw std::runtime_error("TetGen input tessellation has no sourceFaceId metadata; CAD face groups cannot be mapped.");
 
             return true;
         } catch (const std::exception& e) {
