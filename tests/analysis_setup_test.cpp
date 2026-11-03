@@ -5,6 +5,7 @@
 #include <OpenModel/AnalysisSetup.hpp>
 #include <OpenModel/ProcessRunner.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <filesystem>
@@ -13,6 +14,7 @@
 #include <sstream>
 #include <string>
 #include <thread>
+#include <vector>
 
 using namespace OpenModel;
 namespace fs = std::filesystem;
@@ -37,6 +39,26 @@ std::string slurp(const fs::path& p) {
 }
 
 bool contains(const std::string& text, const std::string& what) { return text.find(what) != std::string::npos; }
+
+bool containsNsetMembers(const std::string& text, const std::string& name,
+                         std::vector<int> expected) {
+    const std::string header = "*NSET, NSET=" + name;
+    const auto headerPos = text.find(header);
+    if (headerPos == std::string::npos) return false;
+    const auto dataStart = text.find('\n', headerPos);
+    if (dataStart == std::string::npos) return false;
+    const auto nextKeyword = text.find("\n*", dataStart + 1);
+    std::string data = text.substr(dataStart + 1,
+        nextKeyword == std::string::npos ? std::string::npos : nextKeyword - dataStart - 1);
+    for (char& c : data) if (c == ',') c = ' ';
+    std::istringstream input(data);
+    std::vector<int> actual;
+    int id = 0;
+    while (input >> id) actual.push_back(id);
+    std::sort(actual.begin(), actual.end());
+    std::sort(expected.begin(), expected.end());
+    return actual == expected;
+}
 
 bool hasCode(const std::vector<ImportDiagnostic>& d, const std::string& code, std::size_t line = 0) {
     for (const auto& x : d)
@@ -218,7 +240,7 @@ void testWriterStatic() {
     CHECK(contains(t, "*DENSITY\n7.85e-09"));
     CHECK(contains(t, "*SOLID SECTION, ELSET=SOLID, MATERIAL=MATERIAL"));
     CHECK(contains(t, "*NSET, NSET=MG_FIX1\n11, 12, 13, 14\n"));
-    CHECK(contains(t, "*NSET, NSET=BLADEROOT_NODES") && contains(t, "11, 14, 15, 18"));
+    CHECK(containsNsetMembers(t, "BLADEROOT_NODES", {11, 14, 15, 18}));
     CHECK(contains(t, "MG_FIX1, 1, 1, 0.") && contains(t, "MG_FIX1, 3, 3, 0.") &&
           contains(t, "MG_FIX2, 1, 1, 0.") && contains(t, "MG_FIX2, 3, 3, 0.") &&
           contains(t, "MG_FIX3, 1, 1, 0."));
