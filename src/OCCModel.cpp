@@ -578,33 +578,48 @@ bool OCCModel::loadWithStructure(const std::string& path, bool iges, TopoDS_Shap
         for (const auto& location : found->second.locations) located.push_back(local.Moved(location));
         return located;
     };
-    // Solids if the shape contains any, faces otherwise.
-    auto classify = [&](const TopoDS_Shape& shapeIn, std::set<int>& solidIds, std::set<int>& faceIds) {
-        bool hasSolid = false;
+
+    struct EntityIds {
+        std::set<int> solids, faces, edges, vertices;
+    };
+    // Keep the highest-dimensional entities in a named shape. A solid layer
+    // remains a solid group; a wire becomes an edge group; a point becomes a
+    // vertex group. This avoids expanding every solid layer into all its edges.
+    auto classify = [&](const TopoDS_Shape& shapeIn, EntityIds& ids) {
         for (TopExp_Explorer x(shapeIn, TopAbs_SOLID); x.More(); x.Next()) {
             const Standard_Integer index = m_solidMap.FindIndex(x.Current());
-            if (index > 0) { solidIds.insert(index - 1); hasSolid = true; }
+            if (index > 0) ids.solids.insert(index - 1);
         }
-        if (hasSolid) return;
+        if (!ids.solids.empty()) return;
         for (TopExp_Explorer x(shapeIn, TopAbs_FACE); x.More(); x.Next()) {
             const Standard_Integer index = m_faceMap.FindIndex(x.Current());
-            if (index > 0) faceIds.insert(index - 1);
+            if (index > 0) ids.faces.insert(index - 1);
+        }
+        if (!ids.faces.empty()) return;
+        for (TopExp_Explorer x(shapeIn, TopAbs_EDGE); x.More(); x.Next()) {
+            const Standard_Integer index = m_edgeMap.FindIndex(x.Current());
+            if (index > 0) ids.edges.insert(index - 1);
+        }
+        if (!ids.edges.empty()) return;
+        for (TopExp_Explorer x(shapeIn, TopAbs_VERTEX); x.More(); x.Next()) {
+            const Standard_Integer index = m_vertexMap.FindIndex(x.Current());
+            if (index > 0) ids.vertices.insert(index - 1);
         }
     };
-    auto pushGroup = [&](const std::string& name, CADGroupKind kind, const std::set<int>& solidIds, const std::set<int>& faceIds) {
-        if (!solidIds.empty()) {
-            CADGroup g;
-            g.name = name; g.kind = kind; g.dimension = 3;
-            g.ids.assign(solidIds.begin(), solidIds.end());
-            m_groups.push_back(std::move(g));
-        }
-        if (!faceIds.empty()) {
-            CADGroup g;
-            g.name = solidIds.empty() ? name : name + " (faces)";
-            g.kind = kind; g.dimension = 2;
-            g.ids.assign(faceIds.begin(), faceIds.end());
-            m_groups.push_back(std::move(g));
-        }
+    auto pushGroup = [&](const std::string& name, CADGroupKind kind, const EntityIds& ids) {
+        auto add = [&](const std::string& groupName, int dimension, const std::set<int>& values) {
+            if (values.empty()) return;
+            CADGroup group;
+            group.name = groupName;
+            group.kind = kind;
+            group.dimension = dimension;
+            group.ids.assign(values.begin(), values.end());
+            m_groups.push_back(std::move(group));
+        };
+        add(name, 3, ids.solids);
+        add(name + " (faces)", 2, ids.faces);
+        add(name + " (edges)", 1, ids.edges);
+        add(name + " (vertices)", 0, ids.vertices);
     };
 
     TDF_LabelSequence layerLabels;
@@ -616,14 +631,15 @@ bool OCCModel::loadWithStructure(const std::string& path, bool iges, TopoDS_Shap
         if (name.empty()) name = "Layer_" + std::to_string(i);
         TDF_LabelSequence members;
         layers->GetShapesOfLayer(layerLabels.Value(i), members);
-        std::set<int> solidIds, faceIds;
+        EntityIds ids;
         for (Standard_Integer m = 1; m <= members.Length(); ++m)
-            for (const auto& located : locatedShapes(members.Value(m))) classify(located, solidIds, faceIds);
-        pushGroup(name, CADGroupKind::Layer, solidIds, faceIds);
+            for (const auto& located : locatedShapes(members.Value(m))) classify(located, ids);
+        pushGroup(name, CADGroupKind::Layer, ids);
     }
 
-    // Named sub-shapes (for example a named face of a part). Same name in several places merges.
-    std::map<std::string, std::pair<std::set<int>, std::set<int>>> named;
+    // Named sub-shapes: faces, wires/edges and vertices are retained at their
+    // own topological dimension. Repeated names across instances are merged.
+    std::map<std::string, EntityIds> named;
     for (const auto& entry : walker.parts) {
         TDF_LabelSequence subLabels;
         walker.shapes->GetSubShapes(entry.second.label, subLabels);
@@ -631,7 +647,7 @@ bool OCCModel::loadWithStructure(const std::string& path, bool iges, TopoDS_Shap
             const std::string name = labelName(subLabels.Value(i));
             if (name.empty()) continue;
             auto& target = named[name];
-            for (const auto& located : locatedShapes(subLabels.Value(i))) classify(located, target.first, target.second);
+            for (const auto& located : locatedShapes(subLabels.Value(i))) classify(located, target);
         }
     }
     // Faces named on the ADVANCED_FACE entity: find them inside each non-assembly part and place every instance.
@@ -644,11 +660,12 @@ bool OCCModel::loadWithStructure(const std::string& path, bool iges, TopoDS_Shap
                 for (const auto& [faceName, bound] : stepFaceNames) {
                     if (!x.Current().IsPartner(bound)) continue;
                     auto& target = named[faceName];
-                    for (const auto& location : entry.second.locations) classify(x.Current().Moved(location), target.first, target.second);
+                    for (const auto& location : entry.second.locations)
+                        classify(x.Current().Moved(location), target);
                 }
             }
         }
     }
-    for (const auto& item : named) pushGroup(item.first, CADGroupKind::NamedShape, item.second.first, item.second.second);
+    for (const auto& item : named) pushGroup(item.first, CADGroupKind::NamedShape, item.second);
     return true;
 }
