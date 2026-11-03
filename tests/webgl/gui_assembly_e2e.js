@@ -64,6 +64,9 @@ function countPixels(png, pred) {
   await click('Importa e triangola');
   const msg = await message();
   check(/Struttura CAD: 5 nodi di assieme \(4 componenti\), 2 gruppi di facce/.test(msg), 'import reports the CAD structure: ' + (msg.split('\n').find((l) => l.startsWith('Struttura')) || msg));
+  await page.waitForFunction(() => document.querySelector('#nativeCadGrpList')?.textContent.includes('TopFace'), null, { timeout: 10000 });
+  const nativeGroups = await page.textContent('#nativeCadGrpList');
+  check(/TopFace/.test(nativeGroups) && /Facce/.test(nativeGroups), 'Workbench lists native CAD named groups with topological dimension: ' + nativeGroups);
   await page.waitForTimeout(800);
   const names = await frame().locator('#comps .nm').allTextContents();
   check(['Assy', 'Base', 'Cover', 'Pin', 'Pin #2'].every((n) => names.includes(n)), 'viewer lists the components as a tree: ' + names.join(' | '));
@@ -89,6 +92,8 @@ function countPixels(png, pred) {
   await page.waitForTimeout(800);
   const vol = await leaves();
   check(['Assy/Base', 'Assy/Cover', 'Assy/Pin', 'Assy/Pin #2'].every((n) => vol.includes(n)), 'mesh groups carry the CAD paths: ' + vol.join(', '));
+  await page.waitForFunction(() => document.querySelector('#genericMeshGrpList')?.textContent.includes('Assy/Base'), null, { timeout: 10000 });
+  check(/CAD/.test(await page.textContent('#genericMeshGrpList')), 'Workbench lists backend-independent FEM groups and their source');
   const redVol = await redPixels();
   await frame().locator('#comps label:has(.nm:text-is("Base")) input').uncheck();
   const redVolHidden = await redPixels();
