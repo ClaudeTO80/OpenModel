@@ -159,6 +159,11 @@ int runSurfaceOnly(const std::string& step) {
     CHECK(uniqueSideFace.size() == 1);
     options.additionalFaceGroups.push_back(
         CADGroup{"UniqueSideFace", CADGroupKind::NamedShape, 2, uniqueSideFace});
+    // A user-defined group must never be emitted partially: the second source
+    // face id deliberately does not exist in this imported STEP model.
+    options.additionalFaceGroups.push_back(
+        CADGroup{"IncompleteFaceGroup", CADGroupKind::NamedShape, 2,
+                 {uniqueSideFace.front(), 999999999}});
 
     GmshMesher mesher;
     MeshData mesh;
@@ -175,6 +180,18 @@ int runSurfaceOnly(const std::string& step) {
     CHECK(!uniqueFace->elementIds.empty());
     const auto* physical = group(mesh, "UniqueSideFace");
     CHECK(physical && !physical->elementIds.empty());
+
+    // Incomplete groups are rejected atomically in both the backend-neutral
+    // registry and Gmsh physical-group representation.
+    CHECK(mesh.getMeshGroupRegistry().find("IncompleteFaceGroup") == nullptr);
+    CHECK(group(mesh, "IncompleteFaceGroup") == nullptr);
+    bool reportedMissingFace = false;
+    for (const auto& diagnostic : mesher.diagnostics())
+        if (diagnostic.find("IncompleteFaceGroup") != std::string::npos &&
+            diagnostic.find("999999999") != std::string::npos)
+            reportedMissingFace = true;
+    CHECK(reportedMissingFace);
+
     std::cout << "--- surface-only CAD face mapping: " << uniqueFace->elementIds.size()
               << " elements, " << uniqueFace->nodeIndices.size() << " nodes\n";
     return 0;
