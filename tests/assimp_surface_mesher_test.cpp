@@ -158,6 +158,7 @@ int main() {
         box.boundsMax = {{2.0, 1.0, 1.0}};
         box.tolerance = 1e-6;
         box.constrainNormal = false;
+        box.direction = {{0,0,0}}; // AABB selection does not require an axis.
 
         AssimpSurfaceSelector cylinder;
         cylinder.name = "CYLINDER_SIDE";
@@ -286,6 +287,58 @@ int main() {
                 "Small-patch geometry fitting failed.");
         require(fits.size() == 1 && fits.front().type == AssimpFittedSurfaceType::Freeform,
                 "A four-point folded patch was overfitted to an analytic primitive.");
+
+        // A fitted planar selector is scoped to the source patch bounds; a
+        // second disconnected triangle on the same plane must not be captured.
+        RenderSubMesh planeOne;
+        planeOne.name = "PlaneOne";
+        planeOne.vertices = {0,0,0, 1,0,0, 0,1,0};
+        planeOne.indices = {0,1,2};
+        RenderSubMesh planeTwo;
+        planeTwo.name = "PlaneTwo";
+        planeTwo.vertices = {10,0,0, 11,0,0, 10,1,0};
+        planeTwo.indices = {0,1,2};
+        std::vector<AssimpSurfacePatch> planePatches;
+        require(AssimpSurfacePatchAnalyzer::analyze({planeOne,planeTwo}, 1e-6,
+                    planePatches, fitDiagnostics) && planePatches.size() == 2,
+                "Disconnected planar patch analysis failed.");
+        require(AssimpSurfaceGeometryFitter::fit({planeOne,planeTwo}, planePatches,
+                    fitOptions, fits, fitDiagnostics),
+                "Planar patch fitting failed.");
+        AssimpSurfaceSelector scopedPlaneSelector;
+        std::string scopedSelectorDiagnostic;
+        require(AssimpSurfaceGeometryFitter::makeSelector(fits.front(), {planeOne,planeTwo},
+                    planePatches.front(), "SCOPED_PLANE", 1e-5,
+                    scopedPlaneSelector, scopedSelectorDiagnostic),
+                "Could not create a patch-scoped planar selector: " + scopedSelectorDiagnostic);
+        require(scopedPlaneSelector.constrainBounds,
+                "Fitted selector did not enable patch bounding-box scope.");
+        SurfaceMesh planeScene;
+        SurfaceMeshPart planeScenePart1;
+        planeScenePart1.name = planeOne.name;
+        planeScenePart1.positions = planeOne.vertices;
+        planeScenePart1.indices = planeOne.indices;
+        SurfaceMeshPart planeScenePart2;
+        planeScenePart2.name = planeTwo.name;
+        planeScenePart2.positions = planeTwo.vertices;
+        planeScenePart2.indices = planeTwo.indices;
+        planeScene.parts = {planeScenePart1,planeScenePart2};
+        const auto planeScenePath = std::filesystem::temp_directory_path() / "openmodel_assimp_scoped_plane.glb";
+        const auto planeSceneWrite = GltfWriter::writeGlbFile(planeScenePath.string(),planeScene);
+        require(planeSceneWrite.success,"Could not write scoped plane fixture: "+planeSceneWrite.error);
+        auto planeSceneModel = std::make_shared<AssimpModel>();
+        require(planeSceneModel->loadFromFile(planeScenePath.string()),
+                "Could not import scoped plane fixture: "+planeSceneModel->getLastError());
+        MeshData scopedPlaneMesh;
+        require(selectorMesher.buildMesh(planeSceneModel,selectorOptions,
+                    {scopedPlaneSelector},scopedPlaneMesh),
+                "Patch-scoped plane selector failed.");
+        const auto* scopedPlaneGroup=scopedPlaneMesh.getMeshGroupRegistry().find("SCOPED_PLANE");
+        require(scopedPlaneGroup && scopedPlaneGroup->elementIds.size()==1 &&
+                scopedPlaneMesh.getNumElements()==2,
+                "Patch-scoped plane selector captured a disconnected coplanar patch.");
+        std::error_code scopedPlaneError;
+        std::filesystem::remove(planeScenePath,scopedPlaneError);
         const auto cylinderPart = makeCylinder(2.0, 3.0, 24);
         std::vector<AssimpSurfacePatch> cylinderPatches;
         require(AssimpSurfacePatchAnalyzer::analyze({cylinderPart}, 1e-6,
