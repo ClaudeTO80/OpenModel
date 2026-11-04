@@ -117,7 +117,8 @@ int main(int argc, char** argv) {
     CHECK(endMapping != nullptr);
     CHECK(!endMapping->ambiguous);
     CHECK(endMapping->cadFaceIds.size() == 1);
-    CHECK(endMapping->sampledElementCount > 0);
+    CHECK(endMapping->sampledElementCount == endMapping->elementCount);
+    CHECK(endMapping->projectionFailureCount == 0);
     CHECK(endMapping->matchedSampleCount == endMapping->sampledElementCount);
     CHECK(endMapping->matchRatio >= 0.8);
     CHECK(endMapping->elementCount == fixed->elementIds.size());
@@ -132,6 +133,10 @@ int main(int argc, char** argv) {
     for (const auto& record : mesher.faceMappingReport())
         auditedSurfaceElements += record.elementCount;
     CHECK(auditedSurfaceElements == exportedSurfaceElements);
+    for (const auto& record : mesher.faceMappingReport()) {
+        CHECK(record.sampledElementCount == record.elementCount);
+        CHECK(record.projectionFailureCount == 0);
+    }
 
     const auto elements = indexElements(mesh);
     std::set<NodeIndex> expectedNodes;
