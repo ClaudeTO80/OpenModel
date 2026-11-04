@@ -9,10 +9,9 @@ to different identifier spaces and must never be treated as interchangeable.
 
 The result is stored in `MeshGroupRegistry` as dimension-2 groups. Gmsh physical
 groups are generated as a solver/mesh-transfer representation of the same
-membership; they are not the canonical identity of a CAD face. The OCC XDE
-reader also imports names written directly on STEP `EDGE_CURVE` entities,
-which is needed to preserve named lower-dimensional CAD selections when a
-writer does not serialize them as XDE sub-shape labels. Imported named
+membership; they are not the canonical identity of a CAD face. The OCC XDE reader also imports names written directly on STEP `EDGE_CURVE`
+and `VERTEX_POINT` entities, preserving named lower-dimensional CAD selections
+when a writer does not serialize them as XDE sub-shape labels. Imported named
 face groups and user-defined face groups are atomic: if even one requested CAD
 face cannot be mapped, OpenModel does not create a partial group and reports
 the missing source face IDs.
@@ -59,7 +58,7 @@ volume meshing and solver writers.
 - named CAD face and layer mapping;
 - surface-only meshing with no tetrahedral elements;
 - equality of the mapped `TopFace` and `Interface` element memberships;
-- direct STEP `EDGE_CURVE` name import in the OCC structure fixture;
+- direct STEP `EDGE_CURVE` and `VERTEX_POINT` name import in the OCC structure fixture;
 - atomic rejection of an intentionally incomplete user-defined face group,
   including the missing CAD face ID in diagnostics;
 - Abaqus/CalculiX INP export of a surface-only CAD face group as both an
