@@ -11,6 +11,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -478,11 +479,58 @@ void testRunner() {
 #endif
 }
 
+/**
+ * @brief PrescribedDisplacementTracker: equal overlaps pass, conflicts name the first
+ *        constraining support, non-finite values are rejected, and large overlapping
+ *        selections stay linear in the number of nodes.
+ */
+void testPrescribedDisplacementTracker() {
+    MeshData mesh;
+    constexpr std::size_t kNodes = 200000;
+    std::vector<NodeIndex> all;
+    all.reserve(kNodes);
+    for (std::size_t i = 0; i < kNodes; ++i)
+        all.push_back(mesh.addNode(static_cast<NodeId>(i + 1), static_cast<double>(i), 0.0, 0.0));
+
+    FixedSupport a, b, c;
+    a.dof = {{true, false, false}};
+    b.dof = {{true, true, false}};
+    c.dof = {{true, false, false}};
+    c.displacement = {{0.5, 0.0, 0.0}};
+
+    // Equal overlapping prescriptions are accepted; only active DOFs are compared.
+    PrescribedDisplacementTracker ok;
+    CHECK(ok.add(0, a, all, mesh).empty());
+    b.displacement = {{0.0, 7.0, 9.0}};          // DOF 3 is inactive and must be ignored
+    CHECK(ok.add(1, b, all, mesh).empty());
+
+    // A different value on an already constrained DOF names the first support and the node.
+    const auto message = ok.add(2, c, {all[41]}, mesh);
+    CHECK(contains(message, "conflicting prescribed displacements"));
+    CHECK(contains(message, "fix #1 and fix #3"));
+    CHECK(contains(message, "node 42") && contains(message, "degree of freedom 1"));
+
+    FixedSupport bad;
+    bad.displacement = {{std::numeric_limits<double>::quiet_NaN(), 0.0, 0.0}};
+    CHECK(contains(PrescribedDisplacementTracker{}.add(0, bad, all, mesh), "non-finite"));
+
+    // Scaling: four fully overlapping supports over 200k nodes. The former pairwise
+    // scan needed O(nodes^2 * supports) operations here (hours); the tracker is linear.
+    PrescribedDisplacementTracker many;
+    const auto start = std::chrono::steady_clock::now();
+    FixedSupport same;
+    for (std::size_t i = 0; i < 4; ++i) CHECK(many.add(i, same, all, mesh).empty());
+    const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+    std::cout << "PrescribedDisplacementTracker: 4 x " << kNodes << " nodes in " << seconds << " s\n";
+    CHECK(seconds < 5.0);
+}
+
 } // namespace
 
 int main() {
     testParser();
     testStableConditionIds();
+    testPrescribedDisplacementTracker();
     testConditionCrudById();
     testSelectors();
     testWriterStatic();

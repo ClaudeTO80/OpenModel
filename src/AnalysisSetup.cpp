@@ -360,6 +360,32 @@ std::string exampleAnalysisScript() {
            "# step frequency modes=6\n";
 }
 
+std::string PrescribedDisplacementTracker::add(std::size_t supportIndex, const FixedSupport& support,
+                                               const std::vector<NodeIndex>& nodes, const MeshData& mesh) {
+    for (std::size_t d = 0; d < 3; ++d)
+        if (support.dof[d] && !std::isfinite(support.displacement[d]))
+            return "fix #" + std::to_string(supportIndex + 1) + " has a non-finite prescribed displacement";
+    for (const NodeIndex n : nodes) {
+        auto& entries = m_entries[n];
+        for (std::size_t d = 0; d < 3; ++d) {
+            if (!support.dof[d]) continue;
+            const double value = support.displacement[d];
+            Entry& entry = entries[d];
+            if (entry.support == static_cast<std::size_t>(-1)) {
+                entry.support = supportIndex;
+                entry.value = value;
+                continue;
+            }
+            const double scale = std::max({1.0, std::fabs(value), std::fabs(entry.value)});
+            if (std::fabs(value - entry.value) > 1e-12 * scale)
+                return "conflicting prescribed displacements: fix #" + std::to_string(entry.support + 1) +
+                       " and fix #" + std::to_string(supportIndex + 1) + " assign different values to node " +
+                       std::to_string(mesh.nodeId(n)) + " degree of freedom " + std::to_string(d + 1);
+        }
+    }
+    return {};
+}
+
 std::vector<NodeIndex> selectNodes(const MeshData& mesh, const NodeSelector& selector, std::string& error) {
     std::vector<NodeIndex> out;
     error.clear();
@@ -549,31 +575,15 @@ SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& mo
     // Resolve conditions.
     std::string error;
     std::vector<std::vector<NodeIndex>> supportNodes, forceNodes;
+    PrescribedDisplacementTracker displacementTracker;
     std::vector<char> constrained(mesh.getNumNodes(), 0);
     for (std::size_t i = 0; i < model.supports.size(); ++i) {
         supportNodes.push_back(selectNodes(mesh, model.supports[i].where, error));
         if (!error.empty()) return failed(r, "fix #" + std::to_string(i + 1) + ": " + error);
         if (!model.supports[i].dof[0] && !model.supports[i].dof[1] && !model.supports[i].dof[2])
             return failed(r, "fix #" + std::to_string(i + 1) + " constrains no direction");
-        for (const NodeIndex n : supportNodes.back()) {
-          for (int d = 0; d < 3; ++d) {
-            const double value = model.supports[i].displacement[static_cast<std::size_t>(d)];
-            if (model.supports[i].dof[static_cast<std::size_t>(d)] && !std::isfinite(value))
-                return failed(r, "fix #" + std::to_string(i + 1) + " has a non-finite prescribed displacement");
-            if (!model.supports[i].dof[static_cast<std::size_t>(d)]) continue;
-            for (std::size_t previous = 0; previous < i; ++previous) {
-                if (!model.supports[previous].dof[static_cast<std::size_t>(d)]) continue;
-                const auto& previousNodes = supportNodes[previous];
-                if (std::find(previousNodes.begin(), previousNodes.end(), n) == previousNodes.end()) continue;
-                const double other = model.supports[previous].displacement[static_cast<std::size_t>(d)];
-                const double scale = std::max({1.0, std::fabs(value), std::fabs(other)});
-                if (std::fabs(value - other) > 1e-12 * scale)
-                    return failed(r, "conflicting prescribed displacements: fix #" + std::to_string(previous + 1) +
-                                    " and fix #" + std::to_string(i + 1) + " assign different values to node " +
-                                    std::to_string(mesh.nodeId(n)) + " degree of freedom " + std::to_string(d + 1));
-            }
-          }
-        }
+        const auto conflict = displacementTracker.add(i, model.supports[i], supportNodes.back(), mesh);
+        if (!conflict.empty()) return failed(r, conflict);
         for (const NodeIndex n : supportNodes.back()) constrained[n] = 1;
     }
     for (const char c : constrained) r.fixedNodes += c ? 1 : 0;

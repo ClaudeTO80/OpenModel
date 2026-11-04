@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <filesystem>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 /**
@@ -145,6 +146,34 @@ struct SolverInputResult {
  * Not checked: whether the model is physically sensible, units, mesh quality.
  */
 SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& model, const std::filesystem::path& path);
+
+/**
+ * @brief Detects conflicting prescribed translations of overlapping supports.
+ *
+ * Each (node, DOF) remembers the first support that constrained it and its value, so
+ * registering a support costs O(selected nodes) instead of a scan of all previous
+ * supports per node. Equal overlapping prescriptions are accepted.
+ */
+class PrescribedDisplacementTracker {
+public:
+    /**
+     * @brief Register one support (call in script order).
+     * @param supportIndex Zero-based index of the support, used in diagnostics as `fix #index+1`.
+     * @param support      The support; its active DOFs are checked.
+     * @param nodes        Nodes selected by the support.
+     * @param mesh         Mesh, used to report the node ID.
+     * @return Empty string on success, otherwise a diagnostic (non-finite value or conflict).
+     */
+    std::string add(std::size_t supportIndex, const FixedSupport& support,
+                    const std::vector<NodeIndex>& nodes, const MeshData& mesh);
+
+private:
+    struct Entry {
+        std::size_t support = static_cast<std::size_t>(-1); ///< First support constraining this DOF.
+        double value = 0.0;
+    };
+    std::unordered_map<NodeIndex, std::array<Entry, 3>> m_entries;
+};
 
 /** @brief Resolve a selector to node indices (sorted, unique). Empty result + `error` when nothing matches or the name is unknown. */
 std::vector<NodeIndex> selectNodes(const MeshData& mesh, const NodeSelector& selector, std::string& error);
