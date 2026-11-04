@@ -257,6 +257,21 @@ int main() {
         require(foldedPatches.front().normalCoherence < 0.9,
                 "Folded patch normal coherence did not detect the fold.");
 
+        RenderSubMesh nonManifoldPart;
+        nonManifoldPart.vertices = {
+            0,0,0, 1,0,0, 0,1,0, 0,-1,0, 0,0.1f,1
+        };
+        nonManifoldPart.indices = {0,1,2, 1,0,3, 0,1,4};
+        std::vector<AssimpSurfacePatch> nonManifoldPatches;
+        std::vector<std::string> nonManifoldDiagnostics;
+        require(AssimpSurfacePatchAnalyzer::analyze({nonManifoldPart}, 1e-6,
+                    nonManifoldPatches, nonManifoldDiagnostics, 90.0),
+                "Non-manifold patch analysis failed.");
+        require(nonManifoldPatches.size() == 1 &&
+                nonManifoldPatches.front().triangleIndices.size() == 3 &&
+                nonManifoldPatches.front().nonManifoldEdgeCount == 1,
+                "Three triangles sharing one edge were not reported as non-manifold.");
+
         // Welding must inspect neighbouring spatial-hash cells and must not
         // depend on source triangle winding.
         RenderSubMesh nearWeld;
