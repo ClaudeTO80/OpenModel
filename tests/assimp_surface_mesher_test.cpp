@@ -11,6 +11,7 @@
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <limits>
 #include <stdexcept>
 #include <utility>
 
@@ -620,6 +621,37 @@ int main() {
                 "Duplicate source element mapping must be rejected.");
         require(invalidMappingMesh.getMeshGroupRegistry().find("DUPLICATE_SOURCE_MAP") == nullptr,
                 "Invalid source mapping partially modified the mesh.");
+
+        auto incompleteSourceMap = mesher.sourceTriangleElementIds();
+        bool removedValidMapping = false;
+        for (auto& partMap : incompleteSourceMap) {
+            for (auto& id : partMap) {
+                if (id != 0) { id = 0; removedValidMapping = true; break; }
+            }
+            if (removedValidMapping) break;
+        }
+        require(removedValidMapping, "Could not construct incomplete source-map fixture.");
+        MeshData incompleteMappingMesh = mesh;
+        std::vector<std::string> incompleteMappingDiagnostics;
+        require(!AssimpPatchGroupBuilder::apply(model->getRenderMeshes(), patches,
+                    incompleteSourceMap, {{"INCOMPLETE_SOURCE_MAP", {connectedPatchIndex}, ""}},
+                    incompleteMappingMesh, incompleteMappingDiagnostics),
+                "Missing valid source element mapping must be rejected.");
+        require(incompleteMappingMesh.getMeshGroupRegistry().find("INCOMPLETE_SOURCE_MAP") == nullptr,
+                "Incomplete source mapping partially modified the mesh.");
+
+        auto invalidPatchMetrics = patches;
+        invalidPatchMetrics[connectedPatchIndex].area =
+            std::numeric_limits<double>::quiet_NaN();
+        MeshData invalidPatchMesh = mesh;
+        std::vector<std::string> invalidPatchDiagnostics;
+        require(!AssimpPatchGroupBuilder::apply(model->getRenderMeshes(), invalidPatchMetrics,
+                    mesher.sourceTriangleElementIds(),
+                    {{"INVALID_PATCH_METRICS", {connectedPatchIndex}, ""}},
+                    invalidPatchMesh, invalidPatchDiagnostics),
+                "Non-finite patch metrics must be rejected.");
+        require(invalidPatchMesh.getMeshGroupRegistry().find("INVALID_PATCH_METRICS") == nullptr,
+                "Invalid patch metadata partially modified the mesh.");
 
         // Keep the original plane-only API working for existing callers.
         AssimpPlaneSurfaceGroup legacyPlane;
