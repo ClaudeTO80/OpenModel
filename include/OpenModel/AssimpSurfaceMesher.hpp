@@ -31,6 +31,7 @@ struct AssimpSurfaceSelector {
     // Axis-aligned box limits in model coordinates.
     std::array<double, 3> boundsMin{{0.0, 0.0, 0.0}};
     std::array<double, 3> boundsMax{{0.0, 0.0, 0.0}};
+    bool constrainBounds = false; // Intersect any selector with this AABB.
 
     // Cylinder lateral surface.
     double radius = 1.0; // Cylinder/Sphere radius
