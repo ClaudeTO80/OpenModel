@@ -44,6 +44,16 @@ bool matches(const CompiledSelector& compiled, const Vec3& a, const Vec3& b,
         return false;
 
     const Vec3 points[] = {a, b, c};
+    if (s.kind == AssimpSurfaceSelectorKind::AxisAlignedBox || s.constrainBounds) {
+        for (const auto& p : points) {
+            for (std::size_t axis = 0; axis < 3; ++axis) {
+                if (p[axis] < s.boundsMin[axis] - s.tolerance ||
+                    p[axis] > s.boundsMax[axis] + s.tolerance)
+                    return false;
+            }
+        }
+        if (s.kind == AssimpSurfaceSelectorKind::AxisAlignedBox) return true;
+    }
     if (s.kind == AssimpSurfaceSelectorKind::Normal)
         return true;
 
@@ -73,17 +83,6 @@ bool matches(const CompiledSelector& compiled, const Vec3& a, const Vec3& b,
                                                       axial * compiled.unitDirection[2]}});
             if (std::abs(norm(radial) - axial * tangent) > s.tolerance)
                 return false;
-        }
-        return true;
-    }
-
-    if (s.kind == AssimpSurfaceSelectorKind::AxisAlignedBox) {
-        for (const auto& p : points) {
-            for (std::size_t axis = 0; axis < 3; ++axis) {
-                if (p[axis] < s.boundsMin[axis] - s.tolerance ||
-                    p[axis] > s.boundsMax[axis] + s.tolerance)
-                    return false;
-            }
         }
         return true;
     }
@@ -167,18 +166,22 @@ bool AssimpSurfaceMesher::buildMesh(
     std::unordered_set<std::string> names;
     for (std::size_t i = 0; i < selectors.size(); ++i) {
         const auto& s = selectors[i];
+        const bool needsDirection = s.kind == AssimpSurfaceSelectorKind::Plane ||
+            s.kind == AssimpSurfaceSelectorKind::Normal ||
+            s.kind == AssimpSurfaceSelectorKind::CylinderSide ||
+            s.kind == AssimpSurfaceSelectorKind::ConeSide || s.constrainNormal;
         const double directionNorm = norm(s.direction);
         if (s.name.empty() || !names.insert(s.name).second ||
-            !finite(s.point) || !finite(s.direction) ||
+            !finite(s.point) || (needsDirection && !finite(s.direction)) ||
             !std::isfinite(s.tolerance) || s.tolerance <= 0.0 ||
-            directionNorm <= 1e-14 ||
+            (needsDirection && directionNorm <= 1e-14) ||
             !std::isfinite(s.minNormalAlignment) ||
             s.minNormalAlignment < 0.0 || s.minNormalAlignment > 1.0) {
             m_diagnostics.push_back("Invalid or duplicate surface selector at index " +
                                     std::to_string(i) + ".");
             return false;
         }
-        if (s.kind == AssimpSurfaceSelectorKind::AxisAlignedBox) {
+        if (s.kind == AssimpSurfaceSelectorKind::AxisAlignedBox || s.constrainBounds) {
             if (!finite(s.boundsMin) || !finite(s.boundsMax) ||
                 s.boundsMin[0] > s.boundsMax[0] ||
                 s.boundsMin[1] > s.boundsMax[1] ||
@@ -215,8 +218,12 @@ bool AssimpSurfaceMesher::buildMesh(
         }
         CompiledSelector item;
         item.selector = s;
-        for (std::size_t axis = 0; axis < 3; ++axis)
-            item.unitDirection[axis] = s.direction[axis] / directionNorm;
+        if (needsDirection) {
+            for (std::size_t axis = 0; axis < 3; ++axis)
+                item.unitDirection[axis] = s.direction[axis] / directionNorm;
+        } else {
+            item.unitDirection = {{0.0, 0.0, 1.0}};
+        }
         compiled.push_back(item);
     }
 
