@@ -53,7 +53,8 @@ bool validFaceAudit(const GmshMesher& mesher) {
     for (const auto& record : report) {
         if (!seenSurfaces.insert(record.gmshSurfaceTag).second) return false;
         if (record.matchedSampleCount > record.sampledElementCount) return false;
-        if (record.sampledElementCount > record.elementCount) return false;
+        if (record.sampledElementCount != record.elementCount) return false;
+        if (record.projectionFailureCount != 0) return false;
         if (record.matchRatio < 0.0 || record.matchRatio > 1.0) return false;
         if (record.elementCount > 0 && record.sampledElementCount == 0) return false;
         if (!record.cadFaceIds.empty() && record.matchRatio < 0.8) return false;
