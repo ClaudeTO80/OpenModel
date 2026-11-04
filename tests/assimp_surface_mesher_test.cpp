@@ -372,6 +372,19 @@ int main() {
         require(std::abs(fits.front().radius - 2.0) < 1e-3,
                 "Fitted cylinder radius is inaccurate.");
 
+        RenderSubMesh tinyPlanePart;
+        tinyPlanePart.vertices = {0.0f,0.0f,0.0f, 1.0e-10f,0.0f,0.0f,
+                                  0.0f,1.0e-10f,0.0f};
+        tinyPlanePart.indices = {0,1,2};
+        std::vector<AssimpSurfacePatch> tinyPlanePatches;
+        require(AssimpSurfacePatchAnalyzer::analyze({tinyPlanePart}, 1.0e-15,
+                    tinyPlanePatches, fitDiagnostics) &&
+                tinyPlanePatches.size() == 1 &&
+                tinyPlanePatches.front().kind == AssimpSurfacePatchKind::Planar &&
+                tinyPlanePatches.front().normalCoherence > 0.999999 &&
+                tinyPlanePatches.front().meanNormal[2] > 0.999999,
+                "Small planar geometry was not classified using scale-relative normal statistics.");
+
         // The geometry algorithms must not contain fixed model-unit cutoffs.
         // A small, arbitrarily oriented cylinder exercises PCA, degeneracy
         // detection, and cone/cylinder axial-extent tests at micron-like scale.
