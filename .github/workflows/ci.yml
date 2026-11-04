@@ -341,3 +341,34 @@ jobs:
           name: webgl-ctest-log-${{ matrix.toolchain }}
           path: build/Testing/Temporary/LastTest.log
           if-no-files-found: ignore
+
+  cad-face-mapping:
+    name: CAD face mapping (Gmsh + Open CASCADE)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Gmsh and Open CASCADE SDKs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgmsh-dev libocct-foundation-dev libocct-modeling-data-dev libocct-modeling-algorithms-dev libocct-visualization-dev libocct-ocaf-dev libocct-data-exchange-dev
+
+      - name: Configure CAD integration tests
+        run: >
+          cmake -S . -B build-cad
+          -DCMAKE_BUILD_TYPE=Release
+          -DOPENMODEL_BUILD_TESTS=ON
+          -DOPENMODEL_BUILD_CLI=OFF
+          -DOPENMODEL_BUILD_SHARED=OFF
+          -DOPENMODEL_BUILD_GMSH_BACKEND=ON
+          -DOPENMODEL_BUILD_OCC_BACKEND=ON
+
+      - name: Build CAD integration tests
+        run: cmake --build build-cad --parallel 4
+
+      - name: Run CAD mapping and topology tests
+        run: >
+          ctest --test-dir build-cad --output-on-failure --parallel 2
+          -R "^(occ_integration_test|occ_structure_test|gmsh_assembly_test)$"
