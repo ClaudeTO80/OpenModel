@@ -397,19 +397,20 @@ int main() {
 
         // A small spherical cap must not inherit an artificial 360-degree
         // coverage score and be accepted as a fully supported sphere.
+        const auto denseSpherePart = makeSphere(1.75, 24, 48);
         RenderSubMesh sphereCap;
         sphereCap.name = "SphereCap";
-        sphereCap.vertices = spherePart.vertices;
-        for (std::size_t ti=0; ti<spherePart.indices.size()/3; ++ti) {
+        sphereCap.vertices = denseSpherePart.vertices;
+        for (std::size_t ti=0; ti<denseSpherePart.indices.size()/3; ++ti) {
             bool inside = true;
             for (std::size_t k=0; k<3; ++k) {
-                const auto vi = static_cast<std::size_t>(spherePart.indices[3*ti+k]);
-                if (spherePart.vertices[3*vi+2] / 1.75f <= 0.96f) inside = false;
+                const auto vi = static_cast<std::size_t>(denseSpherePart.indices[3*ti+k]);
+                if (denseSpherePart.vertices[3*vi+2] / 1.75f <= 0.96f) inside = false;
             }
             if (inside)
                 sphereCap.indices.insert(sphereCap.indices.end(),
-                    spherePart.indices.begin()+static_cast<std::ptrdiff_t>(3*ti),
-                    spherePart.indices.begin()+static_cast<std::ptrdiff_t>(3*ti+3));
+                    denseSpherePart.indices.begin()+static_cast<std::ptrdiff_t>(3*ti),
+                    denseSpherePart.indices.begin()+static_cast<std::ptrdiff_t>(3*ti+3));
         }
         std::vector<AssimpSurfacePatch> sphereCapPatches;
         require(AssimpSurfacePatchAnalyzer::analyze({sphereCap}, 1e-6,
