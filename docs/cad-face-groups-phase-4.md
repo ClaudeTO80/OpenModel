@@ -18,16 +18,19 @@ the missing source face IDs.
 
 For each Gmsh surface entity:
 
-1. Read its 2-D element blocks and element connectivity.
-2. Select up to 32 element samples distributed over the entity.
-3. Compute each sample point from the primary corner nodes. High-order midside
-   nodes are deliberately excluded from the centroid calculation.
-4. Project the sample onto the exact Gmsh surface with
+1. Read every 2-D element block and its connectivity.
+2. Construct one representative point for every element from its primary
+   corner nodes. High-order midside nodes are excluded from this representative
+   point so that the same procedure applies to linear and quadratic elements.
+3. Project every representative point onto the exact trimmed Gmsh surface with
    `gmsh::model::getClosestPoint`. This avoids testing the off-surface centroid
    of a straight-sided approximation against a curved CAD surface.
-5. Query `CADModel::facesContainingPoint` at the projected point.
+4. Count failed projections explicitly. They remain in the denominator of the
+   match ratio and cannot silently improve a candidate's score.
+5. Query `CADModel::facesContainingPoint` at each successfully projected point.
 6. Vote for every CAD face hit by each probe. A face is retained only if it
-   explains at least 80% of the probes.
+   explains at least 80% of all elements on the surface, including elements
+   whose representative point could not be projected.
 7. When volume adjacency is available, retain only faces owned by one of the
    CAD solids matched to the adjacent Gmsh volumes. This disambiguates coincident
    faces belonging to different assembly components. For surface-only meshes,
@@ -85,7 +88,8 @@ assembly structure or face groups. Each record contains:
 
 - Gmsh surface tag and total 2-D element count;
 - number of sampled elements;
-- maximum per-CAD-face vote count and its ratio to sampled probes;
+- number of per-element representative points checked and failed projections;
+- maximum per-CAD-face vote count and its ratio to all surface elements;
 - CAD face IDs accepted after ownership filtering;
 - an ambiguity flag for surface-only cases that cannot distinguish coincident
   CAD faces.
@@ -95,13 +99,17 @@ aggregate mapped/unmatched/ambiguous surface count. A mapped record must have a
 sample ratio of at least 0.8; the regression tests assert this invariant and
 check that each reported Gmsh surface occurs only once.
 
-The report is an audit aid, not a claim that every mesh element has been
-individually projected onto the CAD B-Rep. The production matcher uses a
-bounded deterministic sample (up to 32 elements per surface). The regression
-test checks total exported 2-D element coverage in the audit, but this is not
-equivalent to exhaustively projecting every element onto the B-Rep. An
-exhaustive per-element geometric verification mode remains outstanding for
-small or safety-critical models.
+The matcher now evaluates one representative point for every exported 2-D
+element on each Gmsh surface; it no longer uses a bounded 32-element sample.
+The audit reports the total element count, the number of per-element points
+attempted, the number of failed projections, and the maximum CAD-face vote
+count. The regression fixture requires exact equality between element and
+sample counts and zero projection failures for every generated surface.
+
+This is exhaustive at the element-representative-point level, not a proof that
+every point of a curved/high-order element lies on the same B-Rep face. A
+stronger intra-element verification using multiple quadrature points would be
+appropriate for certification-grade geometric validation.
 
 The repository does not bundle the turbine-blade STEP file: the real-model
 test is therefore opt-in and cannot be considered executed by the default CI.
