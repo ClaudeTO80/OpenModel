@@ -11,6 +11,7 @@
 #include <StepData_StepModel.hxx>
 #include <StepShape_AdvancedFace.hxx>
 #include <StepShape_EdgeCurve.hxx>
+#include <StepShape_VertexPoint.hxx>
 #include <TCollection_AsciiString.hxx>
 #include <TCollection_HAsciiString.hxx>
 #include <TransferBRep.hxx>
@@ -509,6 +510,7 @@ bool OCCModel::loadWithStructure(const std::string& path, bool iges, TopoDS_Shap
 
     std::vector<std::pair<std::string, TopoDS_Shape>> stepFaceNames;
     std::vector<std::pair<std::string, TopoDS_Shape>> stepEdgeNames;
+    std::vector<std::pair<std::string, TopoDS_Shape>> stepVertexNames;
     if (iges) {
         IGESCAFControl_Reader reader;
         reader.SetColorMode(Standard_True);
@@ -538,6 +540,12 @@ bool OCCModel::loadWithStructure(const std::string& path, bool iges, TopoDS_Shap
                     const TopoDS_Shape bound = TransferBRep::ShapeResult(process, edge);
                     if (!bound.IsNull() && bound.ShapeType() == TopAbs_EDGE)
                         stepEdgeNames.emplace_back(std::string(edge->Name()->ToCString()), bound);
+                }
+                const Handle(StepShape_VertexPoint) vertex = Handle(StepShape_VertexPoint)::DownCast(stepModel->Entity(i));
+                if (!vertex.IsNull() && !vertex->Name().IsNull() && vertex->Name()->Length() > 0) {
+                    const TopoDS_Shape bound = TransferBRep::ShapeResult(process, vertex);
+                    if (!bound.IsNull() && bound.ShapeType() == TopAbs_VERTEX)
+                        stepVertexNames.emplace_back(std::string(vertex->Name()->ToCString()), bound);
                 }
             }
         }
@@ -693,6 +701,22 @@ bool OCCModel::loadWithStructure(const std::string& path, bool iges, TopoDS_Shap
                 for (const auto& [edgeName, bound] : stepEdgeNames) {
                     if (!x.Current().IsPartner(bound)) continue;
                     auto& target = named[edgeName];
+                    for (const auto& location : entry.second.locations)
+                        classify(x.Current().Moved(location), target);
+                }
+            }
+        }
+    }
+    // Preserve direct names on STEP VERTEX_POINT entities as well.
+    if (!stepVertexNames.empty()) {
+        for (const auto& entry : walker.parts) {
+            if (walker.shapes->IsAssembly(entry.second.label)) continue;
+            const TopoDS_Shape local = XCAFDoc_ShapeTool::GetShape(entry.second.label);
+            if (local.IsNull()) continue;
+            for (TopExp_Explorer x(local, TopAbs_VERTEX); x.More(); x.Next()) {
+                for (const auto& [vertexName, bound] : stepVertexNames) {
+                    if (!x.Current().IsPartner(bound)) continue;
+                    auto& target = named[vertexName];
                     for (const auto& location : entry.second.locations)
                         classify(x.Current().Moved(location), target);
                 }
