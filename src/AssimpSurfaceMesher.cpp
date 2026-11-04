@@ -164,7 +164,9 @@ bool AssimpSurfaceMesher::buildMesh(
 
     std::vector<CompiledSelector> compiled;
     compiled.reserve(selectors.size());
-    std::unordered_set<std::string> names;
+    // Reserve both group and generated node-set names in one namespace so
+    // selectors such as "FIXED" and "FIXED_NODES" cannot overlap metadata.
+    std::unordered_set<std::string> reservedNames;
     for (std::size_t i = 0; i < selectors.size(); ++i) {
         const auto& s = selectors[i];
         const bool needsPoint = s.kind == AssimpSurfaceSelectorKind::Plane ||
@@ -176,7 +178,8 @@ bool AssimpSurfaceMesher::buildMesh(
             s.kind == AssimpSurfaceSelectorKind::CylinderSide ||
             s.kind == AssimpSurfaceSelectorKind::ConeSide || s.constrainNormal;
         const double directionNorm = norm(s.direction);
-        if (s.name.empty() || !names.insert(s.name).second ||
+        if (s.name.empty() || !reservedNames.insert(s.name).second ||
+            !reservedNames.insert(s.name+"_NODES").second ||
             (needsPoint && !finite(s.point)) || (needsDirection && !finite(s.direction)) ||
             !std::isfinite(s.tolerance) || s.tolerance <= 0.0 ||
             (needsDirection && (!std::isfinite(directionNorm) || directionNorm == 0.0)) ||
