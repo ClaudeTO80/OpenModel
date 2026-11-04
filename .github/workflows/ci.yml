@@ -353,7 +353,7 @@ jobs:
       - name: Install Gmsh and Open CASCADE SDKs
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgmsh-dev libocct-foundation-dev libocct-modeling-data-dev libocct-modeling-algorithms-dev libocct-visualization-dev libocct-ocaf-dev libocct-data-exchange-dev libtbb-dev
+          sudo apt-get install -y libgmsh-dev libocct-foundation-dev libocct-modeling-data-dev libocct-modeling-algorithms-dev libocct-visualization-dev libocct-ocaf-dev libocct-data-exchange-dev libtbb-dev libfontconfig1-dev
 
       - name: Configure CAD integration tests
         run: >
