@@ -281,9 +281,17 @@ bool AssimpSurfaceMesher::buildMesh(
             const Vec3 pa{{part.vertices[3 * ia], part.vertices[3 * ia + 1], part.vertices[3 * ia + 2]}};
             const Vec3 pb{{part.vertices[3 * ib], part.vertices[3 * ib + 1], part.vertices[3 * ib + 2]}};
             const Vec3 pc{{part.vertices[3 * ic], part.vertices[3 * ic + 1], part.vertices[3 * ic + 2]}};
-            const Vec3 rawNormal = cross(subtract(pb, pa), subtract(pc, pa));
+            const Vec3 edgeAB = subtract(pb, pa);
+            const Vec3 edgeAC = subtract(pc, pa);
+            const Vec3 edgeBC = subtract(pc, pb);
+            const double maxEdgeSquared = std::max({dot(edgeAB, edgeAB),
+                dot(edgeAC, edgeAC), dot(edgeBC, edgeBC)});
+            const Vec3 rawNormal = cross(edgeAB, edgeAC);
             const double area2 = norm(rawNormal);
-            if (!std::isfinite(area2) || area2 <= 1e-18) {
+            const double degeneracyThreshold =
+                std::numeric_limits<double>::epsilon() * maxEdgeSquared * 64.0;
+            if (!std::isfinite(area2) || !std::isfinite(maxEdgeSquared) ||
+                maxEdgeSquared <= 0.0 || area2 <= degeneracyThreshold) {
                 m_diagnostics.push_back("Degenerate triangle skipped in Assimp part " +
                                         std::to_string(partIndex) + ".");
                 continue;
