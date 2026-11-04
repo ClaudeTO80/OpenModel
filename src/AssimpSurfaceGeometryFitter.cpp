@@ -23,16 +23,28 @@ bool finite(const V& a){return std::isfinite(a[0])&&std::isfinite(a[1])&&std::is
 void canonicalize(V& a){for(double x:a)if(std::abs(x)>1e-12){if(x<0)a=mul(a,-1);return;}}
 
 bool solve(double a[4][5],int n,double* x){
-    double matrixScale=0.0;
-    for(int i=0;i<n;++i)for(int j=0;j<n;++j)matrixScale=std::max(matrixScale,std::abs(a[i][j]));
-    if(!std::isfinite(matrixScale)||matrixScale==0.0)return false;
-    const double pivotTolerance=std::numeric_limits<double>::epsilon()*matrixScale*64.0;
+    // Scaled partial pivoting is essential here: algebraic circle/sphere
+    // systems mix squared coordinates with a constant column. A single
+    // global pivot threshold incorrectly marks small-unit geometry singular.
+    double rowScale[4]{};
+    for(int i=0;i<n;++i){
+        for(int j=0;j<n;++j)rowScale[i]=std::max(rowScale[i],std::abs(a[i][j]));
+        if(!std::isfinite(rowScale[i])||rowScale[i]==0.0)return false;
+    }
     for(int col=0;col<n;++col){
         int pivot=col;
-        for(int row=col+1;row<n;++row)
-            if(std::abs(a[row][col])>std::abs(a[pivot][col]))pivot=row;
-        if(std::abs(a[pivot][col])<=pivotTolerance)return false;
-        if(pivot!=col)for(int k=col;k<=n;++k)std::swap(a[pivot][k],a[col][k]);
+        double bestRatio=-1.0;
+        for(int row=col;row<n;++row){
+            const double ratio=std::abs(a[row][col])/rowScale[row];
+            if(ratio>bestRatio){bestRatio=ratio;pivot=row;}
+        }
+        if(!std::isfinite(bestRatio)||
+           std::abs(a[pivot][col])<=std::numeric_limits<double>::epsilon()*rowScale[pivot]*64.0)
+            return false;
+        if(pivot!=col){
+            for(int k=col;k<=n;++k)std::swap(a[pivot][k],a[col][k]);
+            std::swap(rowScale[pivot],rowScale[col]);
+        }
         const double d=a[col][col];
         for(int k=col;k<=n;++k)a[col][k]/=d;
         for(int row=0;row<n;++row)if(row!=col){
