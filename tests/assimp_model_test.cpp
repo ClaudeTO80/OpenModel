@@ -32,6 +32,7 @@ int main() {
         part.baseColorFactor = {{0.2f, 0.4f, 0.8f, 1.0f}};
         part.metallicFactor = 0.25f;
         part.roughnessFactor = 0.35f;
+        part.emissiveFactor = {{1.0f, 0.5f, 0.25f}};
         const std::vector<unsigned char> tinyPng = {
             137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82,
             0,0,0,1,0,0,0,1,8,6,0,0,0,31,21,196,137,
