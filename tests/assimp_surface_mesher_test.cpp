@@ -733,6 +733,21 @@ int main() {
         require(invalidPatchMesh.getMeshGroupRegistry().find("INVALID_PATCH_METRICS") == nullptr,
                 "Invalid patch metadata partially modified the mesh.");
 
+        AssimpPatchGroupDefinition invalidDirectionFilter;
+        invalidDirectionFilter.name = "OVERFLOW_FILTER_DIRECTION";
+        invalidDirectionFilter.selectByFilter = true;
+        invalidDirectionFilter.filter.constrainNormal = true;
+        invalidDirectionFilter.filter.direction = {{
+            std::numeric_limits<double>::max(),
+            std::numeric_limits<double>::max(), 0.0}};
+        invalidDirectionFilter.filter.minNormalAlignment = 0.0;
+        MeshData invalidDirectionFilterMesh = mesh;
+        std::vector<std::string> invalidDirectionFilterDiagnostics;
+        require(!AssimpPatchGroupBuilder::apply(model->getRenderMeshes(), patches,
+                    mesher.sourceTriangleElementIds(), {invalidDirectionFilter},
+                    invalidDirectionFilterMesh, invalidDirectionFilterDiagnostics),
+                "An unnormalizable patch-filter direction must be rejected.");
+
         // Keep the original plane-only API working for existing callers.
         AssimpPlaneSurfaceGroup legacyPlane;
         legacyPlane.name = "LEGACY_PLANE";
@@ -754,6 +769,16 @@ int main() {
                 "An unmatched FEM surface selector must fail instead of silently omitting its group.");
         require(unmatchedMesh.isEmpty() && mesher.sourceTriangleElementIds().empty(),
                 "Failed unmatched-selector import retained partial mesh data.");
+
+        AssimpSurfaceSelector overflowingDirection = normal;
+        overflowingDirection.name = "OVERFLOW_DIRECTION";
+        overflowingDirection.direction = {{
+            std::numeric_limits<double>::max(),
+            std::numeric_limits<double>::max(), 0.0}};
+        overflowingDirection.minNormalAlignment = 0.0;
+        MeshData overflowDirectionMesh;
+        require(!mesher.buildMesh(model, options, {overflowingDirection}, overflowDirectionMesh),
+                "An unnormalizable selector direction must be rejected.");
 
         MeshingOptions volumeOptions;
         volumeOptions.dimension = MeshDimension::Volume;
