@@ -164,7 +164,7 @@ if (!AssimpSurfaceGeometryFitter::fit(
     throw std::runtime_error("Surface fitting failed");
 ```
 
-The fitter tries PCA-derived candidate axes, algebraic circle/sphere least-squares fits and a linear radius-versus-axial-coordinate cone fit. A minimum of eight unique vertices is required for non-planar primitive fitting by default to reduce overfitting of tiny patches. Residual thresholds and angular coverage are explicit acceptance criteria. This remains a mesh approximation: it does not recover exact CAD analytic surfaces, trim curves, parameterizations or B-Rep face IDs. Use it to classify/select mesh patches, not as a substitute for OpenCASCADE.
+The fitter tries PCA-derived candidate axes, algebraic circle/sphere least-squares fits and a linear radius-versus-axial-coordinate cone fit. A minimum of eight unique vertices is required for non-planar primitive fitting by default to reduce overfitting of tiny patches. Residual thresholds and angular coverage are explicit acceptance criteria. Cylinder and cone coverage is measured around the fitted axis; sphere coverage is derived from the isotropy of the sampled unit radial directions (reported on a 0–180 degree scale), so a small spherical cap is not assigned a fictitious full-sphere score. This remains a mesh approximation: it does not recover exact CAD analytic surfaces, trim curves, parameterizations or B-Rep face IDs. Use it to classify/select mesh patches, not as a substitute for OpenCASCADE.
 
 
 ## Import options and coordinate units
