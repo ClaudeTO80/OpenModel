@@ -10,6 +10,7 @@
 #include <STEPCAFControl_Reader.hxx>
 #include <StepData_StepModel.hxx>
 #include <StepShape_AdvancedFace.hxx>
+#include <StepShape_EdgeCurve.hxx>
 #include <TCollection_AsciiString.hxx>
 #include <TCollection_HAsciiString.hxx>
 #include <TransferBRep.hxx>
@@ -507,6 +508,7 @@ bool OCCModel::loadWithStructure(const std::string& path, bool iges, TopoDS_Shap
     } closer{app, doc};
 
     std::vector<std::pair<std::string, TopoDS_Shape>> stepFaceNames;
+    std::vector<std::pair<std::string, TopoDS_Shape>> stepEdgeNames;
     if (iges) {
         IGESCAFControl_Reader reader;
         reader.SetColorMode(Standard_True);
@@ -526,10 +528,17 @@ bool OCCModel::loadWithStructure(const std::string& path, bool iges, TopoDS_Shap
         if (!stepModel.IsNull() && !process.IsNull()) {
             for (Standard_Integer i = 1; i <= stepModel->NbEntities(); ++i) {
                 const Handle(StepShape_AdvancedFace) face = Handle(StepShape_AdvancedFace)::DownCast(stepModel->Entity(i));
-                if (face.IsNull() || face->Name().IsNull() || face->Name()->Length() == 0) continue;
-                const TopoDS_Shape bound = TransferBRep::ShapeResult(process, face);
-                if (!bound.IsNull() && bound.ShapeType() == TopAbs_FACE)
-                    stepFaceNames.emplace_back(std::string(face->Name()->ToCString()), bound);
+                if (!face.IsNull() && !face->Name().IsNull() && face->Name()->Length() > 0) {
+                    const TopoDS_Shape bound = TransferBRep::ShapeResult(process, face);
+                    if (!bound.IsNull() && bound.ShapeType() == TopAbs_FACE)
+                        stepFaceNames.emplace_back(std::string(face->Name()->ToCString()), bound);
+                }
+                const Handle(StepShape_EdgeCurve) edge = Handle(StepShape_EdgeCurve)::DownCast(stepModel->Entity(i));
+                if (!edge.IsNull() && !edge->Name().IsNull() && edge->Name()->Length() > 0) {
+                    const TopoDS_Shape bound = TransferBRep::ShapeResult(process, edge);
+                    if (!bound.IsNull() && bound.ShapeType() == TopAbs_EDGE)
+                        stepEdgeNames.emplace_back(std::string(edge->Name()->ToCString()), bound);
+                }
             }
         }
     }
@@ -666,6 +675,24 @@ bool OCCModel::loadWithStructure(const std::string& path, bool iges, TopoDS_Shap
                 for (const auto& [faceName, bound] : stepFaceNames) {
                     if (!x.Current().IsPartner(bound)) continue;
                     auto& target = named[faceName];
+                    for (const auto& location : entry.second.locations)
+                        classify(x.Current().Moved(location), target);
+                }
+            }
+        }
+    }
+    // Some STEP writers place names directly on EDGE_CURVE entities rather
+    // than emitting XDE SHAPE_ASPECT sub-shape labels. Bind those names to the
+    // transferred B-Rep edges just as we do for ADVANCED_FACE entities.
+    if (!stepEdgeNames.empty()) {
+        for (const auto& entry : walker.parts) {
+            if (walker.shapes->IsAssembly(entry.second.label)) continue;
+            const TopoDS_Shape local = XCAFDoc_ShapeTool::GetShape(entry.second.label);
+            if (local.IsNull()) continue;
+            for (TopExp_Explorer x(local, TopAbs_EDGE); x.More(); x.Next()) {
+                for (const auto& [edgeName, bound] : stepEdgeNames) {
+                    if (!x.Current().IsPartner(bound)) continue;
+                    auto& target = named[edgeName];
                     for (const auto& location : entry.second.locations)
                         classify(x.Current().Moved(location), target);
                 }
