@@ -209,3 +209,6 @@ Each imported `RenderSubMesh` preserves Assimp's source scene mesh index in `sou
 
 
 The integration tests exercise GLB/glTF (including mirrored node transforms), OBJ, ASCII STL and ASCII PLY imports. Assimp supports additional formats depending on the version and importer configuration; successful import still produces polygonal mesh data, not a CAD B-Rep.
+
+
+Selectors may additionally set `constrainBounds=true` with `boundsMin`/`boundsMax` to intersect the geometric criterion with a spatial box. `AssimpSurfaceGeometryFitter::makeSelector` enables this automatically using the source patch bounds. This prevents a fitted plane from unintentionally selecting disconnected coplanar regions elsewhere in the model. AABB and sphere selectors do not require a direction vector unless an optional normal constraint is enabled.
