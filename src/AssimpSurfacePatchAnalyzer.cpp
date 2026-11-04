@@ -219,7 +219,7 @@ bool AssimpSurfacePatchAnalyzer::analyze(const std::vector<RenderSubMesh>& parts
                 patch.centroid=mul(weighted,1.0/patch.area);
                 const double normalLength=length(normalSum);
                 patch.normalCoherence=std::max(0.0,std::min(1.0,normalLength/patch.area));
-                if (normalLength>1e-14)
+                if (std::isfinite(normalLength) && normalLength>0.0)
                     patch.meanNormal=mul(normalSum,1.0/normalLength);
                 for (const auto& e:localEdges) {
                     const auto global=edgeOwners.find(e.first);
@@ -228,7 +228,7 @@ bool AssimpSurfacePatchAnalyzer::analyze(const std::vector<RenderSubMesh>& parts
                     else if (e.second==1)
                         ++patch.boundaryEdgeCount;
                 }
-                if (normalLength>1e-14) {
+                if (std::isfinite(normalLength) && normalLength>0.0) {
                     for (const auto ti:component.second)
                         for (const auto& p:triangles[ti].p)
                             patch.maxPlanarityDeviation=std::max(patch.maxPlanarityDeviation,
