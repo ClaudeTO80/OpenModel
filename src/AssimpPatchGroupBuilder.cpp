@@ -218,12 +218,39 @@ bool AssimpPatchGroupBuilder::apply(const std::vector<RenderSubMesh>& parts,
         }
     }
     std::unordered_set<ElementId> mappedElementIds;
-    for (const auto& partMap:sourceTriangleElementIds) {
-        for (const auto id:partMap) {
+    for (std::size_t pi=0;pi<sourceTriangleElementIds.size();++pi) {
+        const auto& partMap=sourceTriangleElementIds[pi];
+        for (std::size_t ti=0;ti<partMap.size();++ti) {
+            const auto id=partMap[ti];
             if (id==0) continue; // zero is the documented skipped-degenerate sentinel
             if (!triangleElementIds.count(id) || !mappedElementIds.insert(id).second) {
                 diagnostics.push_back("Source triangle mapping contains a missing, non-triangle, or duplicate element ID.");
                 return false;
+            }
+            const auto found=connectivity.find(id);
+            if (found==connectivity.end() || found->second.size()!=3) {
+                diagnostics.push_back("Source triangle mapping cannot resolve a Triangle3 connectivity record.");
+                return false;
+            }
+            // Verify provenance geometrically. Element IDs are local to a
+            // MeshData instance and may be reused by another import; comparing
+            // the ordered vertex coordinates prevents a stale map from silently
+            // grouping unrelated triangles with the same numeric IDs.
+            for (std::size_t k=0;k<3;++k) {
+                const auto node=found->second[k];
+                if (node>=mesh.getNumNodes()) {
+                    diagnostics.push_back("Mapped Triangle3 connectivity references an invalid node.");
+                    return false;
+                }
+                const auto vertex=static_cast<std::size_t>(parts[pi].indices[3*ti+k]);
+                const auto actual=mesh.nodeCoordinates(node);
+                for (std::size_t axis=0;axis<3;++axis) {
+                    const double expected=static_cast<double>(parts[pi].vertices[3*vertex+axis]);
+                    if (actual[axis]!=expected) {
+                        diagnostics.push_back("Source triangle map belongs to a different geometry or import ordering.");
+                        return false;
+                    }
+                }
             }
         }
     }
