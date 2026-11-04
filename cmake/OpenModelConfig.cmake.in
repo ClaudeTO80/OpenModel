@@ -4,7 +4,7 @@ include(CMakeFindDependencyMacro)
 find_dependency(Threads)
 
 if(@OPENMODEL_BUILD_ASSIMP_BACKEND@)
-    find_dependency(assimp CONFIG REQUIRED)
+    find_dependency(assimp 5.0 CONFIG REQUIRED)
     set(OpenModel_Assimp_FOUND TRUE)
 endif()
 
