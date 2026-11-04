@@ -21,7 +21,7 @@ Vec3 cross(const Vec3& a, const Vec3& b) {
              a[2] * b[0] - a[0] * b[2],
              a[0] * b[1] - a[1] * b[0]}};
 }
-double norm(const Vec3& a) { return std::sqrt(dot(a, a)); }
+double norm(const Vec3& a) { return std::hypot(a[0], a[1], a[2]); }
 bool finite(const Vec3& a) {
     return std::isfinite(a[0]) && std::isfinite(a[1]) && std::isfinite(a[2]);
 }
@@ -179,7 +179,7 @@ bool AssimpSurfaceMesher::buildMesh(
         if (s.name.empty() || !names.insert(s.name).second ||
             (needsPoint && !finite(s.point)) || (needsDirection && !finite(s.direction)) ||
             !std::isfinite(s.tolerance) || s.tolerance <= 0.0 ||
-            (needsDirection && directionNorm <= 1e-14) ||
+            (needsDirection && (!std::isfinite(directionNorm) || directionNorm <= 1e-14)) ||
             !std::isfinite(s.minNormalAlignment) ||
             s.minNormalAlignment < 0.0 || s.minNormalAlignment > 1.0) {
             m_diagnostics.push_back("Invalid or duplicate surface selector at index " +
