@@ -199,6 +199,9 @@ void AssimpModel::processNode(const aiNode* node, const aiScene* scene, const st
                 throw std::runtime_error("Assimp node references an invalid mesh index.");
             const aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
             auto imported = processMesh(mesh, scene, modelDir, transform);
+            if (node->mMeshes[i] > static_cast<unsigned int>(std::numeric_limits<int>::max()))
+                throw std::runtime_error("Assimp source mesh index exceeds the supported identifier range.");
+            imported.sourcePartId = static_cast<int>(node->mMeshes[i]);
             if (!imported.indices.empty()) m_renderMeshes.push_back(std::move(imported));
         }
         for (unsigned int i = 0; i < node->mNumChildren; ++i)
