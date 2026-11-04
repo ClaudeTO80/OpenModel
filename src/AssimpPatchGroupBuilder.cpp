@@ -101,7 +101,7 @@ bool AssimpPatchGroupBuilder::apply(const std::vector<RenderSubMesh>& parts,
             }
             std::array<double,3> direction=filter.direction;
             if (filter.constrainNormal) {
-                if (!finite3(direction) || norm3(direction)<=1e-14) {
+                if (!finite3(direction) || norm3(direction)==0.0) {
                     diagnostics.push_back("Invalid normal direction in patch filter '"+definition.name+"'.");
                     return false;
                 }
