@@ -87,11 +87,13 @@ void AssimpModel::readMaterial(const aiScene* scene, const aiMesh* mesh, const s
         };
         out.baseColorFactor = {{safeColor(color.r),safeColor(color.g),safeColor(color.b),safeColor(color.a)}};
         float value = 0.0f;
+#if ASSIMP_VERSION_MAJOR >= 5
         if (mat->Get(AI_MATKEY_METALLIC_FACTOR, value) == AI_SUCCESS && std::isfinite(value))
             out.metallicFactor = std::max(0.0f, std::min(1.0f, value));
         value = 0.8f;
         if (mat->Get(AI_MATKEY_ROUGHNESS_FACTOR, value) == AI_SUCCESS && std::isfinite(value))
             out.roughnessFactor = std::max(0.0f, std::min(1.0f, value));
+#endif
         aiColor3D emissive(0.0f, 0.0f, 0.0f);
         if (mat->Get(AI_MATKEY_COLOR_EMISSIVE, emissive) == AI_SUCCESS) {
             const auto safeEmissive=[](float component) {
@@ -110,13 +112,18 @@ void AssimpModel::readMaterial(const aiScene* scene, const aiMesh* mesh, const s
             out.alphaCutoff = std::max(0.0f, std::min(1.0f, value));
 
         aiString texturePath;
-        // DIFFUSE is widely supported by Assimp; glTF base-color textures are
-        // exposed through this compatibility texture slot by many importers.
+        bool hasBaseColorTexture = false;
+#if ASSIMP_VERSION_MAJOR >= 5
         if (mat->GetTextureCount(aiTextureType_BASE_COLOR) > 0 &&
             mat->GetTexture(aiTextureType_BASE_COLOR, 0, &texturePath) == AI_SUCCESS) {
             readTexture(scene, texturePath, modelDir, out);
-        } else if (mat->GetTextureCount(aiTextureType_DIFFUSE) > 0 &&
-                   mat->GetTexture(aiTextureType_DIFFUSE, 0, &texturePath) == AI_SUCCESS) {
+            hasBaseColorTexture = true;
+        }
+#endif
+        // DIFFUSE remains the portable fallback for formats/importers that do
+        // not expose a dedicated base-color texture slot.
+        if (!hasBaseColorTexture && mat->GetTextureCount(aiTextureType_DIFFUSE) > 0 &&
+            mat->GetTexture(aiTextureType_DIFFUSE, 0, &texturePath) == AI_SUCCESS) {
             readTexture(scene, texturePath, modelDir, out);
         }
         if (mat->GetTextureCount(aiTextureType_NORMALS) > 0 && mat->GetTexture(aiTextureType_NORMALS, 0, &texturePath) == AI_SUCCESS)
