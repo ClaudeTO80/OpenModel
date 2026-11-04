@@ -7,10 +7,13 @@
 
 #include <OpenModel/GmshMesher.hpp>
 #include <OpenModel/OCCModel.hpp>
+#include <OpenModel/AbaqusInpWriter.hpp>
 
 #include <cmath>
 #include <cstdio>
+#include <fstream>
 #include <iostream>
+#include <sstream>
 #include <map>
 #include <memory>
 #include <set>
@@ -191,6 +194,24 @@ int runSurfaceOnly(const std::string& step) {
             diagnostic.find("999999999") != std::string::npos)
             reportedMissingFace = true;
     CHECK(reportedMissingFace);
+
+    // Abaqus and CalculiX share the INP keyword format. Verify that the
+    // backend-neutral CAD group exports both the element set and its derived
+    // node set, not merely the Gmsh-specific physical group.
+    const std::string inpPath = "gmsh_surface_face_group.inp";
+    const auto writeResult = AbaqusInpWriter::writeFile(inpPath, mesh);
+    CHECK(writeResult.success);
+    CHECK(writeResult.elementSetsWritten > 0);
+    CHECK(writeResult.nodeSetsWritten > 0);
+    std::ifstream inpFile(inpPath);
+    CHECK(inpFile.good());
+    std::ostringstream inpContents;
+    inpContents << inpFile.rdbuf();
+    const std::string inpText = inpContents.str();
+    CHECK(inpText.find("*ELSET, ELSET=UNIQUESIDEFACE") != std::string::npos);
+    CHECK(inpText.find("*NSET, NSET=UNIQUESIDEFACE_NODES") != std::string::npos);
+    inpFile.close();
+    std::remove(inpPath.c_str());
 
     std::cout << "--- surface-only CAD face mapping: " << uniqueFace->elementIds.size()
               << " elements, " << uniqueFace->nodeIndices.size() << " nodes\n";
