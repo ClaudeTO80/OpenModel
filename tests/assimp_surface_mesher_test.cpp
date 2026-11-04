@@ -405,7 +405,8 @@ int main() {
         require(tinyCylinderModel->loadFromFile(tinyCylinderPath.string()),
                 "Could not import tiny-cylinder fixture: " + tinyCylinderModel->getLastError());
         MeshData tinyCylinderMesh;
-        require(selectorMesher.buildMesh(tinyCylinderModel, selectorOptions, tinyCylinderMesh) &&
+        AssimpSurfaceMesher tinyCylinderMesher;
+        require(tinyCylinderMesher.buildMesh(tinyCylinderModel, selectorOptions, tinyCylinderMesh) &&
                 tinyCylinderMesh.getNumElements() == tinyCylinderPart.indices.size()/3,
                 "Scale-relative Assimp meshing discarded valid small triangles.");
         std::error_code tinyCylinderError;
