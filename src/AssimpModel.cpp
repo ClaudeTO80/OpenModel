@@ -1,5 +1,7 @@
 #include <OpenModel/AssimpModel.hpp>
 
+#include <assimp/version.h>
+
 #include <stdexcept>
 #include <limits>
 
