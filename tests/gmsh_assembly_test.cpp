@@ -244,6 +244,8 @@ int runSurfaceOnly(const std::string& step, bool incompleteSecondOrder) {
     const std::string inpText = inpContents.str();
     CHECK(inpText.find("*ELSET, ELSET=UNIQUESIDEFACE") != std::string::npos);
     CHECK(inpText.find("*NSET, NSET=UNIQUESIDEFACE_NODES") != std::string::npos);
+    // Quadratic CAD boundary curves are exported as Abaqus T3D3 elements.
+    CHECK(inpText.find("*ELEMENT, TYPE=T3D3") != std::string::npos);
     inpFile.close();
     std::remove(inpPath.c_str());
 
