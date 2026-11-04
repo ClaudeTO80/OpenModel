@@ -552,13 +552,37 @@ void GmshMesher::mapCadGroups(const CADModel& cad, MeshData& mesh,
         for (const auto& group : cadGroups) {
             if (group.dimension != 2) continue;
             const std::set<int> faces(group.ids.begin(), group.ids.end());
+            std::set<int> mappedFaces;
             std::set<int> surfaceTags;
-            for (const auto& [surfaceTag, surfaceFaces] : facesOfSurface)
-                for (const int f : surfaceFaces)
-                    if (faces.count(f)) { surfaceTags.insert(surfaceTag); break; }
+            for (const auto& [surfaceTag, surfaceFaces] : facesOfSurface) {
+                for (const int faceId : surfaceFaces) {
+                    if (faces.count(faceId)) {
+                        mappedFaces.insert(faceId);
+                        surfaceTags.insert(surfaceTag);
+                    }
+                }
+            }
+
+            // A named CAD group is an input contract, not a best-effort
+            // selection. Creating it from only the mapped subset can leave a
+            // boundary condition or contact definition incomplete without the
+            // caller noticing. Refuse partial groups and report the exact
+            // source face ids that could not be represented in the mesh.
+            if (mappedFaces.size() != faces.size()) {
+                std::string missing;
+                for (const int faceId : faces)
+                    if (!mappedFaces.count(faceId))
+                        missing += (missing.empty() ? "" : ", ") + std::to_string(faceId);
+                m_diagnostics.push_back("CAD face group '" + group.name +
+                    "' was not mapped completely; missing CAD face id(s): " + missing +
+                    ". No physical group was created.");
+                continue;
+            }
+
             const auto ids = collect(2, surfaceTags);
             if (ids.empty()) {
-                m_diagnostics.push_back("CAD face group '" + group.name + "' matched no mesh surface (not created).");
+                m_diagnostics.push_back("CAD face group '" + group.name +
+                    "' mapped to no 2-D mesh elements (not created).");
                 continue;
             }
             const auto groupName = uniqueName(group.name, 2);
