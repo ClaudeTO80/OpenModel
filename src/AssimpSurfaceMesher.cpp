@@ -312,13 +312,21 @@ bool AssimpSurfaceMesher::buildMesh(
         return false;
     }
 
+    // A requested FEM boundary selector that matches nothing is almost
+    // always a modelling error. Reject the complete import rather than
+    // silently returning a mesh with a missing boundary-condition group.
+    for (std::size_t g = 0; g < selectors.size(); ++g) {
+        if (accumulators[g].elements.empty()) {
+            m_diagnostics.push_back("Selector '" + selectors[g].name +
+                                    "' matched no triangles; import rejected to avoid a missing FEM group.");
+            outMesh.clear();
+            m_sourceTriangleElementIds.clear();
+            return false;
+        }
+    }
+
     for (std::size_t g = 0; g < selectors.size(); ++g) {
         auto& selected = accumulators[g];
-        if (selected.elements.empty()) {
-            m_diagnostics.push_back("Selector '" + selectors[g].name +
-                                    "' matched no triangles; no group was created.");
-            continue;
-        }
         std::vector<NodeIndex> nodes(selected.nodes.begin(), selected.nodes.end());
         outMesh.addPhysicalGroup(selectors[g].name, 2, physicalTag++, selected.elements);
         outMesh.addNodeSet(selectors[g].name + "_NODES", nodes);
