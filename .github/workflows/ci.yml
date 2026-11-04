@@ -110,6 +110,36 @@ jobs:
           cmake -S examples/cmake-assimp-consumer -B consumer-assimp -DCMAKE_PREFIX_PATH="$PWD/install-assimp"
           cmake --build consumer-assimp --parallel 4
 
+  assimp-windows:
+    name: Assimp backend and package tests (Windows MSVC)
+    runs-on: windows-latest
+    timeout-minutes: 50
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Assimp with vcpkg
+        shell: pwsh
+        run: |
+          & "$env:VCPKG_INSTALLATION_ROOT/vcpkg.exe" install assimp:x64-windows
+
+      - name: Configure Assimp backend
+        shell: pwsh
+        run: cmake -S . -B build-assimp -A x64 -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" -DOPENMODEL_BUILD_TESTS=ON -DOPENMODEL_BUILD_ASSIMP_BACKEND=ON -DOPENMODEL_BUILD_CLI=OFF -DOPENMODEL_BUILD_SHARED=OFF
+
+      - name: Build Assimp backend
+        run: cmake --build build-assimp --config Release --parallel 4
+
+      - name: Run Assimp tests
+        run: ctest --test-dir build-assimp -C Release --output-on-failure --parallel 2 -R '^assimp_'
+
+      - name: Install and consume Assimp package
+        shell: pwsh
+        run: |
+          cmake --install build-assimp --config Release --prefix "$env:GITHUB_WORKSPACE/install-assimp"
+          cmake -S examples/cmake-assimp-consumer -B consumer-assimp -A x64 -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" -DCMAKE_PREFIX_PATH="$env:GITHUB_WORKSPACE/install-assimp"
+          cmake --build consumer-assimp --config Release --parallel 4
+
   windows-mingw:
     name: Core, CLI and tests (Windows ${{ matrix.msystem }}, ${{ matrix.build_type }})
     runs-on: windows-latest
