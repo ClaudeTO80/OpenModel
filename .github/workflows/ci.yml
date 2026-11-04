@@ -371,4 +371,4 @@ jobs:
       - name: Run CAD mapping and topology tests
         run: >
           ctest --test-dir build-cad --output-on-failure --parallel 2
-          -R "^(occ_integration_test|occ_structure_test|gmsh_assembly_test)$"
+          -R "^(occ_integration_test|occ_structure_test|gmsh_integration_test|gmsh_assembly_test)$"

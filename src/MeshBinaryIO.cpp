@@ -549,7 +549,7 @@ MeshData MeshBinaryIO::read(const std::filesystem::path& path, const Options& op
                 const auto current = static_cast<std::uint64_t>(in.tellg());
                 if (current > s.offset + s.rawSize || length > s.offset + s.rawSize - current)
                     throw Error("MGMB: invalid mesh group name length");
-                std::string value(length, '\\0');
+                std::string value(length, '\0');
                 if (length) in.read(&value[0], static_cast<std::streamsize>(length));
                 if (!in) throw Error("MGMB: truncated mesh group name");
                 return value;
