@@ -329,8 +329,11 @@ int main() {
         auto planeSceneModel = std::make_shared<AssimpModel>();
         require(planeSceneModel->loadFromFile(planeScenePath.string()),
                 "Could not import scoped plane fixture: "+planeSceneModel->getLastError());
+        MeshingOptions scopedPlaneOptions;
+        scopedPlaneOptions.dimension=MeshDimension::Surface;
+        AssimpSurfaceMesher scopedPlaneMesher;
         MeshData scopedPlaneMesh;
-        require(selectorMesher.buildMesh(planeSceneModel,selectorOptions,
+        require(scopedPlaneMesher.buildMesh(planeSceneModel,scopedPlaneOptions,
                     {scopedPlaneSelector},scopedPlaneMesh),
                 "Patch-scoped plane selector failed.");
         const auto* scopedPlaneGroup=scopedPlaneMesh.getMeshGroupRegistry().find("SCOPED_PLANE");
