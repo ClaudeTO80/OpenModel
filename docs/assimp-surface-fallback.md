@@ -171,7 +171,7 @@ The fitter tries PCA-derived candidate axes, algebraic circle/sphere least-squar
 
 `AssimpModel` exposes `AssimpImportOptions` for common post-processing controls:
 
-- `coordinateScale`: positive finite uniform scale applied after the complete Assimp node transform. Use it to convert source coordinates into the working unit system (for example, metres to millimetres).
+- `coordinateScale`: positive finite uniform scale applied after the complete Assimp node transform. Use it to convert source coordinates into the working unit system (for example, metres to millimetres). Import fails with a diagnostic if the scaled coordinates cannot be represented by the backend's `float` vertex storage, rather than silently collapsing nonzero coordinates to zero.
 - `generateNormals`: request generated smooth normals when the source does not provide them.
 - `joinIdenticalVertices`: enable Assimp vertex joining.
 - `flipUVs`: request vertical texture-coordinate flipping.
