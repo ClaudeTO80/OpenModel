@@ -145,9 +145,19 @@ bool AssimpSurfacePatchAnalyzer::analyze(const std::vector<RenderSubMesh>& parts
                     tr.p[k]=points[vi];
                     welded[k]=vertexSets.find(vi);
                 }
-                const V raw=cross(sub(tr.p[1],tr.p[0]),sub(tr.p[2],tr.p[0]));
+                const V edge01=sub(tr.p[1],tr.p[0]);
+                const V edge02=sub(tr.p[2],tr.p[0]);
+                const V edge12=sub(tr.p[2],tr.p[1]);
+                const double maxEdgeSquared=std::max({length2(edge01),length2(edge02),length2(edge12)});
+                const V raw=cross(edge01,edge02);
                 const double twice=length(raw);
-                if (!std::isfinite(twice) || twice<=1e-18) {
+                // Compare area against the square of the local edge scale.
+                // An absolute area threshold incorrectly discarded valid
+                // small-unit meshes (e.g. micron-scale geometry).
+                const double degeneracyThreshold=
+                    std::numeric_limits<double>::epsilon()*maxEdgeSquared*64.0;
+                if (!std::isfinite(twice) || !std::isfinite(maxEdgeSquared) ||
+                    maxEdgeSquared<=0.0 || twice<=degeneracyThreshold) {
                     ++degenerateCount;
                     continue;
                 }
