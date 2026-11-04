@@ -89,13 +89,11 @@ void AssimpModel::readMaterial(const aiScene* scene, const aiMesh* mesh, const s
         };
         out.baseColorFactor = {{safeColor(color.r),safeColor(color.g),safeColor(color.b),safeColor(color.a)}};
         float value = 0.0f;
-#if ASSIMP_VERSION_MAJOR >= 5
         if (mat->Get(AI_MATKEY_METALLIC_FACTOR, value) == AI_SUCCESS && std::isfinite(value))
             out.metallicFactor = std::max(0.0f, std::min(1.0f, value));
         value = 0.8f;
         if (mat->Get(AI_MATKEY_ROUGHNESS_FACTOR, value) == AI_SUCCESS && std::isfinite(value))
             out.roughnessFactor = std::max(0.0f, std::min(1.0f, value));
-#endif
         aiColor3D emissive(0.0f, 0.0f, 0.0f);
         if (mat->Get(AI_MATKEY_COLOR_EMISSIVE, emissive) == AI_SUCCESS) {
             const auto safeEmissive=[](float component) {
@@ -115,13 +113,11 @@ void AssimpModel::readMaterial(const aiScene* scene, const aiMesh* mesh, const s
 
         aiString texturePath;
         bool hasBaseColorTexture = false;
-#if ASSIMP_VERSION_MAJOR >= 5
         if (mat->GetTextureCount(aiTextureType_BASE_COLOR) > 0 &&
             mat->GetTexture(aiTextureType_BASE_COLOR, 0, &texturePath) == AI_SUCCESS) {
             readTexture(scene, texturePath, modelDir, out);
             hasBaseColorTexture = true;
         }
-#endif
         // DIFFUSE remains the portable fallback for formats/importers that do
         // not expose a dedicated base-color texture slot.
         if (!hasBaseColorTexture && mat->GetTextureCount(aiTextureType_DIFFUSE) > 0 &&
