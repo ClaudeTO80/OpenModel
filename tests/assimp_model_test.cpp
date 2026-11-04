@@ -42,6 +42,10 @@ int main() {
         part.baseColorImageMimeType = "image/png";
         part.normalImage = tinyPng;
         part.normalImageMimeType = "image/png";
+        part.metallicRoughnessImage = tinyPng;
+        part.metallicRoughnessImageMimeType = "image/png";
+        part.emissiveImage = tinyPng;
+        part.emissiveImageMimeType = "image/png";
         part.indices = {0, 1, 2};
         source.parts.push_back(part);
 
@@ -69,6 +73,12 @@ int main() {
         require(!importedMaterial.normalImage.empty() &&
                 importedMaterial.normalImageMimeType == "image/png",
                 "Assimp embedded normal texture was not imported.");
+        require(!importedMaterial.metallicRoughnessImage.empty() &&
+                importedMaterial.metallicRoughnessImageMimeType == "image/png",
+                "Assimp embedded metallic-roughness texture was not imported.");
+        require(!importedMaterial.emissiveImage.empty() &&
+                importedMaterial.emissiveImageMimeType == "image/png",
+                "Assimp embedded emissive texture was not imported.");
 
         std::string optionError;
         AssimpModel flippedUvModel;
