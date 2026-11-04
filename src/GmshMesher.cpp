@@ -443,11 +443,14 @@ void GmshMesher::mapCadGroups(const CADModel& cad, MeshData& mesh,
                 continue;
             }
 
-            constexpr std::size_t maxProbes = 32;
-            const std::size_t stride = std::max<std::size_t>(1, (totalElements + maxProbes - 1) / maxProbes);
+            // Validate every exported 2-D element. The previous bounded
+            // sampling strategy could miss a small unmapped region on a large
+            // surface, which is unacceptable for FEM boundary-condition sets.
+            // One interior representative point is constructed per element
+            // from its primary corner nodes and projected back to the trimmed
+            // Gmsh surface before checking the original CAD B-Rep.
             std::vector<std::array<double, 3>> probes;
-            probes.reserve(std::min(totalElements, maxProbes + 1));
-            std::size_t globalElement = 0;
+            probes.reserve(totalElements);
             for (std::size_t t = 0; t < types.size(); ++t) {
                 if (elementTags[t].empty()) continue;
                 std::string typeName;
@@ -455,11 +458,10 @@ void GmshMesher::mapCadGroups(const CADModel& cad, MeshData& mesh,
                 std::vector<double> localCoordinates;
                 gmsh::model::mesh::getElementProperties(types[t], typeName, dim, order,
                                                         numNodes, localCoordinates, numPrimary);
-                if (dim != 2 || numPrimary <= 0 ||
+                if (dim != 2 || numPrimary <= 0 || numNodes <= 0 ||
                     elementNodeTags[t].size() != elementTags[t].size() * static_cast<std::size_t>(numNodes))
-                    continue;
-                for (std::size_t e = 0; e < elementTags[t].size(); ++e, ++globalElement) {
-                    if (globalElement % stride != 0 && globalElement + 1 != totalElements) continue;
+                    throw std::runtime_error("Invalid Gmsh surface element connectivity during CAD face audit");
+                for (std::size_t e = 0; e < elementTags[t].size(); ++e) {
                     std::array<double, 3> centroid{{0.0, 0.0, 0.0}};
                     for (int n = 0; n < numPrimary; ++n) {
                         const auto point = coordinates(elementNodeTags[t][e * static_cast<std::size_t>(numNodes) +
@@ -474,9 +476,11 @@ void GmshMesher::mapCadGroups(const CADModel& cad, MeshData& mesh,
                     // Accept it only when its UV coordinates lie inside this face.
                     if (closest.size() == 3 && gmsh::model::isInside(2, surface.second, parametric, true))
                         probes.push_back({{closest[0], closest[1], closest[2]}});
+                    else
+                        ++mapping.projectionFailureCount;
                 }
             }
-            mapping.sampledElementCount = probes.size();
+            mapping.sampledElementCount = totalElements;
             if (probes.empty()) {
                 m_diagnostics.push_back("Gmsh surface " + std::to_string(surface.second) +
                     " produced no valid interior probes; CAD face mapping skipped.");
@@ -484,10 +488,10 @@ void GmshMesher::mapCadGroups(const CADModel& cad, MeshData& mesh,
                 continue;
             }
 
-            // Score each CAD face by the number of independent interior probes
-            // that lie on it. A small tolerance is retained for STEP healing and
-            // floating-point differences; candidates must explain at least 80%
-            // of the probes before being accepted.
+            // Score each CAD face by the number of per-element interior
+            // representatives that lie on it. Projection failures remain in
+            // the denominator, so they cannot silently inflate the match ratio.
+            // Candidates must explain at least 80% of all exported elements.
             std::map<int, std::size_t> faceVotes;
             for (const auto& probe : probes) {
                 const auto hits = cad.facesContainingPoint(probe, tolerance);
