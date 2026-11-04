@@ -560,6 +560,15 @@ int main() {
         require(legacyMesh.getMeshGroupRegistry().find("LEGACY_PLANE") != nullptr,
                 "Backward-compatible plane group was not created.");
 
+        AssimpSurfaceSelector unmatched = plane;
+        unmatched.name = "MISSING_BOUNDARY";
+        unmatched.point = {{0,0,100}};
+        MeshData unmatchedMesh;
+        require(!mesher.buildMesh(model, options, {unmatched}, unmatchedMesh),
+                "An unmatched FEM surface selector must fail instead of silently omitting its group.");
+        require(unmatchedMesh.isEmpty() && mesher.sourceTriangleElementIds().empty(),
+                "Failed unmatched-selector import retained partial mesh data.");
+
         MeshingOptions volumeOptions;
         volumeOptions.dimension = MeshDimension::Volume;
         MeshData rejected;
