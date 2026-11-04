@@ -362,7 +362,7 @@ if(OPENMODEL_BUILD_TESTS AND OPENMODEL_TEST_WEBGL_VIEWER AND OPENMODEL_BUILD_CLI
 endif()
 
 if(OPENMODEL_BUILD_ASSIMP_BACKEND)
-    find_package(assimp CONFIG REQUIRED)
+    find_package(assimp 5.0 CONFIG REQUIRED)
     add_library(openmodel_assimp STATIC
         src/AssimpModel.cpp
         src/AssimpSurfaceMesher.cpp
