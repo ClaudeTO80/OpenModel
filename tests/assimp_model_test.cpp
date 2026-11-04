@@ -135,6 +135,16 @@ int main() {
         require(!scaledModel.setImportOptions(invalidOptions, &optionError) && !optionError.empty(),
                 "Invalid Assimp coordinateScale was accepted.");
 
+        AssimpModel underflowModel;
+        AssimpImportOptions underflowOptions;
+        underflowOptions.coordinateScale = 1.0e-50;
+        require(underflowModel.setImportOptions(underflowOptions, &optionError),
+                "Positive finite coordinateScale should pass option validation.");
+        require(!underflowModel.loadFromFile(path.string()) &&
+                !underflowModel.getLastError().empty() &&
+                underflowModel.getRenderMeshes().empty(),
+                "Coordinate scaling that underflows float geometry was not rejected.");
+
         const std::vector<std::pair<std::string, std::string>> textFixtures = {
             {"openmodel_assimp_triangle.obj",
              "o Triangle\nv 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n"},
