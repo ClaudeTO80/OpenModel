@@ -17,6 +17,30 @@ double norm3(const std::array<double,3>& a) { return std::sqrt(dot3(a,a)); }
 bool finite3(const std::array<double,3>& a) {
     return std::isfinite(a[0]) && std::isfinite(a[1]) && std::isfinite(a[2]);
 }
+std::array<double,3> subtract3(const std::array<double,3>& a,
+                                  const std::array<double,3>& b) {
+    return {{a[0]-b[0],a[1]-b[1],a[2]-b[2]}};
+}
+std::array<double,3> cross3(const std::array<double,3>& a,
+                            const std::array<double,3>& b) {
+    return {{a[1]*b[2]-a[2]*b[1],
+             a[2]*b[0]-a[0]*b[2],
+             a[0]*b[1]-a[1]*b[0]}};
+}
+bool validPatch(const AssimpSurfacePatch& patch) {
+    if (!std::isfinite(patch.area) || patch.area<=0.0 ||
+        !finite3(patch.centroid) || !finite3(patch.meanNormal) ||
+        !finite3(patch.boundsMin) || !finite3(patch.boundsMax) ||
+        !std::isfinite(patch.maxPlanarityDeviation) || patch.maxPlanarityDeviation<0.0 ||
+        !std::isfinite(patch.relativePlanarityDeviation) || patch.relativePlanarityDeviation<0.0 ||
+        !std::isfinite(patch.normalCoherence) || patch.normalCoherence<0.0 ||
+        patch.normalCoherence>1.0 ||
+        (patch.kind!=AssimpSurfacePatchKind::Planar &&
+         patch.kind!=AssimpSurfacePatchKind::NonPlanar)) return false;
+    for (std::size_t axis=0;axis<3;++axis)
+        if (patch.boundsMin[axis]>patch.boundsMax[axis]) return false;
+    return !patch.triangleIndices.empty();
+}
 bool matchesFilter(const AssimpSurfacePatch& patch,const AssimpPatchFilter& filter,
                    const std::array<double,3>& unitDirection) {
     if (filter.planarOnly && patch.kind!=AssimpSurfacePatchKind::Planar) return false;
@@ -107,6 +131,20 @@ bool AssimpPatchGroupBuilder::apply(const std::vector<RenderSubMesh>& parts,
             diagnostics.push_back("Patch filter for group '"+definition.name+"' matched no patches.");
             return false;
         }
+        for (const auto index:selected) {
+            if (!validPatch(patches[index]) || patches[index].partIndex>=parts.size()) {
+                diagnostics.push_back("Patch analysis contains invalid geometry or source-part metadata.");
+                return false;
+            }
+            std::unordered_set<std::size_t> uniqueTriangles;
+            for (const auto triangle:patches[index].triangleIndices) {
+                if (triangle>=parts[patches[index].partIndex].indices.size()/3 ||
+                    !uniqueTriangles.insert(triangle).second) {
+                    diagnostics.push_back("Patch contains an invalid or duplicate source triangle index.");
+                    return false;
+                }
+            }
+        }
         resolvedPatchIndices.push_back(std::move(selected));
     }
 
@@ -121,9 +159,37 @@ bool AssimpPatchGroupBuilder::apply(const std::vector<RenderSubMesh>& parts,
             return false;
         }
         const std::size_t vertexCount=parts[pi].vertices.size()/3;
-        for (const auto index:parts[pi].indices) {
-            if (static_cast<std::size_t>(index)>=vertexCount) {
+        for (std::size_t vi=0;vi<vertexCount;++vi) {
+            const std::array<double,3> point{{parts[pi].vertices[3*vi],
+                parts[pi].vertices[3*vi+1],parts[pi].vertices[3*vi+2]}};
+            if (!finite3(point)) {
+                diagnostics.push_back("Source part "+std::to_string(pi)+" contains a non-finite vertex.");
+                return false;
+            }
+        }
+        for (std::size_t ti=0;ti<parts[pi].indices.size()/3;++ti) {
+            const auto ia=static_cast<std::size_t>(parts[pi].indices[3*ti]);
+            const auto ib=static_cast<std::size_t>(parts[pi].indices[3*ti+1]);
+            const auto ic=static_cast<std::size_t>(parts[pi].indices[3*ti+2]);
+            if (ia>=vertexCount || ib>=vertexCount || ic>=vertexCount) {
                 diagnostics.push_back("Source part "+std::to_string(pi)+" contains an out-of-range triangle index.");
+                return false;
+            }
+            const auto point=[&](std::size_t vi) {
+                return std::array<double,3>{{parts[pi].vertices[3*vi],
+                    parts[pi].vertices[3*vi+1],parts[pi].vertices[3*vi+2]}};
+            };
+            const auto a=point(ia),b=point(ib),d=point(ic);
+            const auto ab=subtract3(b,a),ac=subtract3(d,a),bc=subtract3(d,b);
+            const double maxEdgeSquared=std::max({dot3(ab,ab),dot3(ac,ac),dot3(bc,bc)});
+            const auto raw=cross3(ab,ac);
+            const double twiceArea=norm3(raw);
+            const double threshold=std::numeric_limits<double>::epsilon()*maxEdgeSquared*64.0;
+            const bool degenerate=!std::isfinite(twiceArea)||!std::isfinite(maxEdgeSquared)||
+                maxEdgeSquared<=0.0||twiceArea<=threshold;
+            const ElementId mapped=sourceTriangleElementIds[pi][ti];
+            if (degenerate ? mapped!=0 : mapped==0) {
+                diagnostics.push_back("Source triangle map does not agree with scale-relative degeneracy classification.");
                 return false;
             }
         }
@@ -161,8 +227,8 @@ bool AssimpPatchGroupBuilder::apply(const std::vector<RenderSubMesh>& parts,
             }
         }
     }
-    if (mappedElementIds.empty()) {
-        diagnostics.push_back("Source triangle mapping does not reference any imported surface elements.");
+    if (mappedElementIds.empty() || mappedElementIds.size()!=triangleElementIds.size()) {
+        diagnostics.push_back("Source triangle mapping does not cover every imported Triangle3 element exactly.");
         return false;
     }
 
