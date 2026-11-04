@@ -404,7 +404,9 @@ bool AssimpSurfaceGeometryFitter::makeSelector(const AssimpSurfaceFit& fit,
     }
     V axis=fit.axis;
     if(fit.type==AssimpFittedSurfaceType::Planar) {
-        if(!normalize(axis)){diagnostic="Planar fit has no valid normal.";return false;}
+        if(!finite(fit.center)||!normalize(axis)){
+            diagnostic="Planar fit has an invalid center or normal.";return false;
+        }
         selector.kind=AssimpSurfaceSelectorKind::Plane;
         selector.point=fit.center;
         selector.direction=axis;
