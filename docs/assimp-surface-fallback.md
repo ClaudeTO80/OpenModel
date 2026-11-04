@@ -2,7 +2,7 @@
 
 ## Scope
 
-The Assimp backend imports existing polygonal triangles. It does not expose CAD B-Rep faces, edges, vertices, analytic surfaces, or solid topology. The selectors below therefore create mesh-derived groups and never invent CAD entity identifiers.
+The Assimp backend imports existing polygonal triangles. It does not expose CAD B-Rep faces, edges, vertices, analytic surfaces, or solid topology. The backend requires Assimp 5.0 or newer for the glTF PBR material and texture semantics used by this adapter. The selectors below therefore create mesh-derived groups and never invent CAD entity identifiers.
 
 ## Build
 
@@ -114,7 +114,7 @@ if (!AssimpPatchGroupBuilder::apply(
     throw std::runtime_error("Patch group conversion failed");
 ```
 
-The builder creates a dimension-2 imported `MeshGroup`, a physical group and a `<name>_NODES` node set. A definition can combine multiple connected patches. Element memberships use the exact source-triangle-to-element map recorded by AssimpSurfaceMesher, including zero entries for skipped degenerate triangles; the builder does not reconstruct or guess this mapping. Invalid references are rejected before the mesh is modified. Groups are mesh-derived and do not carry CAD face identifiers. The map must belong to the same mesh import and is checked for duplicate IDs, missing elements, non-`Triangle3` targets, and malformed source indices before any group is added. The builder also checks that zero mapping entries correspond exactly to triangles classified as degenerate and that every imported `Triangle3` element is represented once. Patch metrics and triangle references are validated before group creation.
+The builder creates a dimension-2 imported `MeshGroup`, a physical group and a `<name>_NODES` node set. A definition can combine multiple connected patches. Element memberships use the exact source-triangle-to-element map recorded by AssimpSurfaceMesher, including zero entries for skipped degenerate triangles; the builder does not reconstruct or guess this mapping. Invalid references are rejected before the mesh is modified. Groups are mesh-derived and do not carry CAD face identifiers. The map must belong to the same mesh import and is checked for duplicate IDs, missing elements, non-`Triangle3` targets, and malformed source indices before any group is added. The builder also checks that zero mapping entries correspond exactly to triangles classified as degenerate and that every imported `Triangle3` element is represented once. Patch metrics and triangle references are validated before group creation. It also compares each mapped element's ordered FEM node coordinates with the original source triangle, rejecting stale maps even when another mesh reuses the same numeric element IDs.
 
 The patch analyzer uses a spatial hash with neighbouring-cell distance checks for welding, rather than rounded coordinate buckets. This avoids missing coincident endpoints merely because they fall on opposite quantization-cell boundaries. Normal statistics are winding-independent. It also reports non-manifold edges (edges shared by more than two triangles) separately from ordinary patch boundary edges.
 
