@@ -115,14 +115,25 @@ bool AssimpPatchGroupBuilder::apply(const std::vector<RenderSubMesh>& parts,
         return false;
     }
     for (std::size_t pi=0;pi<parts.size();++pi) {
-        if (parts[pi].indices.size()%3!=0 ||
+        if (parts[pi].vertices.size()%3!=0 || parts[pi].indices.size()%3!=0 ||
             sourceTriangleElementIds[pi].size()!=parts[pi].indices.size()/3) {
             diagnostics.push_back("Source triangle mapping has an invalid size for part "+std::to_string(pi)+".");
             return false;
         }
+        const std::size_t vertexCount=parts[pi].vertices.size()/3;
+        for (const auto index:parts[pi].indices) {
+            if (static_cast<std::size_t>(index)>=vertexCount) {
+                diagnostics.push_back("Source part "+std::to_string(pi)+" contains an out-of-range triangle index.");
+                return false;
+            }
+        }
     }
 
+    // Resolve only genuine Triangle3 elements. A corrupt or stale source map
+    // must never silently attach a patch to an unrelated element that happens
+    // to reuse the same numeric ID in another block.
     std::unordered_map<ElementId,std::vector<NodeIndex>> connectivity;
+    std::unordered_set<ElementId> triangleElementIds;
     for (const auto& block:mesh.getElementBlocks()) {
         if (block.nodesPerElement==0 || block.connectivity.size()!=block.ids.size()*block.nodesPerElement) {
             diagnostics.push_back("Malformed element connectivity in imported mesh.");
@@ -130,8 +141,29 @@ bool AssimpPatchGroupBuilder::apply(const std::vector<RenderSubMesh>& parts,
         }
         for (std::size_t i=0;i<block.ids.size();++i) {
             const auto begin=block.connectivity.begin()+static_cast<std::ptrdiff_t>(i*block.nodesPerElement);
-            connectivity.emplace(block.ids[i],std::vector<NodeIndex>(begin,begin+static_cast<std::ptrdiff_t>(block.nodesPerElement)));
+            const auto inserted=connectivity.emplace(block.ids[i],
+                std::vector<NodeIndex>(begin,begin+static_cast<std::ptrdiff_t>(block.nodesPerElement)));
+            if (!inserted.second) {
+                diagnostics.push_back("Mesh contains duplicate element identifiers; source mapping is ambiguous.");
+                return false;
+            }
+            if (block.type==ElementType::Triangle3 && block.nodesPerElement==3)
+                triangleElementIds.insert(block.ids[i]);
         }
+    }
+    std::unordered_set<ElementId> mappedElementIds;
+    for (const auto& partMap:sourceTriangleElementIds) {
+        for (const auto id:partMap) {
+            if (id==0) continue; // zero is the documented skipped-degenerate sentinel
+            if (!triangleElementIds.count(id) || !mappedElementIds.insert(id).second) {
+                diagnostics.push_back("Source triangle mapping contains a missing, non-triangle, or duplicate element ID.");
+                return false;
+            }
+        }
+    }
+    if (mappedElementIds.empty()) {
+        diagnostics.push_back("Source triangle mapping does not reference any imported surface elements.");
+        return false;
     }
 
     long long nextTag=1;
