@@ -54,7 +54,9 @@ volume meshing and solver writers.
 - surface-only meshing with no tetrahedral elements;
 - equality of the mapped `TopFace` and `Interface` element memberships;
 - atomic rejection of an intentionally incomplete user-defined face group,
-  including the missing CAD face ID in diagnostics.
+  including the missing CAD face ID in diagnostics;
+- Abaqus/CalculiX INP export of a surface-only CAD face group as both an
+  element set and a derived node set.
 
 `gmsh_step_face_mapping_test`, enabled by setting
 `OPENMODEL_GMSH_TEST_STEP` to a real STEP file, runs the end-face mapping at
