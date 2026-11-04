@@ -167,13 +167,17 @@ bool AssimpSurfaceMesher::buildMesh(
     std::unordered_set<std::string> names;
     for (std::size_t i = 0; i < selectors.size(); ++i) {
         const auto& s = selectors[i];
+        const bool needsPoint = s.kind == AssimpSurfaceSelectorKind::Plane ||
+            s.kind == AssimpSurfaceSelectorKind::CylinderSide ||
+            s.kind == AssimpSurfaceSelectorKind::SphereSurface ||
+            s.kind == AssimpSurfaceSelectorKind::ConeSide;
         const bool needsDirection = s.kind == AssimpSurfaceSelectorKind::Plane ||
             s.kind == AssimpSurfaceSelectorKind::Normal ||
             s.kind == AssimpSurfaceSelectorKind::CylinderSide ||
             s.kind == AssimpSurfaceSelectorKind::ConeSide || s.constrainNormal;
         const double directionNorm = norm(s.direction);
         if (s.name.empty() || !names.insert(s.name).second ||
-            !finite(s.point) || (needsDirection && !finite(s.direction)) ||
+            (needsPoint && !finite(s.point)) || (needsDirection && !finite(s.direction)) ||
             !std::isfinite(s.tolerance) || s.tolerance <= 0.0 ||
             (needsDirection && directionNorm <= 1e-14) ||
             !std::isfinite(s.minNormalAlignment) ||
