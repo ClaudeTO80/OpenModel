@@ -34,7 +34,6 @@ int main() {
         part.baseColorFactor = {{0.2f, 0.4f, 0.8f, 1.0f}};
         part.metallicFactor = 0.25f;
         part.roughnessFactor = 0.35f;
-#if ASSIMP_VERSION_MAJOR >= 5
         const std::vector<unsigned char> tinyPng = {
             137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82,
             0,0,0,1,0,0,0,1,8,6,0,0,0,31,21,196,137,
@@ -45,7 +44,6 @@ int main() {
         part.baseColorImageMimeType = "image/png";
         part.normalImage = tinyPng;
         part.normalImageMimeType = "image/png";
-#endif
         part.indices = {0, 1, 2};
         source.parts.push_back(part);
 
@@ -67,14 +65,12 @@ int main() {
         require(std::abs(importedMaterial.metallicFactor - 0.25f) < 1e-3f &&
                 std::abs(importedMaterial.roughnessFactor - 0.35f) < 1e-3f,
                 "Assimp metallic-roughness material factors were not imported.");
-#if ASSIMP_VERSION_MAJOR >= 5
         require(!importedMaterial.baseColorImage.empty() &&
                 importedMaterial.baseColorImageMimeType == "image/png",
                 "Assimp embedded base-color texture was not imported.");
         require(!importedMaterial.normalImage.empty() &&
                 importedMaterial.normalImageMimeType == "image/png",
                 "Assimp embedded normal texture was not imported.");
-#endif
 
         std::string optionError;
         AssimpModel flippedUvModel;
