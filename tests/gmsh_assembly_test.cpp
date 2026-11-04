@@ -150,7 +150,7 @@ int run(InterfaceMode mode, const std::string& step) {
 }
 
 
-int runSurfaceOnly(const std::string& step, bool incompleteSecondOrder) {
+int runSurfaceOnly(const std::string& step, bool incompleteSecondOrder, bool recombineSurfaceElements) {
     auto cad = std::make_shared<OCCModel>();
     CHECK(cad->loadFromFile(step));
     MeshingOptions options;
@@ -159,7 +159,7 @@ int runSurfaceOnly(const std::string& step, bool incompleteSecondOrder) {
     options.elementSize = 2.0;
     options.maxElementSize = 2.0;
     options.order = 2;
-    options.recombineSurfaceElements = true;
+    options.recombineSurfaceElements = recombineSurfaceElements;
     options.incompleteSecondOrder = incompleteSecondOrder;
     options.importCadGroups = true;
     const auto uniqueSideFace = cad->facesContainingPoint({{0.0, 5.0, 5.0}}, 1e-6);
@@ -177,15 +177,19 @@ int runSurfaceOnly(const std::string& step, bool incompleteSecondOrder) {
     CHECK(mesher.buildMesh(cad, options, mesh));
     CHECK(validFaceAudit(mesher));
     CHECK(mesh.getNumElements() > 0);
-    bool sawExpectedQuadrilateral = false;
+    bool sawExpectedSurfaceType = false;
     for (const auto& block : mesh.getElementBlocks()) {
         CHECK(block.type != ElementType::Tetrahedron4 && block.type != ElementType::Tetrahedron10);
-        if (incompleteSecondOrder && block.type == ElementType::Quadrilateral8)
-            sawExpectedQuadrilateral = true;
-        if (!incompleteSecondOrder && block.type == ElementType::Quadrilateral9)
-            sawExpectedQuadrilateral = true;
+        if (!recombineSurfaceElements && block.type == ElementType::Triangle6)
+            sawExpectedSurfaceType = true;
+        if (recombineSurfaceElements && incompleteSecondOrder &&
+            block.type == ElementType::Quadrilateral8)
+            sawExpectedSurfaceType = true;
+        if (recombineSurfaceElements && !incompleteSecondOrder &&
+            block.type == ElementType::Quadrilateral9)
+            sawExpectedSurfaceType = true;
     }
-    CHECK(sawExpectedQuadrilateral);
+    CHECK(sawExpectedSurfaceType);
 
     // Surface-only meshes have no upward volume adjacency. CAD faces must still
     // be mapped from their geometric location and actual 2-D mesh elements.
@@ -201,7 +205,9 @@ int runSurfaceOnly(const std::string& step, bool incompleteSecondOrder) {
         const auto found = elementIndex.find(id);
         CHECK(found != elementIndex.end());
         const auto& block = *found->second.block;
-        if (incompleteSecondOrder)
+        if (!recombineSurfaceElements)
+            CHECK(block.type == ElementType::Triangle6);
+        else if (incompleteSecondOrder)
             CHECK(block.type == ElementType::Triangle6 || block.type == ElementType::Quadrilateral8);
         else
             CHECK(block.type == ElementType::Triangle6 || block.type == ElementType::Quadrilateral9);
@@ -261,9 +267,10 @@ int main() {
     CHECK(writeAssemblyFixture(step));
     const int a = run(InterfaceMode::Independent, step);
     const int b = a == 0 ? run(InterfaceMode::Conformal, step) : a;
-    const int c = (a == 0 && b == 0) ? runSurfaceOnly(step, false) : 1;
-    const int d = (a == 0 && b == 0 && c == 0) ? runSurfaceOnly(step, true) : 1;
+    const int c = (a == 0 && b == 0) ? runSurfaceOnly(step, false, false) : 1;
+    const int d = (a == 0 && b == 0 && c == 0) ? runSurfaceOnly(step, false, true) : 1;
+    const int e = (a == 0 && b == 0 && c == 0 && d == 0) ? runSurfaceOnly(step, true, true) : 1;
     std::remove(step.c_str());
-    if (a == 0 && b == 0 && c == 0 && d == 0) std::cout << "gmsh_assembly_test passed\n";
-    return a != 0 ? a : (b != 0 ? b : (c != 0 ? c : d));
+    if (a == 0 && b == 0 && c == 0 && d == 0 && e == 0) std::cout << "gmsh_assembly_test passed\n";
+    return a != 0 ? a : (b != 0 ? b : (c != 0 ? c : (d != 0 ? d : e)));
 }
