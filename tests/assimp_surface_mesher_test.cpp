@@ -453,9 +453,11 @@ int main() {
         auto tinyCylinderModel = std::make_shared<AssimpModel>();
         require(tinyCylinderModel->loadFromFile(tinyCylinderPath.string()),
                 "Could not import tiny-cylinder fixture: " + tinyCylinderModel->getLastError());
+        MeshingOptions tinyCylinderOptions;
+        tinyCylinderOptions.dimension = MeshDimension::Surface;
         MeshData tinyCylinderMesh;
         AssimpSurfaceMesher tinyCylinderMesher;
-        require(tinyCylinderMesher.buildMesh(tinyCylinderModel, selectorOptions, tinyCylinderMesh) &&
+        require(tinyCylinderMesher.buildMesh(tinyCylinderModel, tinyCylinderOptions, tinyCylinderMesh) &&
                 tinyCylinderMesh.getNumElements() == tinyCylinderPart.indices.size()/3,
                 "Scale-relative Assimp meshing discarded valid small triangles.");
         std::error_code tinyCylinderError;
