@@ -296,6 +296,14 @@ int main() {
                 "Analytic cylinder was not recognized.");
         require(std::abs(fits.front().radius - 2.0) < 1e-3,
                 "Fitted cylinder radius is inaccurate.");
+        AssimpSurfaceSelector fittedCylinderSelector;
+        require(AssimpSurfaceGeometryFitter::makeSelector(fits.front(), {cylinderPart},
+                    cylinderPatches.front(), "FITTED_CYLINDER", 1e-5,
+                    fittedCylinderSelector, fitDiagnostics),
+                "Could not convert cylinder fit to a selector: " + fitDiagnostics.back());
+        require(fittedCylinderSelector.kind == AssimpSurfaceSelectorKind::CylinderSide &&
+                std::abs(fittedCylinderSelector.radius - 2.0) < 1e-3,
+                "Fitted cylinder selector has incorrect parameters.");
 
         const auto spherePart = makeSphere(1.75, 8, 24);
         std::vector<AssimpSurfacePatch> spherePatches;
