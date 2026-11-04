@@ -233,7 +233,7 @@ int runSurfaceOnly(const std::string& step, bool incompleteSecondOrder) {
     const std::string inpPath = "gmsh_surface_face_group.inp";
     const auto writeResult = AbaqusInpWriter::writeFile(inpPath, mesh);
     if (!writeResult.success)
-        for (const auto& error : writeResult.errors) std::cerr << "Abaqus export: " << error << '\\n';
+        for (const auto& error : writeResult.errors) std::cerr << "Abaqus export: " << error << '\n';
     CHECK(writeResult.success);
     CHECK(writeResult.elementSetsWritten > 0);
     CHECK(writeResult.nodeSetsWritten > 0);
