@@ -20,6 +20,9 @@ struct MeshingOptions {
     // Legacy volume target size; retained for source compatibility.
     double elementSize = 1.0;
     int order = 1; // 1 = linear, 2 = quadratic (backend dependent)
+    // Gmsh-only controls; other meshing backends may ignore these.
+    bool recombineSurfaceElements = false;
+    bool incompleteSecondOrder = false; // Gmsh: omit quad interior nodes (Quad8 instead of Quad9).
     bool generateTetrahedra = true;
 
     // CAD tessellation controls. linearDeflection is a geometric chordal
