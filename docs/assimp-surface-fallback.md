@@ -114,7 +114,7 @@ if (!AssimpPatchGroupBuilder::apply(
     throw std::runtime_error("Patch group conversion failed");
 ```
 
-The builder creates a dimension-2 imported `MeshGroup`, a physical group and a `<name>_NODES` node set. A definition can combine multiple connected patches. Element memberships use the exact source-triangle-to-element map recorded by AssimpSurfaceMesher, including zero entries for skipped degenerate triangles; the builder does not reconstruct or guess this mapping. Invalid references are rejected before the mesh is modified. Groups are mesh-derived and do not carry CAD face identifiers.
+The builder creates a dimension-2 imported `MeshGroup`, a physical group and a `<name>_NODES` node set. A definition can combine multiple connected patches. Element memberships use the exact source-triangle-to-element map recorded by AssimpSurfaceMesher, including zero entries for skipped degenerate triangles; the builder does not reconstruct or guess this mapping. Invalid references are rejected before the mesh is modified. Groups are mesh-derived and do not carry CAD face identifiers. The map must belong to the same mesh import and is checked for duplicate IDs, missing elements, non-`Triangle3` targets, and malformed source indices before any group is added.
 
 The patch analyzer uses a spatial hash with neighbouring-cell distance checks for welding, rather than rounded coordinate buckets. This avoids missing coincident endpoints merely because they fall on opposite quantization-cell boundaries. Normal statistics are winding-independent. It also reports non-manifold edges (edges shared by more than two triangles) separately from ordinary patch boundary edges.
 
