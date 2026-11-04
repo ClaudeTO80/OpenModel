@@ -318,6 +318,7 @@ int main() {
                 "Analytic sphere was not recognized.");
         require(std::abs(fits.front().radius - 1.75) < 1e-3,
                 "Fitted sphere radius is inaccurate.");
+        const AssimpSurfaceFit sphereFit = fits.front();
 
         const auto conePart = makeCone(2.0, 0.75, 3.0, 24);
         std::vector<AssimpSurfacePatch> conePatches;
@@ -345,7 +346,7 @@ int main() {
                 "Could not import sphere selector fixture: " + sphereModel->getLastError());
         AssimpSurfaceSelector sphereSelector;
         std::string selectorDiagnostic;
-        require(AssimpSurfaceGeometryFitter::makeSelector(fits.front(), {spherePart},
+        require(AssimpSurfaceGeometryFitter::makeSelector(sphereFit, {spherePart},
                     spherePatches.front(), "SPHERE_SURFACE", 1e-5,
                     sphereSelector, selectorDiagnostic),
                 "Could not convert sphere fit to a selector: " + selectorDiagnostic);
