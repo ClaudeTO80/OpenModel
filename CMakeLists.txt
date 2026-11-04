@@ -362,7 +362,35 @@ if(OPENMODEL_BUILD_TESTS AND OPENMODEL_TEST_WEBGL_VIEWER AND OPENMODEL_BUILD_CLI
 endif()
 
 if(OPENMODEL_BUILD_ASSIMP_BACKEND)
-    find_package(assimp 5.0 CONFIG REQUIRED)
+    find_package(assimp CONFIG REQUIRED)
+    if(TARGET assimp::assimp)
+        set(_openmodel_assimp_dependency assimp::assimp)
+    elseif(TARGET assimp)
+        set(_openmodel_assimp_dependency assimp)
+    else()
+        message(FATAL_ERROR "The Assimp package did not export an assimp target.")
+    endif()
+
+    include(CheckCXXSourceCompiles)
+    set(_openmodel_saved_required_libraries "${CMAKE_REQUIRED_LIBRARIES}")
+    set(CMAKE_REQUIRED_LIBRARIES "${_openmodel_assimp_dependency}")
+    check_cxx_source_compiles("
+        #include <assimp/material.h>
+        int main() {
+            aiTextureType baseColor = aiTextureType_BASE_COLOR;
+            aiTextureType emissive = aiTextureType_EMISSION_COLOR;
+            aiTextureType metalness = aiTextureType_METALNESS;
+            aiTextureType roughness = aiTextureType_DIFFUSE_ROUGHNESS;
+            (void)baseColor; (void)emissive; (void)metalness; (void)roughness;
+            return 0;
+        }"
+        OPENMODEL_ASSIMP_HAS_PBR_TEXTURE_API)
+    set(CMAKE_REQUIRED_LIBRARIES "${_openmodel_saved_required_libraries}")
+    unset(_openmodel_saved_required_libraries)
+    if(NOT OPENMODEL_ASSIMP_HAS_PBR_TEXTURE_API)
+        message(FATAL_ERROR "OpenModel Assimp backend requires Assimp 5.0 or newer (PBR texture semantics are missing).")
+    endif()
+
     add_library(openmodel_assimp STATIC
         src/AssimpModel.cpp
         src/AssimpSurfaceMesher.cpp
@@ -372,13 +400,8 @@ if(OPENMODEL_BUILD_ASSIMP_BACKEND)
     add_library(OpenModel::Assimp ALIAS openmodel_assimp)
     set_target_properties(openmodel_assimp PROPERTIES EXPORT_NAME Assimp)
     target_link_libraries(openmodel_assimp PUBLIC OpenModel::Core)
-    if(TARGET assimp::assimp)
-        target_link_libraries(openmodel_assimp PUBLIC assimp::assimp)
-    elseif(TARGET assimp)
-        target_link_libraries(openmodel_assimp PUBLIC assimp)
-    else()
-        message(FATAL_ERROR "Assimp package found, but no assimp::assimp or assimp target is available")
-    endif()
+    target_link_libraries(openmodel_assimp PUBLIC ${_openmodel_assimp_dependency})
+    unset(_openmodel_assimp_dependency)
     if(OPENMODEL_BUILD_TESTS)
         add_executable(assimp_model_test tests/assimp_model_test.cpp)
         target_link_libraries(assimp_model_test PRIVATE openmodel_assimp)
