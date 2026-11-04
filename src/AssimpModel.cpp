@@ -242,9 +242,14 @@ RenderSubMesh AssimpModel::processMesh(const aiMesh* mesh, const aiScene* scene,
         const double y = static_cast<double>(transformed.y) * m_importOptions.coordinateScale;
         const double z = static_cast<double>(transformed.z) * m_importOptions.coordinateScale;
         const double floatLimit = std::numeric_limits<float>::max();
+        const double floatDenormalMin=std::numeric_limits<float>::denorm_min();
         if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z) ||
-            std::abs(x) > floatLimit || std::abs(y) > floatLimit || std::abs(z) > floatLimit)
-            throw std::runtime_error("Assimp mesh '" + out.name + "' produced an invalid scaled vertex.");
+            std::abs(x) > floatLimit || std::abs(y) > floatLimit || std::abs(z) > floatLimit ||
+            (transformed.x!=0.0f && std::abs(x)<floatDenormalMin) ||
+            (transformed.y!=0.0f && std::abs(y)<floatDenormalMin) ||
+            (transformed.z!=0.0f && std::abs(z)<floatDenormalMin))
+            throw std::runtime_error("Assimp mesh '" + out.name +
+                "' produced a scaled vertex outside the representable float range.");
         out.vertices.insert(out.vertices.end(), {
             static_cast<float>(x), static_cast<float>(y), static_cast<float>(z)});
 
