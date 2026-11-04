@@ -212,6 +212,20 @@ int main() {
                 "AABB node set is missing or incorrect.");
         require(cylinderNodes != mesh.getNodeSets().end() && cylinderNodes->second.size() == 3,
                 "Cylinder node set is missing or incorrect.");
+
+        AssimpSurfaceSelector tinyDirectionNormal = normal;
+        tinyDirectionNormal.name = "TINY_DIRECTION_NORMAL";
+        tinyDirectionNormal.direction = {{1.0e-300, 0.0, 0.0}};
+        tinyDirectionNormal.minNormalAlignment = 0.99;
+        AssimpSurfaceMesher tinyDirectionMesher;
+        MeshData tinyDirectionMesh;
+        require(tinyDirectionMesher.buildMesh(model, options, {tinyDirectionNormal}, tinyDirectionMesh),
+                "A nonzero small-magnitude selector direction was rejected.");
+        const auto* tinyDirectionGroup =
+            tinyDirectionMesh.getMeshGroupRegistry().find("TINY_DIRECTION_NORMAL");
+        require(tinyDirectionGroup && tinyDirectionGroup->elementIds.size() == 3,
+                "Small-magnitude selector direction was not normalized correctly.");
+
         require(mesh.getNumElements() == 6, "Surface import did not preserve all source triangles.");
         require(mesher.sourceTriangleElementIds().size() == model->getRenderMeshes().size(),
                 "Assimp source-triangle map does not contain every imported part.");
@@ -773,6 +787,26 @@ int main() {
                     mesher.sourceTriangleElementIds(), {invalidDirectionFilter},
                     invalidDirectionFilterMesh, invalidDirectionFilterDiagnostics),
                 "An unnormalizable patch-filter direction must be rejected.");
+
+        AssimpPatchGroupDefinition tinyDirectionFilter;
+        tinyDirectionFilter.name = "TINY_FILTER_DIRECTION";
+        tinyDirectionFilter.selectByFilter = true;
+        tinyDirectionFilter.filter.planarOnly = true;
+        tinyDirectionFilter.filter.constrainNormal = true;
+        tinyDirectionFilter.filter.direction = {{1.0e-300, 0.0, 0.0}};
+        tinyDirectionFilter.filter.minNormalAlignment = 0.99;
+        tinyDirectionFilter.filter.minArea = 0.99;
+        tinyDirectionFilter.filter.maxArea = 1.01;
+        MeshData tinyDirectionFilterMesh = mesh;
+        std::vector<std::string> tinyDirectionFilterDiagnostics;
+        require(AssimpPatchGroupBuilder::apply(model->getRenderMeshes(), patches,
+                    mesher.sourceTriangleElementIds(), {tinyDirectionFilter},
+                    tinyDirectionFilterMesh, tinyDirectionFilterDiagnostics),
+                "A nonzero small-magnitude patch-filter direction was rejected.");
+        const auto* tinyDirectionPatchGroup =
+            tinyDirectionFilterMesh.getMeshGroupRegistry().find("TINY_FILTER_DIRECTION");
+        require(tinyDirectionPatchGroup && tinyDirectionPatchGroup->elementIds.size() == 2,
+                "Small-magnitude patch-filter direction was not normalized correctly.");
 
         // Keep the original plane-only API working for existing callers.
         AssimpPlaneSurfaceGroup legacyPlane;
