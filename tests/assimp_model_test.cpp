@@ -54,6 +54,7 @@ int main() {
                 std::abs(importedMaterial.roughnessFactor - 0.35f) < 1e-3f,
                 "Assimp metallic-roughness material factors were not imported.");
 
+        std::string optionError;
         AssimpModel flippedUvModel;
         AssimpImportOptions flippedUvOptions;
         flippedUvOptions.flipUVs = true;
@@ -120,7 +121,6 @@ int main() {
         AssimpModel scaledModel;
         AssimpImportOptions importOptions;
         importOptions.coordinateScale = 1000.0;
-        std::string optionError;
         require(scaledModel.setImportOptions(importOptions, &optionError),
                 "Valid Assimp import options were rejected: " + optionError);
         require(scaledModel.loadFromFile(path.string()),
