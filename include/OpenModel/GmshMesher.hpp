@@ -27,6 +27,7 @@ struct CADFaceMappingRecord {
     std::size_t elementCount = 0;
     std::size_t sampledElementCount = 0;
     std::size_t matchedSampleCount = 0;
+    std::size_t projectionFailureCount = 0;
     double matchRatio = 0.0;
     std::vector<int> cadFaceIds;
     bool ambiguous = false;
