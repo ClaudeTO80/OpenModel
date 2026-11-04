@@ -44,6 +44,10 @@ bool GmshMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Mesh
             gmsh::option::setNumber("Mesh.MeshSizeFromCurvature",
                 options.curvatureAdaptation ? options.curvaturePointsPerCircle : 0.0);
             gmsh::option::setNumber("Mesh.ElementOrder", options.order);
+            gmsh::option::setNumber("Mesh.RecombineAll",
+                options.recombineSurfaceElements ? 1.0 : 0.0);
+            gmsh::option::setNumber("Mesh.SecondOrderIncomplete",
+                options.order == 2 && options.incompleteSecondOrder ? 1.0 : 0.0);
 
             gmsh::model::add("OpenModelModel");
             std::vector<std::pair<int, int>> importedEntities;
