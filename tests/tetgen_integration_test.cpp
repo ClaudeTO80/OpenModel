@@ -115,6 +115,23 @@ int main() {
                 "TetGen quadratic face group has no boundary nodes");
         require(quadratic.validate().empty(), "TetGen quadratic mesh failed structural validation");
 
+        // An unmappable group is rejected atomically and reported, but must not abort the mesh;
+        // a user group whose name collides with a CAD group is renamed instead of failing.
+        auto withUserGroups = options;
+        withUserGroups.additionalFaceGroups.push_back(CADGroup{"Incomplete", CADGroupKind::NamedShape, 2, {10, 999}});
+        withUserGroups.additionalFaceGroups.push_back(CADGroup{"Face_10", CADGroupKind::NamedShape, 2, {11}});
+        MeshData userMesh;
+        require(mesher.buildMesh(cad, withUserGroups, userMesh), "TetGen aborted on an unmappable or duplicate-named group");
+        require(userMesh.getMeshGroupRegistry().find("Incomplete") == nullptr, "TetGen emitted a partial face group");
+        require(userMesh.getMeshGroupRegistry().find("Face_10") != nullptr &&
+                userMesh.getMeshGroupRegistry().find("Face_10_dim2") != nullptr,
+                "TetGen did not disambiguate a duplicate group name");
+        bool reportedMissing = false;
+        for (const auto& line : mesher.diagnostics())
+            if (line.find("Incomplete") != std::string::npos && line.find("999") != std::string::npos) reportedMissing = true;
+        require(reportedMissing, "TetGen did not report the missing CAD face id");
+        require(userMesh.validate().empty(), "TetGen mesh with user groups failed structural validation");
+
         MeshData unchanged;
         unchanged.addNode(999, 9.0, 9.0, 9.0);
         auto invalid = options;

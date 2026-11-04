@@ -22,8 +22,10 @@ The adapter then:
 4. Builds generic groups from CAD face groups and user-defined additional groups.
 5. Derives node membership from the boundary triangles.
 
-The adapter rejects a requested group if any requested face ID has no mapped
-boundary elements. It does not fabricate a partial group. The mapping depends on
+A requested group is rejected, never emitted partially, if any requested face ID has no
+mapped boundary elements. The rejection is reported in `TetGenMesher::diagnostics()` and does
+not abort the mesh (the same policy as the Gmsh adapter). Group names are made unique across
+dimensions with a `_dim<N>` suffix instead of failing. The mapping depends on
 the CAD importer retaining valid `sourceFaceId` values in its render submeshes.
 
 ## Netgen adapter

@@ -239,7 +239,16 @@ bool TetGenMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Me
             requestedFaceGroups.insert(requestedFaceGroups.end(),
                                        options.additionalFaceGroups.begin(),
                                        options.additionalFaceGroups.end());
+            // Group names must be unique across dimensions; disambiguate like the Gmsh
+            // adapter instead of aborting the whole meshing run.
             std::set<std::string> usedNames;
+            auto uniqueName = [&](std::string name, int dimension) {
+                if (name.empty()) name = "CAD_group";
+                if (usedNames.insert(name).second) return name;
+                name += "_dim" + std::to_string(dimension);
+                for (int n = 2; !usedNames.insert(name).second; ++n) name += "_" + std::to_string(n);
+                return name;
+            };
             for (const auto& group : requestedFaceGroups) {
                 if (group.dimension != 2 || group.ids.empty()) continue;
                 std::vector<ElementId> elements;
@@ -256,17 +265,20 @@ bool TetGenMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Me
                     elements.insert(elements.end(), e->second.begin(), e->second.end());
                     nodes.insert(nodes.end(), n->second.begin(), n->second.end());
                 }
+                // Incomplete groups are rejected atomically (never emitted partially, as a
+                // partial support would silently leave part of a constraint free), but they
+                // must not abort the mesh: report them like the Gmsh adapter does.
                 if (!missingFaces.empty()) {
-                    std::string message = "TetGen could not map every CAD face in group '" + group.name + "'. Missing face IDs:";
+                    std::string message = "CAD face group '" + group.name +
+                        "' was not mapped completely; missing CAD face id(s):";
                     for (const int id : missingFaces) message += " " + std::to_string(id);
-                    throw std::runtime_error(message);
+                    m_diagnostics.push_back(message + ". No group was created.");
+                    continue;
                 }
                 if (elements.empty()) continue;
                 std::sort(nodes.begin(), nodes.end());
                 nodes.erase(std::unique(nodes.begin(), nodes.end()), nodes.end());
-                std::string name = group.name.empty() ? "CAD_Face_Group" : group.name;
-                if (!usedNames.insert(name).second)
-                    throw std::runtime_error("TetGen CAD face groups contain duplicate names: " + name);
+                const std::string name = uniqueName(group.name.empty() ? "CAD_Face_Group" : group.name, 2);
                 outMesh.addMeshGroup(MeshGroup{name, 2, MeshGroupSource::CAD,
                                                std::vector<int>(uniqueFaces.begin(), uniqueFaces.end()),
                                                std::move(elements), std::move(nodes)});
@@ -309,17 +321,16 @@ bool TetGenMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Me
                         else nodes.insert(nodes.end(), found->second.begin(), found->second.end());
                     }
                     if (!missing.empty()) {
-                        std::string message = "Could not completely map CAD " +
+                        std::string message = "CAD " +
                             std::string(group.dimension == 1 ? "edge" : "vertex") +
-                            " group '" + group.name + "'. Missing entity IDs:";
+                            " group '" + group.name + "' could not be mapped completely; missing entity id(s):";
                         for (const int id : missing) message += " " + std::to_string(id);
-                        throw std::runtime_error(message);
+                        m_diagnostics.push_back(message + ". No group was created.");
+                        continue;
                     }
                     std::sort(nodes.begin(), nodes.end());
                     nodes.erase(std::unique(nodes.begin(), nodes.end()), nodes.end());
-                    const std::string name = group.name;
-                    if (!usedNames.insert(name).second)
-                        throw std::runtime_error("Duplicate CAD group name across dimensions: " + name);
+                    const std::string name = uniqueName(group.name, group.dimension);
                     outMesh.addNodeSet(name + "_NODES", nodes);
                     outMesh.addMeshGroup(MeshGroup{name, group.dimension, MeshGroupSource::CAD,
                                                   std::vector<int>(requested.begin(), requested.end()),
@@ -328,7 +339,7 @@ bool TetGenMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Me
             }
 
             if (!requestedFaceGroups.empty() && cadFaceToMarker.empty())
-                throw std::runtime_error("TetGen input tessellation has no sourceFaceId metadata; CAD face groups cannot be mapped.");
+                m_diagnostics.push_back("TetGen input tessellation has no sourceFaceId metadata; CAD face groups cannot be mapped.");
 
             const auto structuralErrors = outMesh.validate();
             if (!structuralErrors.empty())
