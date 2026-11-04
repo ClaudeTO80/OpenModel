@@ -25,8 +25,13 @@
 struct CADFaceMappingRecord {
     int gmshSurfaceTag = -1;
     std::size_t elementCount = 0;
+    // Number of 2-D elements whose representative point was checked. Kept
+    // under the historical field name for source compatibility.
     std::size_t sampledElementCount = 0;
+    // Maximum number of checked elements explained by a single CAD face.
     std::size_t matchedSampleCount = 0;
+    // Elements whose representative point could not be projected onto the
+    // trimmed Gmsh surface; these remain in the match-ratio denominator.
     std::size_t projectionFailureCount = 0;
     double matchRatio = 0.0;
     std::vector<int> cadFaceIds;
