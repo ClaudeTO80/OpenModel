@@ -57,6 +57,8 @@ volume meshing and solver writers.
 - conformal volume meshing;
 - named CAD face and layer mapping;
 - surface-only meshing with no tetrahedral elements;
+- quadratic Triangle6 and recombined Quadrilateral9 / incomplete Quadrilateral8
+  face meshes, including exact Node Set membership for all high-order nodes;
 - equality of the mapped `TopFace` and `Interface` element memberships;
 - direct STEP `EDGE_CURVE` and `VERTEX_POINT` name import in the OCC structure fixture;
 - atomic rejection of an intentionally incomplete user-defined face group,
@@ -70,8 +72,11 @@ quadratic order, requires Triangle6 boundary elements, checks that all nodes
 (including midside nodes) are present in the Node Set, compares the mapped
 surface area against the known geometric area, and verifies that the sum of
 per-surface audit element counts equals the total exported 2-D element count.
-The optional test is suitable for the turbine-blade STEP regression model or
-another STEP model with known face geometry.
+The self-contained XDE fixture also exercises second-order surface mapping
+without requiring an external CAD asset. It generates recombined complete
+Quadrilateral9 and incomplete Quadrilateral8 meshes and checks exact node-set
+membership, while the optional STEP test remains suitable for the turbine-blade
+regression model or another STEP model with known face geometry.
 
 ## Limitations and next validation
 
