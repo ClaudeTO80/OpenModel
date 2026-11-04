@@ -114,9 +114,15 @@ bool GmshMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Mesh
             std::size_t extractedTopElements = 0;
             std::size_t extractedElements = 0;
             // Keep top-dimensional elements and their codimension-one boundary
-            // elements. Point elements and 3-D curve elements are not part of
-            // this adapter's current FEM transfer contract.
-            const int minimumExtractedDimension = (options.importCadGroups && meshDimension == 3) ? 0 : meshDimension - 1;
+            // elements. 1-D curve elements of a volume mesh are extracted only
+            // when the CAD model carries edge groups that need them. Point
+            // elements are never extracted: vertex groups are resolved on
+            // nodes, and Point1 blocks cannot be exported to solver decks.
+            bool needsCurveElements = false;
+            if (options.importCadGroups && meshDimension == 3)
+                for (const auto& group : cadModel->getGroups())
+                    needsCurveElements = needsCurveElements || group.dimension == 1;
+            const int minimumExtractedDimension = needsCurveElements ? 1 : meshDimension - 1;
             for (int dim = minimumExtractedDimension; dim <= meshDimension; ++dim) {
                 std::vector<std::pair<int, int>> dimensionEntities;
                 gmsh::model::getEntities(dimensionEntities, dim);
@@ -198,9 +204,12 @@ bool GmshMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Mesh
                 candidate.addPhysicalGroup(name, dim, tag, groupElementIds);
             }
 
-            if (options.importCadGroups)
+            // User-defined face groups are an explicit request and must not
+            // depend on importCadGroups, which only governs the groups stored
+            // in the CAD source (components, layers, named shapes).
+            if (options.importCadGroups || !options.additionalFaceGroups.empty())
                 mapCadGroups(*cadModel, candidate, nodeTagToIndex, elementIdsByEntity, usedPhysicalNames,
-                             options.additionalFaceGroups);
+                             options.additionalFaceGroups, options.importCadGroups);
 
             const auto structuralErrors = candidate.validate();
             if (!structuralErrors.empty())
@@ -265,9 +274,13 @@ void GmshMesher::mapCadGroups(const CADModel& cad, MeshData& mesh,
                               const std::unordered_map<std::size_t, NodeIndex>& nodeTagToIndex,
                               const std::map<std::pair<int, int>, std::vector<ElementId>>& elementIdsByEntity,
                               std::set<std::string>& usedPhysicalNames,
-                              const std::vector<CADGroup>& additionalFaceGroups) {
+                              const std::vector<CADGroup>& additionalFaceGroups,
+                              bool importNativeGroups) {
+    // Components are always needed to attribute faces to solids; the groups stored in
+    // the CAD source are transferred only when requested.
+    static const std::vector<CADGroup> noGroups;
     const auto& components = cad.getComponents();
-    const auto& cadGroups = cad.getGroups();
+    const auto& cadGroups = importNativeGroups ? cad.getGroups() : noGroups;
     if (components.empty() && cadGroups.empty() && additionalFaceGroups.empty()) {
         m_diagnostics.push_back("The CAD model carries no assembly structure or groups: no CAD groups were created.");
         return;
@@ -370,7 +383,7 @@ void GmshMesher::mapCadGroups(const CADModel& cad, MeshData& mesh,
     // so groups of one dimension do not overlap each other.
     std::size_t componentGroups = 0;
     for (const auto& component : components) {
-        if (component.isAssembly || component.solidIds.empty()) continue;
+        if (!importNativeGroups || component.isAssembly || component.solidIds.empty()) continue;
         const std::set<int> solids(component.solidIds.begin(), component.solidIds.end());
         std::set<int> volumeTags;
         for (const auto& [volumeTag, volumeSolids] : solidsOfVolume)

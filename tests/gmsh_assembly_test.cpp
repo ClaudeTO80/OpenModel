@@ -260,6 +260,65 @@ int runSurfaceOnly(const std::string& step, bool incompleteSecondOrder, bool rec
     return 0;
 }
 
+bool hasElementType(const MeshData& mesh, ElementType type) {
+    for (const auto& block : mesh.getElementBlocks())
+        if (block.type == type && !block.ids.empty()) return true;
+    return false;
+}
+
+/**
+ * @brief Regression for 3-D meshes with CAD groups enabled and for user face groups.
+ *
+ * - A volume mesh with the default importCadGroups=true must not contain Point1
+ *   elements (they cannot be exported to a solver deck) and must export to Abaqus.
+ * - User-defined face groups must be mapped even when importCadGroups=false, while
+ *   no component or CAD-source group may be created in that case.
+ */
+int runVolumeExportAndUserGroups(const std::string& step) {
+    auto cad = std::make_shared<OCCModel>();
+    CHECK(cad->loadFromFile(step));
+    const auto sideFace = cad->facesContainingPoint({{0.0, 5.0, 5.0}}, 1e-6);
+    CHECK(sideFace.size() == 1);
+
+    {
+        MeshingOptions options;
+        options.elementSize = 2.0;
+        options.maxElementSize = 2.0;
+        options.importCadGroups = true;
+        GmshMesher mesher;
+        MeshData mesh;
+        CHECK(mesher.buildMesh(cad, options, mesh));
+        CHECK(!hasElementType(mesh, ElementType::Point1));
+        const std::string inpPath = "gmsh_volume_default_groups.inp";
+        const auto written = AbaqusInpWriter::writeFile(inpPath, mesh);
+        if (!written.success)
+            for (const auto& error : written.errors) std::cerr << "Abaqus export: " << error << '\n';
+        CHECK(written.success);
+        std::remove(inpPath.c_str());
+    }
+
+    {
+        MeshingOptions options;
+        options.elementSize = 2.0;
+        options.maxElementSize = 2.0;
+        options.importCadGroups = false;
+        options.additionalFaceGroups.push_back(
+            CADGroup{"UserSideFace", CADGroupKind::NamedShape, 2, sideFace});
+        GmshMesher mesher;
+        MeshData mesh;
+        CHECK(mesher.buildMesh(cad, options, mesh));
+        CHECK(!hasElementType(mesh, ElementType::Point1));
+        const auto* userGroup = mesh.getMeshGroupRegistry().find("UserSideFace");
+        CHECK(userGroup != nullptr);
+        CHECK(userGroup->dimension == 2 && !userGroup->elementIds.empty() && !userGroup->nodeIndices.empty());
+        // Nothing stored in the CAD source may leak in: exactly the user group exists.
+        CHECK(mesh.getMeshGroupRegistry().groups().size() == 1);
+        CHECK(group(mesh, "Assy/Base") == nullptr);
+    }
+    std::cout << "--- volume export and user groups without native import: ok\n";
+    return 0;
+}
+
 } // namespace
 
 int main() {
@@ -270,7 +329,8 @@ int main() {
     const int c = (a == 0 && b == 0) ? runSurfaceOnly(step, false, false) : 1;
     const int d = (a == 0 && b == 0 && c == 0) ? runSurfaceOnly(step, false, true) : 1;
     const int e = (a == 0 && b == 0 && c == 0 && d == 0) ? runSurfaceOnly(step, true, true) : 1;
+    const int f = (a == 0 && b == 0 && c == 0 && d == 0 && e == 0) ? runVolumeExportAndUserGroups(step) : 1;
     std::remove(step.c_str());
-    if (a == 0 && b == 0 && c == 0 && d == 0 && e == 0) std::cout << "gmsh_assembly_test passed\n";
-    return a != 0 ? a : (b != 0 ? b : (c != 0 ? c : (d != 0 ? d : e)));
+    if (a == 0 && b == 0 && c == 0 && d == 0 && e == 0 && f == 0) std::cout << "gmsh_assembly_test passed\n";
+    return a != 0 ? a : (b != 0 ? b : (c != 0 ? c : (d != 0 ? d : (e != 0 ? e : f))));
 }

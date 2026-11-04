@@ -78,12 +78,17 @@ private:
      * Matching is geometric: a Gmsh volume belongs to the CAD solid(s) that contain a sample point of its
      * elements; a Gmsh surface belongs to a CAD face if its sample nodes lie on that face and one of the
      * volumes it bounds belongs to a solid that owns the face. This stays valid after a fragment operation.
+     *
+     * @param additionalFaceGroups User-defined face groups; always mapped.
+     * @param importNativeGroups   When false, components and groups stored in the CAD source are not
+     *                             transferred; only @p additionalFaceGroups are.
      */
     void mapCadGroups(const CADModel& cad, MeshData& mesh,
                       const std::unordered_map<std::size_t, NodeIndex>& nodeTagToIndex,
                       const std::map<std::pair<int, int>, std::vector<ElementId>>& elementIdsByEntity,
                       std::set<std::string>& usedPhysicalNames,
-                      const std::vector<CADGroup>& additionalFaceGroups);
+                      const std::vector<CADGroup>& additionalFaceGroups,
+                      bool importNativeGroups = true);
 
     std::string m_lastError;
     std::vector<std::string> m_diagnostics;
