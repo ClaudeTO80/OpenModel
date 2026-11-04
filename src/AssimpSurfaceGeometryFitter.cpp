@@ -17,8 +17,8 @@ V sub(const V& a,const V& b){return {{a[0]-b[0],a[1]-b[1],a[2]-b[2]}};}
 V mul(const V& a,double s){return {{a[0]*s,a[1]*s,a[2]*s}};}
 double dot(const V& a,const V& b){return a[0]*b[0]+a[1]*b[1]+a[2]*b[2];}
 V cross(const V& a,const V& b){return {{a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]}};}
-double norm(const V& a){return std::sqrt(dot(a,a));}
-bool normalize(V& a){const double n=norm(a);if(!std::isfinite(n)||n<=1e-14)return false;a=mul(a,1.0/n);return true;}
+double norm(const V& a){return std::hypot(a[0],a[1],a[2]);}
+bool normalize(V& a){const double n=norm(a);if(!std::isfinite(n)||n==0.0)return false;a=mul(a,1.0/n);return true;}
 bool finite(const V& a){return std::isfinite(a[0])&&std::isfinite(a[1])&&std::isfinite(a[2]);}
 void canonicalize(V& a){for(double x:a)if(std::abs(x)>1e-12){if(x<0)a=mul(a,-1);return;}}
 
@@ -48,11 +48,16 @@ std::array<V,3> principalAxes(const std::vector<V>& points,const V& centroid){
     M a{{{{0,0,0}},{{0,0,0}},{{0,0,0}}}};
     for(const auto& p:points){const V q=sub(p,centroid);for(int i=0;i<3;++i)for(int j=0;j<3;++j)a[i][j]+=q[i]*q[j];}
     M v{{{{1,0,0}},{{0,1,0}},{{0,0,1}}}};
+    double covarianceScale=0.0;
+    for(const auto& row:a)for(const double value:row)
+        covarianceScale=std::max(covarianceScale,std::abs(value));
+    const double convergenceTolerance=
+        std::numeric_limits<double>::epsilon()*covarianceScale*64.0;
     for(int iter=0;iter<64;++iter){
         int p=0,q=1;
         if(std::abs(a[0][2])>std::abs(a[p][q])){p=0;q=2;}
         if(std::abs(a[1][2])>std::abs(a[p][q])){p=1;q=2;}
-        if(std::abs(a[p][q])<1e-14)break;
+        if(std::abs(a[p][q])<=convergenceTolerance)break;
         const double phi=0.5*std::atan2(2.0*a[p][q],a[q][q]-a[p][p]);
         const double c=std::cos(phi),s=std::sin(phi);
         const double app=c*c*a[p][p]-2*s*c*a[p][q]+s*s*a[q][q];
@@ -98,7 +103,7 @@ void planeResidualMetrics(const std::vector<V>& points,const AssimpSurfacePatch&
         errors.push_back(std::abs(dot(sub(point,patch.centroid),normal)));
     radialMetrics(errors,1.0,result.rmsError,result.maxError,
                   result.relativeRmsError,result.relativeMaxError);
-    const double scale=std::max(norm(sub(patch.boundsMax,patch.boundsMin)),1e-30);
+    const double scale=norm(sub(patch.boundsMax,patch.boundsMin));
     result.relativeRmsError=result.rmsError/scale;
     result.relativeMaxError=result.maxError/scale;
 }
@@ -173,8 +178,14 @@ bool coneFit(const std::vector<V>& points,const V& centroid,const V& axis,Candid
         angles.push_back(std::atan2(dot(radial,v),dot(radial,u)));
     }
     const double n=static_cast<double>(zr.size()),den=n*sumZZ-sumZ*sumZ;
+    double radialScale=0.0;
+    for(const auto& item:zr)radialScale=std::max(radialScale,item[1]);
+    const double axialScale=std::max({std::abs(zMin),std::abs(zMax),radialScale});
+    const double minimumAxialExtent=
+        std::numeric_limits<double>::epsilon()*axialScale*64.0;
     if(std::abs(den)<=std::numeric_limits<double>::epsilon()*
-        std::max(std::abs(n*sumZZ),std::abs(sumZ*sumZ))*64.0 || zMax-zMin<=1e-12)return false;
+        std::max(std::abs(n*sumZZ),std::abs(sumZ*sumZ))*64.0 ||
+        zMax-zMin<=minimumAxialExtent)return false;
     const double slope=(n*sumZR-sumZ*sumR)/den;
     const double intercept=(sumR-slope*sumZ)/n;
     if(!std::isfinite(slope)||!std::isfinite(intercept)||intercept<=0.0)return false;
