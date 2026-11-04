@@ -48,7 +48,7 @@ if (!mesher.buildMesh(assimpModel, options, {clamp}, mesh))
     throw std::runtime_error("Assimp surface import failed");
 ```
 
-Each matched selector creates a dimension-2 imported MeshGroup, a physical group, and a node set named `<selector>_NODES`. Imported surface triangles remain in the mesh and can belong to multiple groups.
+Each matched selector creates a dimension-2 imported MeshGroup, a physical group, and a node set named `<selector>_NODES`. Imported surface triangles remain in the mesh and can belong to multiple groups. If any explicitly requested selector matches no triangles, the complete build fails and clears its output; this fail-safe behavior prevents a missing FEM boundary group from being overlooked.
 
 ## Limitations
 
