@@ -189,7 +189,8 @@ bool AssimpSurfaceMesher::buildMesh(
                 m_diagnostics.push_back("Invalid axis-aligned box selector '" + s.name + "'.");
                 return false;
             }
-        } else if (s.kind == AssimpSurfaceSelectorKind::CylinderSide) {
+        }
+        if (s.kind == AssimpSurfaceSelectorKind::CylinderSide) {
             if (!std::isfinite(s.radius) || s.radius <= 0.0 ||
                 !std::isfinite(s.axialMin) || !std::isfinite(s.axialMax) ||
                 s.axialMin > s.axialMax) {
@@ -212,7 +213,8 @@ bool AssimpSurfaceMesher::buildMesh(
                 return false;
             }
         } else if (s.kind != AssimpSurfaceSelectorKind::Plane &&
-                   s.kind != AssimpSurfaceSelectorKind::Normal) {
+                   s.kind != AssimpSurfaceSelectorKind::Normal &&
+                   s.kind != AssimpSurfaceSelectorKind::AxisAlignedBox) {
             m_diagnostics.push_back("Unsupported selector kind for '" + s.name + "'.");
             return false;
         }
