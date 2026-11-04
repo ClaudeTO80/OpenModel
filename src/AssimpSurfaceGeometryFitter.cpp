@@ -189,6 +189,26 @@ bool coneFit(const std::vector<V>& points,const V& centroid,const V& axis,Candid
     candidate.valid=true;return true;
 }
 
+double sphereDirectionalCoverage(const std::vector<V>& points,const V& center) {
+    // The second-moment matrix of unit radial directions is isotropic (I/3)
+    // for a well-distributed sphere. Its determinant collapses for a narrow
+    // cap or an almost planar ring, unlike a hard-coded 360-degree score.
+    double a[3][3]{};
+    for (const auto& point:points) {
+        V direction=sub(point,center);
+        if (!normalize(direction)) return 0.0;
+        for (int i=0;i<3;++i)
+            for (int j=0;j<3;++j)
+                a[i][j]+=direction[i]*direction[j]/static_cast<double>(points.size());
+    }
+    const double determinant=
+        a[0][0]*(a[1][1]*a[2][2]-a[1][2]*a[2][1])-
+        a[0][1]*(a[1][0]*a[2][2]-a[1][2]*a[2][0])+
+        a[0][2]*(a[1][0]*a[2][1]-a[1][1]*a[2][0]);
+    const double normalized=std::max(0.0,std::min(1.0,27.0*determinant));
+    return 180.0*std::cbrt(normalized);
+}
+
 bool sphereFit(const std::vector<V>& points,const V& centroid,
                const std::array<V,3>& axes,Candidate& candidate){
     // A sphere fit to only two parallel rings is indistinguishable from a
@@ -224,8 +244,9 @@ bool sphereFit(const std::vector<V>& points,const V& centroid,
     for(const auto& point:points)errors.push_back(std::abs(norm(sub(point,add(centroid,offset)))-radius));
     candidate.type=AssimpFittedSurfaceType::Spherical;candidate.center=add(centroid,offset);
     candidate.radius=radius;candidate.axis={{0,0,1}};
+    candidate.coverage=sphereDirectionalCoverage(points,candidate.center);
     radialMetrics(errors,radius,candidate.rms,candidate.max,candidate.relativeRms,candidate.relativeMax);
-    candidate.valid=true;return true;
+    candidate.valid=std::isfinite(candidate.coverage);return candidate.valid;
 }
 }
 
@@ -294,10 +315,7 @@ bool AssimpSurfaceGeometryFitter::fit(const std::vector<RenderSubMesh>& parts,
             if(!best.valid||candidate.relativeRms<best.relativeRms)best=candidate;
         };
         Candidate sphere;
-        if(sphereFit(points,centroid,axes,sphere)) {
-            sphere.coverage=360.0;
-            consider(sphere);
-        }
+        if(sphereFit(points,centroid,axes,sphere)) consider(sphere);
         for(auto axis:axes){
             if(!normalize(axis))continue;canonicalize(axis);
             Candidate cylinder;
