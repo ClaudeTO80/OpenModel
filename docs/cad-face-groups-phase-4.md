@@ -64,7 +64,8 @@ volume meshing and solver writers.
 - atomic rejection of an intentionally incomplete user-defined face group,
   including the missing CAD face ID in diagnostics;
 - Abaqus/CalculiX INP export of a surface-only CAD face group as both an
-  element set and a derived node set.
+  element set and a derived node set, including quadratic edge elements as
+  Abaqus `T3D3`.
 
 `gmsh_step_face_mapping_test`, enabled by setting
 `OPENMODEL_GMSH_TEST_STEP` to a real STEP file, runs the end-face mapping at
