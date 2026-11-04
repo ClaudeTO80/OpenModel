@@ -276,7 +276,13 @@ bool AssimpPatchGroupBuilder::apply(const std::vector<RenderSubMesh>& parts,
                 diagnostics.push_back("Cannot resolve connectivity for an imported element.");
                 return false;
             }
-            nodes.insert(found->second.begin(),found->second.end());
+            for (const auto node:found->second) {
+                if (node>=mesh.getNumNodes()) {
+                    diagnostics.push_back("Imported element connectivity references an invalid node index.");
+                    return false;
+                }
+                nodes.insert(node);
+            }
         }
         Prepared item;
         item.physical.name=definition.name;
