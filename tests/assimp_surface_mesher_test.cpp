@@ -372,6 +372,7 @@ int main() {
                 "Analytic cylinder was not recognized.");
         require(std::abs(fits.front().radius - 2.0) < 1e-3,
                 "Fitted cylinder radius is inaccurate.");
+        const AssimpSurfaceFit cylinderFit = fits.front();
 
         RenderSubMesh tinyPlanePart;
         tinyPlanePart.vertices = {0.0f,0.0f,0.0f, 1.0e-10f,0.0f,0.0f,
@@ -465,7 +466,7 @@ int main() {
 
         AssimpSurfaceSelector fittedCylinderSelector;
         std::string cylinderSelectorDiagnostic;
-        require(AssimpSurfaceGeometryFitter::makeSelector(fits.front(), {cylinderPart},
+        require(AssimpSurfaceGeometryFitter::makeSelector(cylinderFit, {cylinderPart},
                     cylinderPatches.front(), "FITTED_CYLINDER", 1e-5,
                     fittedCylinderSelector, cylinderSelectorDiagnostic),
                 "Could not convert cylinder fit to a selector: " + cylinderSelectorDiagnostic);
