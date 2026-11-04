@@ -206,3 +206,6 @@ if (!AssimpSurfaceGeometryFitter::makeSelector(
 
 
 Each imported `RenderSubMesh` preserves Assimp's source scene mesh index in `sourcePartId`. This identifies the polygonal mesh object in the imported scene; it is not a CAD body or face identifier. Instanced nodes that reference the same Assimp mesh retain the same source mesh index while remaining separate transformed render parts.
+
+
+The integration tests exercise GLB/glTF (including mirrored node transforms), OBJ, ASCII STL and ASCII PLY imports. Assimp supports additional formats depending on the version and importer configuration; successful import still produces polygonal mesh data, not a CAD B-Rep.
