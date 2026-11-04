@@ -12,7 +12,7 @@ Rainflow provides a peak-to-peak range. The model therefore evaluates the curve 
 
 `sigma_a = Delta_sigma / 2`
 
-The mean stress stored in each Rainflow cycle is validated as finite but is deliberately not used. Mean-stress corrections must be explicit additional models or policies.
+`PalmgrenMiner` uses the mean stress only when a `MeanStressCorrectionKind` other than `None` is selected in `FatigueDamageInput` (Goodman, Gerber, Soderberg, Morrow, SWT; see `docs/fatigue/methods.html`). With the default `None` the mean is validated as finite but not used.
 
 ## Input and unit contract
 
@@ -37,8 +37,8 @@ when damage is positive. For an empty or zero-damage block, block life is positi
 ## Explicit limitations
 
 This implementation does not include:
-- Goodman, Gerber, SWT or other mean-stress corrections;
-- strain-life damage or cyclic plasticity;
+- mean-stress corrections other than those listed above, and automatic selection of one;
+- strain-life damage and cyclic plasticity (these are in `StrainLifeDamageModel` / `StrainLifeAnalysis`);
 - load-sequence effects or nonlinear damage;
 - multiaxial damage criteria;
 - temperature history within one block;

@@ -41,7 +41,8 @@ struct StrainLifeDamageInput {
 
 /**
  * Coffin-Manson-Basquin strain-life Miner model with Morrow and SWT.
- * The inverse life equation is solved in log10(reversals) by bisection.
+ * The inverse life equation is solved in ln(reversals) by a safeguarded Newton
+ * iteration (see TwoTermSolver.hpp).
  * This model is uniaxial and does not perform cyclic stress-strain conversion.
  */
 class StrainLifeDamageModel final {
