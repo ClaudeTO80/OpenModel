@@ -54,6 +54,21 @@ int main() {
                 std::abs(importedMaterial.roughnessFactor - 0.35f) < 1e-3f,
                 "Assimp metallic-roughness material factors were not imported.");
 
+        AssimpModel flippedUvModel;
+        AssimpImportOptions flippedUvOptions;
+        flippedUvOptions.flipUVs = true;
+        require(flippedUvModel.setImportOptions(flippedUvOptions, &optionError),
+                "Could not set Assimp UV flip option.");
+        require(flippedUvModel.loadFromFile(path.string()),
+                "Assimp UV-flipped import failed: " + flippedUvModel.getLastError());
+        const auto& originalUv = model.getRenderMeshes().front().texcoords;
+        const auto& flippedUv = flippedUvModel.getRenderMeshes().front().texcoords;
+        require(originalUv.size() == flippedUv.size() && originalUv.size() >= 6,
+                "Assimp UV-flip test did not import texture coordinates.");
+        for (std::size_t i=1; i<originalUv.size(); i+=2)
+            require(std::abs(flippedUv[i] - (1.0f-originalUv[i])) < 1e-5f,
+                    "Assimp flipUVs option did not invert the V coordinate.");
+
         std::size_t vertices = 0;
         std::size_t triangles = 0;
         for (const auto& mesh : model.getRenderMeshes()) {
@@ -147,6 +162,19 @@ int main() {
             require(!formatModel.getRenderMeshes().empty() &&
                     formatModel.getRenderMeshes().front().indices.size() >= 3,
                     "Assimp text-format import produced no triangles: " + fixture.first);
+            if (fixture.first == "openmodel_assimp_triangle.obj") {
+                require(formatModel.getRenderMeshes().front().normals.size() ==
+                            formatModel.getRenderMeshes().front().vertices.size(),
+                        "Default Assimp import did not generate missing OBJ normals.");
+                AssimpModel noNormalsModel;
+                AssimpImportOptions noNormalsOptions;
+                noNormalsOptions.generateNormals = false;
+                require(noNormalsModel.setImportOptions(noNormalsOptions, &optionError) &&
+                        noNormalsModel.loadFromFile(fixturePath.string()),
+                        "Assimp import with normal generation disabled failed.");
+                require(noNormalsModel.getRenderMeshes().front().normals.empty(),
+                        "Assimp generated normals despite generateNormals=false.");
+            }
             textFixturePaths.push_back(fixturePath);
         }
 
