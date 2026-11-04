@@ -481,6 +481,12 @@ void GmshMesher::mapCadGroups(const CADModel& cad, MeshData& mesh,
                 }
             }
             mapping.sampledElementCount = totalElements;
+            if (mapping.projectionFailureCount != 0) {
+                m_diagnostics.push_back("Gmsh surface " + std::to_string(surface.second) +
+                    " failed to project " + std::to_string(mapping.projectionFailureCount) +
+                    " of " + std::to_string(totalElements) +
+                    " element representative point(s) onto its trimmed surface.");
+            }
             if (probes.empty()) {
                 m_diagnostics.push_back("Gmsh surface " + std::to_string(surface.second) +
                     " produced no valid interior probes; CAD face mapping skipped.");
