@@ -222,8 +222,11 @@ bool AssimpSurfacePatchAnalyzer::analyze(const std::vector<RenderSubMesh>& parts
                 if (normalLength>1e-14)
                     patch.meanNormal=mul(normalSum,1.0/normalLength);
                 for (const auto& e:localEdges) {
-                    if (e.second==1) ++patch.boundaryEdgeCount;
-                    else if (e.second>2) ++patch.nonManifoldEdgeCount;
+                    const auto global=edgeOwners.find(e.first);
+                    if (global!=edgeOwners.end() && global->second.size()>2)
+                        ++patch.nonManifoldEdgeCount;
+                    else if (e.second==1)
+                        ++patch.boundaryEdgeCount;
                 }
                 if (normalLength>1e-14) {
                     for (const auto ti:component.second)
