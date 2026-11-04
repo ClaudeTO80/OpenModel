@@ -397,6 +397,39 @@ int main() {
         require(std::abs(fits.front().radius / 2.0e-10 - 1.0) < 2.0e-3,
                 "Small-cylinder fitted radius is inaccurate.");
 
+        auto tinySpherePart = makeSphere(1.75e-10, 12, 32);
+        std::vector<AssimpSurfacePatch> tinySpherePatches;
+        require(AssimpSurfacePatchAnalyzer::analyze({tinySpherePart}, 1.0e-15,
+                    tinySpherePatches, fitDiagnostics, 60.0) &&
+                tinySpherePatches.size() == 1 &&
+                AssimpSurfaceGeometryFitter::fit({tinySpherePart}, tinySpherePatches,
+                    fitOptions, fits, fitDiagnostics) &&
+                fits.size() == 1 && fits.front().type == AssimpFittedSurfaceType::Spherical,
+                "Scale-relative fitting failed on a small sphere.");
+        require(std::abs(fits.front().radius / 1.75e-10 - 1.0) < 2.0e-3,
+                "Small-sphere fitted radius is inaccurate.");
+
+        auto tinyConePart = makeCone(2.0e-10, 0.75e-10, 3.0e-10, 24);
+        for (std::size_t vi=0; vi<tinyConePart.vertices.size()/3; ++vi) {
+            const double x=tinyConePart.vertices[3*vi];
+            const double z=tinyConePart.vertices[3*vi+2];
+            tinyConePart.vertices[3*vi]=static_cast<float>(
+                std::cos(rotation)*x + std::sin(rotation)*z);
+            tinyConePart.vertices[3*vi+2]=static_cast<float>(
+                -std::sin(rotation)*x + std::cos(rotation)*z);
+        }
+        std::vector<AssimpSurfacePatch> tinyConePatches;
+        require(AssimpSurfacePatchAnalyzer::analyze({tinyConePart}, 1.0e-15,
+                    tinyConePatches, fitDiagnostics, 30.0) &&
+                tinyConePatches.size() == 1 &&
+                AssimpSurfaceGeometryFitter::fit({tinyConePart}, tinyConePatches,
+                    fitOptions, fits, fitDiagnostics) &&
+                fits.size() == 1 && fits.front().type == AssimpFittedSurfaceType::Conical,
+                "Scale-relative fitting failed on a small rotated cone.");
+        require(std::abs(fits.front().coneHalfAngleRadians -
+                    std::atan(std::abs(-1.25/3.0))) < 2.0e-3,
+                "Small-cone fitted half-angle is inaccurate.");
+
         const auto tinyCylinderPath = std::filesystem::temp_directory_path() /
             "openmodel_assimp_tiny_cylinder.glb";
         const auto tinyCylinderGlb = GltfWriter::writeGlbFile(
