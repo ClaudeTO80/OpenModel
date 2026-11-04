@@ -179,7 +179,7 @@ bool AssimpSurfaceMesher::buildMesh(
         if (s.name.empty() || !names.insert(s.name).second ||
             (needsPoint && !finite(s.point)) || (needsDirection && !finite(s.direction)) ||
             !std::isfinite(s.tolerance) || s.tolerance <= 0.0 ||
-            (needsDirection && (!std::isfinite(directionNorm) || directionNorm <= 1e-14)) ||
+            (needsDirection && (!std::isfinite(directionNorm) || directionNorm == 0.0)) ||
             !std::isfinite(s.minNormalAlignment) ||
             s.minNormalAlignment < 0.0 || s.minNormalAlignment > 1.0) {
             m_diagnostics.push_back("Invalid or duplicate surface selector at index " +
