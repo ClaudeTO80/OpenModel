@@ -9,7 +9,10 @@ to different identifier spaces and must never be treated as interchangeable.
 
 The result is stored in `MeshGroupRegistry` as dimension-2 groups. Gmsh physical
 groups are generated as a solver/mesh-transfer representation of the same
-membership; they are not the canonical identity of a CAD face.
+membership; they are not the canonical identity of a CAD face. Imported named
+face groups and user-defined face groups are atomic: if even one requested CAD
+face cannot be mapped, OpenModel does not create a partial group and reports
+the missing source face IDs.
 
 ## Matching procedure
 
@@ -49,7 +52,18 @@ volume meshing and solver writers.
 - conformal volume meshing;
 - named CAD face and layer mapping;
 - surface-only meshing with no tetrahedral elements;
-- equality of the mapped `TopFace` and `Interface` element memberships.
+- equality of the mapped `TopFace` and `Interface` element memberships;
+- atomic rejection of an intentionally incomplete user-defined face group,
+  including the missing CAD face ID in diagnostics.
+
+`gmsh_step_face_mapping_test`, enabled by setting
+`OPENMODEL_GMSH_TEST_STEP` to a real STEP file, runs the end-face mapping at
+quadratic order, requires Triangle6 boundary elements, checks that all nodes
+(including midside nodes) are present in the Node Set, compares the mapped
+surface area against the known geometric area, and verifies that the sum of
+per-surface audit element counts equals the total exported 2-D element count.
+The optional test is suitable for the turbine-blade STEP regression model or
+another STEP model with known face geometry.
 
 ## Limitations and next validation
 
@@ -80,7 +94,14 @@ sample ratio of at least 0.8; the regression tests assert this invariant and
 check that each reported Gmsh surface occurs only once.
 
 The report is an audit aid, not a claim that every mesh element has been
-individually projected onto the CAD B-Rep. The current production algorithm
-uses a bounded deterministic sample (up to 32 elements per surface), so a
-separate high-assurance exhaustive validation mode remains a possible future
-extension for small or safety-critical models.
+individually projected onto the CAD B-Rep. The production matcher uses a
+bounded deterministic sample (up to 32 elements per surface). The regression
+test checks total exported 2-D element coverage in the audit, but this is not
+equivalent to exhaustively projecting every element onto the B-Rep. An
+exhaustive per-element geometric verification mode remains outstanding for
+small or safety-critical models.
+
+The repository does not bundle the turbine-blade STEP file: the real-model
+test is therefore opt-in and cannot be considered executed by the default CI.
+The new `cad-face-mapping` CI job runs the self-contained XDE assembly fixture
+against Gmsh and Open CASCADE on Linux.
