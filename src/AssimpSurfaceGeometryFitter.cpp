@@ -351,6 +351,16 @@ bool AssimpSurfaceGeometryFitter::makeSelector(const AssimpSurfaceFit& fit,
     selector.name=name;
     selector.tolerance=tolerance;
     selector.constrainNormal=false;
+    selector.constrainBounds=true;
+    selector.boundsMin=patch.boundsMin;
+    selector.boundsMax=patch.boundsMax;
+    if(!finite(selector.boundsMin)||!finite(selector.boundsMax)||
+       selector.boundsMin[0]>selector.boundsMax[0]||
+       selector.boundsMin[1]>selector.boundsMax[1]||
+       selector.boundsMin[2]>selector.boundsMax[2]) {
+        diagnostic="Fitted patch has invalid bounding-box limits.";
+        return false;
+    }
     V axis=fit.axis;
     if(fit.type==AssimpFittedSurfaceType::Planar) {
         if(!normalize(axis)){diagnostic="Planar fit has no valid normal.";return false;}
