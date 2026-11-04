@@ -374,6 +374,7 @@ if(OPENMODEL_BUILD_ASSIMP_BACKEND)
     include(CheckCXXSourceCompiles)
     set(_openmodel_saved_required_libraries "${CMAKE_REQUIRED_LIBRARIES}")
     set(CMAKE_REQUIRED_LIBRARIES "${_openmodel_assimp_dependency}")
+    unset(OPENMODEL_ASSIMP_HAS_PBR_TEXTURE_API CACHE)
     check_cxx_source_compiles("
         #include <assimp/material.h>
         int main() {
