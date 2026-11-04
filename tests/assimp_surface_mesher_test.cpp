@@ -690,8 +690,10 @@ int main() {
 
         MeshData wrongSourceMesh;
         NodeId wrongNodeId = 1;
-        ElementId wrongElementId = 1;
-        for (const auto& sourcePart : model->getRenderMeshes()) {
+        const auto& importedParts = model->getRenderMeshes();
+        const auto& importedMap = mesher.sourceTriangleElementIds();
+        for (std::size_t pi=0; pi<importedParts.size(); ++pi) {
+            const auto& sourcePart = importedParts[pi];
             for (std::size_t ti=0; ti<sourcePart.indices.size()/3; ++ti) {
                 std::vector<NodeIndex> triangleNodes;
                 for (std::size_t k=0; k<3; ++k) {
@@ -701,8 +703,7 @@ int main() {
                         static_cast<double>(sourcePart.vertices[3*vi+1])+10.0,
                         static_cast<double>(sourcePart.vertices[3*vi+2])+10.0));
                 }
-                const auto mapped = mesher.sourceTriangleElementIds();
-                const ElementId id = mapped[&sourcePart - model->getRenderMeshes().data()][ti];
+                const ElementId id = importedMap[pi][ti];
                 if (id != 0)
                     wrongSourceMesh.addElement("OTHER_IMPORT", ElementType::Triangle3,
                                                id, triangleNodes);
