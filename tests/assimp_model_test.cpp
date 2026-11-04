@@ -43,6 +43,14 @@ int main() {
         require(!model.getRenderMeshes().empty(), "Assimp returned no render meshes");
         require(model.getRenderMeshes().front().sourcePartId >= 0,
                 "Assimp source mesh identifier was not preserved.");
+        const auto& importedMaterial = model.getRenderMeshes().front();
+        require(std::abs(importedMaterial.baseColorFactor[0] - 0.2f) < 1e-3f &&
+                std::abs(importedMaterial.baseColorFactor[1] - 0.4f) < 1e-3f &&
+                std::abs(importedMaterial.baseColorFactor[2] - 0.8f) < 1e-3f,
+                "Assimp base-color material factors were not imported.");
+        require(std::abs(importedMaterial.metallicFactor - 0.25f) < 1e-3f &&
+                std::abs(importedMaterial.roughnessFactor - 0.35f) < 1e-3f,
+                "Assimp metallic-roughness material factors were not imported.");
 
         std::size_t vertices = 0;
         std::size_t triangles = 0;
