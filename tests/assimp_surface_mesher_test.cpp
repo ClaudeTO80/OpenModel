@@ -688,6 +688,35 @@ int main() {
         require(incompleteMappingMesh.getMeshGroupRegistry().find("INCOMPLETE_SOURCE_MAP") == nullptr,
                 "Incomplete source mapping partially modified the mesh.");
 
+        MeshData wrongSourceMesh;
+        NodeId wrongNodeId = 1;
+        ElementId wrongElementId = 1;
+        for (const auto& sourcePart : model->getRenderMeshes()) {
+            for (std::size_t ti=0; ti<sourcePart.indices.size()/3; ++ti) {
+                std::vector<NodeIndex> triangleNodes;
+                for (std::size_t k=0; k<3; ++k) {
+                    const auto vi = static_cast<std::size_t>(sourcePart.indices[3*ti+k]);
+                    triangleNodes.push_back(wrongSourceMesh.addNode(wrongNodeId++,
+                        static_cast<double>(sourcePart.vertices[3*vi])+10.0,
+                        static_cast<double>(sourcePart.vertices[3*vi+1])+10.0,
+                        static_cast<double>(sourcePart.vertices[3*vi+2])+10.0));
+                }
+                const auto mapped = mesher.sourceTriangleElementIds();
+                const ElementId id = mapped[&sourcePart - model->getRenderMeshes().data()][ti];
+                if (id != 0)
+                    wrongSourceMesh.addElement("OTHER_IMPORT", ElementType::Triangle3,
+                                               id, triangleNodes);
+            }
+        }
+        std::vector<std::string> staleMapDiagnostics;
+        require(!AssimpPatchGroupBuilder::apply(model->getRenderMeshes(), patches,
+                    mesher.sourceTriangleElementIds(),
+                    {{"STALE_SOURCE_MAP", {connectedPatchIndex}, ""}},
+                    wrongSourceMesh, staleMapDiagnostics),
+                "A source map from different geometry must be rejected.");
+        require(wrongSourceMesh.getMeshGroupRegistry().find("STALE_SOURCE_MAP") == nullptr,
+                "Stale source map partially modified the unrelated mesh.");
+
         auto invalidPatchMetrics = patches;
         invalidPatchMetrics[connectedPatchIndex].area =
             std::numeric_limits<double>::quiet_NaN();
