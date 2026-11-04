@@ -118,6 +118,36 @@ int main() {
         require(!scaledModel.setImportOptions(invalidOptions, &optionError) && !optionError.empty(),
                 "Invalid Assimp coordinateScale was accepted.");
 
+        const std::vector<std::pair<std::string, std::string>> textFixtures = {
+            {"openmodel_assimp_triangle.obj",
+             "o Triangle\nv 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n"},
+            {"openmodel_assimp_triangle.stl",
+             "solid triangle\n facet normal 0 0 1\n  outer loop\n"
+             "   vertex 0 0 0\n   vertex 1 0 0\n   vertex 0 1 0\n"
+             "  endloop\n endfacet\nendsolid triangle\n"},
+            {"openmodel_assimp_triangle.ply",
+             "ply\nformat ascii 1.0\nelement vertex 3\n"
+             "property float x\nproperty float y\nproperty float z\n"
+             "element face 1\nproperty list uchar int vertex_indices\n"
+             "end_header\n0 0 0\n1 0 0\n0 1 0\n3 0 1 2\n"}
+        };
+        std::vector<std::filesystem::path> textFixturePaths;
+        for (const auto& fixture : textFixtures) {
+            const auto fixturePath = std::filesystem::temp_directory_path() / fixture.first;
+            {
+                std::ofstream output(fixturePath, std::ios::binary | std::ios::trunc);
+                output << fixture.second;
+                require(static_cast<bool>(output), "Could not write Assimp text-format fixture.");
+            }
+            AssimpModel formatModel;
+            require(formatModel.loadFromFile(fixturePath.string()),
+                    "Assimp failed to import " + fixture.first + ": " + formatModel.getLastError());
+            require(!formatModel.getRenderMeshes().empty() &&
+                    formatModel.getRenderMeshes().front().indices.size() >= 3,
+                    "Assimp text-format import produced no triangles: " + fixture.first);
+            textFixturePaths.push_back(fixturePath);
+        }
+
         // The importer should report a useful diagnostic and clear stale geometry
         // after a subsequent failed load.
         require(!model.loadFromFile((path.string() + ".missing")), "Assimp unexpectedly loaded a missing file");
@@ -129,6 +159,7 @@ int main() {
         std::error_code ec;
         std::filesystem::remove(path, ec);
         std::filesystem::remove(std::filesystem::temp_directory_path() / "openmodel_assimp_mirrored_fixture.gltf", ec);
+        for (const auto& fixturePath : textFixturePaths) std::filesystem::remove(fixturePath, ec);
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "Assimp integration failed: " << error.what() << '\n';
