@@ -110,6 +110,14 @@ inline bool writeAssemblyFixture(const std::string& path) {
         FIXTURE_CHECK(std::regex_search(text, edgeRegex));
         text = std::regex_replace(text, edgeRegex, "$1'BaseEdge'");
 
+        // Likewise name the VERTEX_POINT referenced by VertexLayer.
+        std::smatch vertexLayerMatch;
+        FIXTURE_CHECK(std::regex_search(text, vertexLayerMatch,
+            std::regex("PRESENTATION_LAYER_ASSIGNMENT\\('VertexLayer','visible',\\(#(\\d+)\\)\\)")));
+        const std::regex vertexRegex("(#" + vertexLayerMatch[1].str() + " = VERTEX_POINT\\()'[^']*'");
+        FIXTURE_CHECK(std::regex_search(text, vertexRegex));
+        text = std::regex_replace(text, vertexRegex, "$1'BaseVertex'");
+
         std::ofstream out(path, std::ios::trunc);
         out << text;
     }
