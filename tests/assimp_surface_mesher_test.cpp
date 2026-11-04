@@ -840,6 +840,14 @@ int main() {
         require(!mesher.buildMesh(model, options, {overflowingDirection}, overflowDirectionMesh),
                 "An unnormalizable selector direction must be rejected.");
 
+        AssimpSurfaceSelector collisionA = plane;
+        collisionA.name = "NAME_COLLISION";
+        AssimpSurfaceSelector collisionB = plane;
+        collisionB.name = "NAME_COLLISION_NODES";
+        MeshData collisionMesh;
+        require(!mesher.buildMesh(model, options, {collisionA, collisionB}, collisionMesh),
+                "Selector names must not collide with generated node-set names.");
+
         MeshingOptions volumeOptions;
         volumeOptions.dimension = MeshDimension::Volume;
         MeshData rejected;
