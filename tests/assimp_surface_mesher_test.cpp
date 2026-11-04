@@ -524,6 +524,29 @@ int main() {
         require(mesh.getMeshGroupRegistry().find("INVALID_PATCH") == nullptr,
                 "Invalid patch conversion partially modified the mesh.");
 
+        // A stale/duplicated source map must not attach two source triangles
+        // to the same FEM element or partially add groups.
+        auto duplicateSourceMap = mesher.sourceTriangleElementIds();
+        ElementId firstMappedId = 0;
+        bool duplicated = false;
+        for (auto& partMap : duplicateSourceMap) {
+            for (auto& id : partMap) {
+                if (id == 0) continue;
+                if (firstMappedId == 0) firstMappedId = id;
+                else { id = firstMappedId; duplicated = true; break; }
+            }
+            if (duplicated) break;
+        }
+        require(duplicated, "Could not construct duplicate source-map fixture.");
+        MeshData invalidMappingMesh = mesh;
+        std::vector<std::string> mappingDiagnostics;
+        require(!AssimpPatchGroupBuilder::apply(model->getRenderMeshes(), patches,
+                    duplicateSourceMap, {{"DUPLICATE_SOURCE_MAP", {connectedPatchIndex}, ""}},
+                    invalidMappingMesh, mappingDiagnostics),
+                "Duplicate source element mapping must be rejected.");
+        require(invalidMappingMesh.getMeshGroupRegistry().find("DUPLICATE_SOURCE_MAP") == nullptr,
+                "Invalid source mapping partially modified the mesh.");
+
         // Keep the original plane-only API working for existing callers.
         AssimpPlaneSurfaceGroup legacyPlane;
         legacyPlane.name = "LEGACY_PLANE";
