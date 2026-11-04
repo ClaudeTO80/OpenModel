@@ -391,7 +391,37 @@ int main() {
                 "Analytic sphere was not recognized.");
         require(std::abs(fits.front().radius - 1.75) < 1e-3,
                 "Fitted sphere radius is inaccurate.");
+        require(fits.front().angularCoverageDegrees >= fitOptions.minAngularCoverageDegrees,
+                "Spherical fit did not report measured directional coverage.");
         const AssimpSurfaceFit sphereFit = fits.front();
+
+        // A small spherical cap must not inherit an artificial 360-degree
+        // coverage score and be accepted as a fully supported sphere.
+        RenderSubMesh sphereCap;
+        sphereCap.name = "SphereCap";
+        sphereCap.vertices = spherePart.vertices;
+        for (std::size_t ti=0; ti<spherePart.indices.size()/3; ++ti) {
+            bool inside = true;
+            for (std::size_t k=0; k<3; ++k) {
+                const auto vi = static_cast<std::size_t>(spherePart.indices[3*ti+k]);
+                if (spherePart.vertices[3*vi+2] / 1.75f <= 0.96f) inside = false;
+            }
+            if (inside)
+                sphereCap.indices.insert(sphereCap.indices.end(),
+                    spherePart.indices.begin()+static_cast<std::ptrdiff_t>(3*ti),
+                    spherePart.indices.begin()+static_cast<std::ptrdiff_t>(3*ti+3));
+        }
+        std::vector<AssimpSurfacePatch> sphereCapPatches;
+        require(AssimpSurfacePatchAnalyzer::analyze({sphereCap}, 1e-6,
+                    sphereCapPatches, fitDiagnostics, 30.0) && sphereCapPatches.size() == 1,
+                "Spherical-cap patch analysis failed.");
+        AssimpSurfaceFitOptions capFitOptions = fitOptions;
+        capFitOptions.minAngularCoverageDegrees = 100.0;
+        require(AssimpSurfaceGeometryFitter::fit({sphereCap}, sphereCapPatches,
+                    capFitOptions, fits, fitDiagnostics),
+                "Spherical-cap geometry fitting failed.");
+        require(fits.size() == 1 && fits.front().type == AssimpFittedSurfaceType::Freeform,
+                "A narrow spherical cap was incorrectly accepted as a complete spherical primitive.");
 
         const auto conePart = makeCone(2.0, 0.75, 3.0, 24);
         std::vector<AssimpSurfacePatch> conePatches;
