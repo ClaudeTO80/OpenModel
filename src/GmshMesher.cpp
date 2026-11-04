@@ -502,7 +502,7 @@ void GmshMesher::mapCadGroups(const CADModel& cad, MeshData& mesh,
             mapping.matchRatio = static_cast<double>(mapping.matchedSampleCount) /
                                  static_cast<double>(mapping.sampledElementCount);
             const std::size_t requiredVotes =
-                std::max<std::size_t>(1, (probes.size() * 4 + 4) / 5);
+                std::max<std::size_t>(1, (totalElements * 4 + 4) / 5);
             std::vector<int> candidates;
             for (const auto& vote : faceVotes)
                 if (vote.second >= requiredVotes) candidates.push_back(vote.first);
