@@ -369,6 +369,48 @@ int main() {
                 "Analytic cylinder was not recognized.");
         require(std::abs(fits.front().radius - 2.0) < 1e-3,
                 "Fitted cylinder radius is inaccurate.");
+
+        // The geometry algorithms must not contain fixed model-unit cutoffs.
+        // A small, arbitrarily oriented cylinder exercises PCA, degeneracy
+        // detection, and cone/cylinder axial-extent tests at micron-like scale.
+        auto tinyCylinderPart = makeCylinder(2.0e-10, 3.0e-10, 24);
+        const double rotation = 0.37;
+        for (std::size_t vi=0; vi<tinyCylinderPart.vertices.size()/3; ++vi) {
+            const double x=tinyCylinderPart.vertices[3*vi];
+            const double z=tinyCylinderPart.vertices[3*vi+2];
+            tinyCylinderPart.vertices[3*vi]=static_cast<float>(
+                std::cos(rotation)*x + std::sin(rotation)*z);
+            tinyCylinderPart.vertices[3*vi+2]=static_cast<float>(
+                -std::sin(rotation)*x + std::cos(rotation)*z);
+        }
+        std::vector<AssimpSurfacePatch> tinyCylinderPatches;
+        require(AssimpSurfacePatchAnalyzer::analyze({tinyCylinderPart}, 1.0e-15,
+                    tinyCylinderPatches, fitDiagnostics, 30.0) &&
+                tinyCylinderPatches.size() == 1,
+                "Scale-relative patch analysis discarded a valid small cylinder.");
+        require(AssimpSurfaceGeometryFitter::fit({tinyCylinderPart}, tinyCylinderPatches,
+                    fitOptions, fits, fitDiagnostics) &&
+                fits.size() == 1 && fits.front().type == AssimpFittedSurfaceType::Cylindrical,
+                "Scale-relative analytic fitting failed on a small rotated cylinder.");
+        require(std::abs(fits.front().radius / 2.0e-10 - 1.0) < 2.0e-3,
+                "Small-cylinder fitted radius is inaccurate.");
+
+        const auto tinyCylinderPath = std::filesystem::temp_directory_path() /
+            "openmodel_assimp_tiny_cylinder.glb";
+        const auto tinyCylinderGlb = GltfWriter::writeGlbFile(
+            tinyCylinderPath.string(), asSurfaceMesh(tinyCylinderPart));
+        require(tinyCylinderGlb.success,
+                "Could not write tiny-cylinder selector fixture: " + tinyCylinderGlb.error);
+        auto tinyCylinderModel = std::make_shared<AssimpModel>();
+        require(tinyCylinderModel->loadFromFile(tinyCylinderPath.string()),
+                "Could not import tiny-cylinder fixture: " + tinyCylinderModel->getLastError());
+        MeshData tinyCylinderMesh;
+        require(selectorMesher.buildMesh(tinyCylinderModel, selectorOptions, tinyCylinderMesh) &&
+                tinyCylinderMesh.getNumElements() == tinyCylinderPart.indices.size()/3,
+                "Scale-relative Assimp meshing discarded valid small triangles.");
+        std::error_code tinyCylinderError;
+        std::filesystem::remove(tinyCylinderPath, tinyCylinderError);
+
         AssimpSurfaceSelector fittedCylinderSelector;
         std::string cylinderSelectorDiagnostic;
         require(AssimpSurfaceGeometryFitter::makeSelector(fits.front(), {cylinderPart},
