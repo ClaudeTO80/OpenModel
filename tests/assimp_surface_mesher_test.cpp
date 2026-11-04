@@ -2,11 +2,13 @@
 #include <OpenModel/AssimpSurfacePatchAnalyzer.hpp>
 #include <OpenModel/AssimpPatchGroupBuilder.hpp>
 #include <OpenModel/AssimpSurfaceGeometryFitter.hpp>
+#include <OpenModel/AbaqusInpWriter.hpp>
 #include <OpenModel/GltfWriter.hpp>
 
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <iterator>
 #include <stdexcept>
@@ -423,6 +425,25 @@ int main() {
         const auto* filteredGroup = mesh.getMeshGroupRegistry().find("PLANAR_AREA_FILTER");
         require(filteredGroup && filteredGroup->elementIds.size() == 2,
                 "Geometry-filtered patch selection did not isolate the area-one planar patch.");
+
+        const auto solverPath = std::filesystem::temp_directory_path() / "openmodel_assimp_groups.inp";
+        const auto solverExport = AbaqusInpWriter::writeFile(solverPath.string(), mesh);
+        require(solverExport.success,
+                "Assimp-generated FEM groups could not be exported to Abaqus/CalculiX: " +
+                (solverExport.errors.empty() ? std::string{} : solverExport.errors.front()));
+        {
+            std::ifstream solverInput(solverPath, std::ios::binary);
+            const std::string solverText((std::istreambuf_iterator<char>(solverInput)),
+                                         std::istreambuf_iterator<char>());
+            require(solverText.find("*ELSET, ELSET=CONNECTED_PATCH") != std::string::npos,
+                    "Assimp patch element set is missing from Abaqus/CalculiX export.");
+            require(solverText.find("*NSET, NSET=CONNECTED_PATCH_NODES") != std::string::npos,
+                    "Assimp patch node set is missing from Abaqus/CalculiX export.");
+            require(solverText.find("MATERIAL=STEEL") != std::string::npos,
+                    "Assimp patch material metadata is missing from solver export.");
+        }
+        std::error_code solverError;
+        std::filesystem::remove(solverPath, solverError);
 
         std::vector<std::string> invalidGroupDiagnostics;
         require(!AssimpPatchGroupBuilder::apply(model->getRenderMeshes(), patches,
