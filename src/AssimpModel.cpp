@@ -121,13 +121,40 @@ void AssimpModel::readMaterial(const aiScene* scene, const aiMesh* mesh, const s
         }
         if (mat->GetTextureCount(aiTextureType_NORMALS) > 0 && mat->GetTexture(aiTextureType_NORMALS, 0, &texturePath) == AI_SUCCESS)
             readTextureTo(scene, texturePath, modelDir, out.normalImage, out.normalImageMimeType, out.normalImageName);
-        if (mat->GetTextureCount(aiTextureType_EMISSIVE) > 0 && mat->GetTexture(aiTextureType_EMISSIVE, 0, &texturePath) == AI_SUCCESS)
-            readTextureTo(scene, texturePath, modelDir, out.emissiveImage, out.emissiveImageMimeType, out.emissiveImageName);
-        // Assimp exposes the packed glTF metallic-roughness map as UNKNOWN in some importers.
+        // PBR emissive textures use EMISSION_COLOR; EMISSIVE is retained
+        // as a compatibility fallback for legacy material importers.
+        if (mat->GetTextureCount(aiTextureType_EMISSION_COLOR) > 0 &&
+            mat->GetTexture(aiTextureType_EMISSION_COLOR, 0, &texturePath) == AI_SUCCESS) {
+            readTextureTo(scene, texturePath, modelDir, out.emissiveImage,
+                          out.emissiveImageMimeType, out.emissiveImageName);
+        } else if (mat->GetTextureCount(aiTextureType_EMISSIVE) > 0 &&
+                   mat->GetTexture(aiTextureType_EMISSIVE, 0, &texturePath) == AI_SUCCESS) {
+            readTextureTo(scene, texturePath, modelDir, out.emissiveImage,
+                          out.emissiveImageMimeType, out.emissiveImageName);
+        }
+
+        // Prefer the combined glTF metallic-roughness texture. Some Assimp
+        // importers expose the same source as METALNESS or DIFFUSE_ROUGHNESS.
+        bool hasMetallicRoughnessTexture = false;
         if (mat->GetTextureCount(aiTextureType_UNKNOWN) > 0 &&
-            mat->GetTexture(aiTextureType_UNKNOWN, 0, &texturePath) == AI_SUCCESS)
+            mat->GetTexture(aiTextureType_UNKNOWN, 0, &texturePath) == AI_SUCCESS) {
             readTextureTo(scene, texturePath, modelDir, out.metallicRoughnessImage,
                           out.metallicRoughnessImageMimeType, out.metallicRoughnessImageName);
+            hasMetallicRoughnessTexture = !out.metallicRoughnessImage.empty();
+        }
+        if (!hasMetallicRoughnessTexture &&
+            mat->GetTextureCount(aiTextureType_METALNESS) > 0 &&
+            mat->GetTexture(aiTextureType_METALNESS, 0, &texturePath) == AI_SUCCESS) {
+            readTextureTo(scene, texturePath, modelDir, out.metallicRoughnessImage,
+                          out.metallicRoughnessImageMimeType, out.metallicRoughnessImageName);
+            hasMetallicRoughnessTexture = !out.metallicRoughnessImage.empty();
+        }
+        if (!hasMetallicRoughnessTexture &&
+            mat->GetTextureCount(aiTextureType_DIFFUSE_ROUGHNESS) > 0 &&
+            mat->GetTexture(aiTextureType_DIFFUSE_ROUGHNESS, 0, &texturePath) == AI_SUCCESS) {
+            readTextureTo(scene, texturePath, modelDir, out.metallicRoughnessImage,
+                          out.metallicRoughnessImageMimeType, out.metallicRoughnessImageName);
+        }
     
 }
 
