@@ -150,7 +150,7 @@ int run(InterfaceMode mode, const std::string& step) {
 }
 
 
-int runSurfaceOnly(const std::string& step) {
+int runSurfaceOnly(const std::string& step, bool incompleteSecondOrder) {
     auto cad = std::make_shared<OCCModel>();
     CHECK(cad->loadFromFile(step));
     MeshingOptions options;
@@ -158,6 +158,9 @@ int runSurfaceOnly(const std::string& step) {
     options.generateTetrahedra = false;
     options.elementSize = 2.0;
     options.maxElementSize = 2.0;
+    options.order = 2;
+    options.recombineSurfaceElements = true;
+    options.incompleteSecondOrder = incompleteSecondOrder;
     options.importCadGroups = true;
     const auto uniqueSideFace = cad->facesContainingPoint({{0.0, 5.0, 5.0}}, 1e-6);
     CHECK(uniqueSideFace.size() == 1);
@@ -174,14 +177,42 @@ int runSurfaceOnly(const std::string& step) {
     CHECK(mesher.buildMesh(cad, options, mesh));
     CHECK(validFaceAudit(mesher));
     CHECK(mesh.getNumElements() > 0);
-    for (const auto& block : mesh.getElementBlocks())
+    bool sawExpectedQuadrilateral = false;
+    for (const auto& block : mesh.getElementBlocks()) {
         CHECK(block.type != ElementType::Tetrahedron4 && block.type != ElementType::Tetrahedron10);
+        if (incompleteSecondOrder && block.type == ElementType::Quadrilateral8)
+            sawExpectedQuadrilateral = true;
+        if (!incompleteSecondOrder && block.type == ElementType::Quadrilateral9)
+            sawExpectedQuadrilateral = true;
+    }
+    CHECK(sawExpectedQuadrilateral);
 
     // Surface-only meshes have no upward volume adjacency. CAD faces must still
     // be mapped from their geometric location and actual 2-D mesh elements.
     const auto* uniqueFace = mesh.getMeshGroupRegistry().find("UniqueSideFace");
     CHECK(uniqueFace && uniqueFace->dimension == 2);
     CHECK(!uniqueFace->elementIds.empty());
+
+    // Verify that the CAD-derived Node Set includes every node of every
+    // quadratic boundary element, including all midside/interior nodes.
+    const auto elementIndex = indexElements(mesh);
+    std::set<NodeIndex> expectedFaceNodes;
+    for (const ElementId id : uniqueFace->elementIds) {
+        const auto found = elementIndex.find(id);
+        CHECK(found != elementIndex.end());
+        const auto& block = *found->second.block;
+        if (incompleteSecondOrder)
+            CHECK(block.type == ElementType::Triangle6 || block.type == ElementType::Quadrilateral8);
+        else
+            CHECK(block.type == ElementType::Triangle6 || block.type == ElementType::Quadrilateral9);
+        const std::size_t offset = found->second.index * block.nodesPerElement;
+        for (std::size_t n = 0; n < block.nodesPerElement; ++n)
+            expectedFaceNodes.insert(block.connectivity[offset + n]);
+    }
+    const std::set<NodeIndex> actualFaceNodes(uniqueFace->nodeIndices.begin(),
+                                               uniqueFace->nodeIndices.end());
+    CHECK(actualFaceNodes == expectedFaceNodes);
+
     const auto* physical = group(mesh, "UniqueSideFace");
     CHECK(physical && !physical->elementIds.empty());
 
@@ -226,8 +257,9 @@ int main() {
     CHECK(writeAssemblyFixture(step));
     const int a = run(InterfaceMode::Independent, step);
     const int b = a == 0 ? run(InterfaceMode::Conformal, step) : a;
-    const int c = (a == 0 && b == 0) ? runSurfaceOnly(step) : 1;
+    const int c = (a == 0 && b == 0) ? runSurfaceOnly(step, false) : 1;
+    const int d = (a == 0 && b == 0 && c == 0) ? runSurfaceOnly(step, true) : 1;
     std::remove(step.c_str());
-    if (a == 0 && b == 0 && c == 0) std::cout << "gmsh_assembly_test passed\n";
-    return a != 0 ? a : (b != 0 ? b : c);
+    if (a == 0 && b == 0 && c == 0 && d == 0) std::cout << "gmsh_assembly_test passed\n";
+    return a != 0 ? a : (b != 0 ? b : (c != 0 ? c : d));
 }
