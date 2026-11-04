@@ -157,6 +157,7 @@ int main() {
         box.kind = AssimpSurfaceSelectorKind::AxisAlignedBox;
         box.boundsMin = {{2.0, 0.0, 0.0}};
         box.boundsMax = {{2.0, 1.0, 1.0}};
+        box.point = {{std::numeric_limits<double>::quiet_NaN(), 0.0, 0.0}};
         box.tolerance = 1e-6;
         box.constrainNormal = false;
         box.direction = {{0,0,0}}; // AABB selection does not require an axis.
