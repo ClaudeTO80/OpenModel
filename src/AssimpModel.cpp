@@ -1,7 +1,5 @@
 #include <OpenModel/AssimpModel.hpp>
 
-#include <assimp/version.h>
-
 #include <stdexcept>
 #include <limits>
 
@@ -73,10 +71,7 @@ void AssimpModel::readMaterial(const aiScene* scene, const aiMesh* mesh, const s
         if (!scene || !mesh || mesh->mMaterialIndex >= scene->mNumMaterials) return;
         const aiMaterial* mat = scene->mMaterials[mesh->mMaterialIndex];
         aiColor4D color(0.8f, 0.8f, 0.8f, 1.0f);
-#if ASSIMP_VERSION_MAJOR >= 5
-        if (aiGetMaterialColor(mat, AI_MATKEY_BASE_COLOR, &color) != AI_SUCCESS)
-#endif
-        {
+        if (aiGetMaterialColor(mat, AI_MATKEY_BASE_COLOR, &color) != AI_SUCCESS) {
             aiColor3D diffuse(0.8f, 0.8f, 0.8f);
             if (mat->Get(AI_MATKEY_COLOR_DIFFUSE, diffuse) == AI_SUCCESS) {
                 color.r = diffuse.r; color.g = diffuse.g; color.b = diffuse.b;
@@ -128,11 +123,11 @@ void AssimpModel::readMaterial(const aiScene* scene, const aiMesh* mesh, const s
             readTextureTo(scene, texturePath, modelDir, out.normalImage, out.normalImageMimeType, out.normalImageName);
         if (mat->GetTextureCount(aiTextureType_EMISSIVE) > 0 && mat->GetTexture(aiTextureType_EMISSIVE, 0, &texturePath) == AI_SUCCESS)
             readTextureTo(scene, texturePath, modelDir, out.emissiveImage, out.emissiveImageMimeType, out.emissiveImageName);
-#if ASSIMP_VERSION_MAJOR >= 5
         // Assimp exposes the packed glTF metallic-roughness map as UNKNOWN in some importers.
-        if (mat->GetTextureCount(aiTextureType_UNKNOWN) > 0 && mat->GetTexture(aiTextureType_UNKNOWN, 0, &texturePath) == AI_SUCCESS)
-            readTextureTo(scene, texturePath, modelDir, out.metallicRoughnessImage, out.metallicRoughnessImageMimeType, out.metallicRoughnessImageName);
-#endif
+        if (mat->GetTextureCount(aiTextureType_UNKNOWN) > 0 &&
+            mat->GetTexture(aiTextureType_UNKNOWN, 0, &texturePath) == AI_SUCCESS)
+            readTextureTo(scene, texturePath, modelDir, out.metallicRoughnessImage,
+                          out.metallicRoughnessImageMimeType, out.metallicRoughnessImageName);
     
 }
 
