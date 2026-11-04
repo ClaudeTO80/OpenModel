@@ -587,6 +587,31 @@ int main() {
 
         const auto connectedPatchIndex = static_cast<std::size_t>(
             std::distance(patches.begin(), connected));
+
+        std::vector<AssimpSurfaceFit> planarFits;
+        AssimpSurfaceFitOptions planarFitOptions;
+        require(AssimpSurfaceGeometryFitter::fit(model->getRenderMeshes(),
+                    {patches[connectedPatchIndex]}, planarFitOptions,
+                    planarFits, fitDiagnostics) &&
+                planarFits.size() == 1 &&
+                planarFits.front().type == AssimpFittedSurfaceType::Planar,
+                "Planar patch fitting failed.");
+        AssimpSurfaceSelector fittedPlaneSelector;
+        std::string fittedPlaneDiagnostic;
+        require(AssimpSurfaceGeometryFitter::makeSelector(planarFits.front(),
+                    model->getRenderMeshes(), patches[connectedPatchIndex],
+                    "FITTED_PLANAR", 1e-6, fittedPlaneSelector, fittedPlaneDiagnostic) &&
+                fittedPlaneSelector.kind == AssimpSurfaceSelectorKind::Plane &&
+                fittedPlaneSelector.constrainBounds,
+                "Planar fit could not be converted into a bounded selector.");
+        MeshData fittedPlaneMesh;
+        require(mesher.buildMesh(model, options, {fittedPlaneSelector}, fittedPlaneMesh),
+                "Fitted planar selector failed through the Assimp mesher.");
+        const auto* fittedPlaneGroup =
+            fittedPlaneMesh.getMeshGroupRegistry().find("FITTED_PLANAR");
+        require(fittedPlaneGroup && fittedPlaneGroup->elementIds.size() == 2,
+                "Fitted planar selector did not isolate its source patch.");
+
         std::vector<AssimpPatchGroupDefinition> patchGroups = {
             {"CONNECTED_PATCH", {connectedPatchIndex}, "STEEL"},
             {"COMBINED_PATCHES", {0, 1}, ""}
