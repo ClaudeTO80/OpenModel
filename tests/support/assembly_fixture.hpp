@@ -99,6 +99,17 @@ inline bool writeAssemblyFixture(const std::string& path) {
         const std::regex faceRegex("(#" + layerMatch[1].str() + " = ADVANCED_FACE\\()'[^']*'");
         FIXTURE_CHECK(std::regex_search(text, faceRegex));
         text = std::regex_replace(text, faceRegex, "$1'TopFace'");
+
+        // STEPCAFControl does not consistently emit XDE names for edges.
+        // Name the EDGE_CURVE referenced by the EdgeLayer assignment so the
+        // OCCModel STEP-entity fallback can be tested deterministically.
+        std::smatch edgeLayerMatch;
+        FIXTURE_CHECK(std::regex_search(text, edgeLayerMatch,
+            std::regex("PRESENTATION_LAYER_ASSIGNMENT\\('EdgeLayer','visible',\\(#(\\d+)\\)\\)")));
+        const std::regex edgeRegex("(#" + edgeLayerMatch[1].str() + " = EDGE_CURVE\\()'[^']*'");
+        FIXTURE_CHECK(std::regex_search(text, edgeRegex));
+        text = std::regex_replace(text, edgeRegex, "$1'BaseEdge'");
+
         std::ofstream out(path, std::ios::trunc);
         out << text;
     }
