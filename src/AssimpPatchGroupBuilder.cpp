@@ -13,7 +13,7 @@ namespace {
 double dot3(const std::array<double,3>& a,const std::array<double,3>& b) {
     return a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
 }
-double norm3(const std::array<double,3>& a) { return std::sqrt(dot3(a,a)); }
+double norm3(const std::array<double,3>& a) { return std::hypot(a[0],a[1],a[2]); }
 bool finite3(const std::array<double,3>& a) {
     return std::isfinite(a[0]) && std::isfinite(a[1]) && std::isfinite(a[2]);
 }
@@ -106,6 +106,10 @@ bool AssimpPatchGroupBuilder::apply(const std::vector<RenderSubMesh>& parts,
                     return false;
                 }
                 const double n=norm3(direction);
+                if (!std::isfinite(n) || n<=0.0) {
+                    diagnostics.push_back("Patch filter normal direction is outside the supported numeric range for group '"+definition.name+"'.");
+                    return false;
+                }
                 for (double& value:direction) value/=n;
             }
             if (filter.constrainCentroid) {
