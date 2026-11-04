@@ -73,6 +73,7 @@ int main(int argc, char** argv) {
     options.generateTetrahedra = true;
     options.elementSize = 8.0;
     options.maxElementSize = 8.0;
+    options.order = 2;
     options.linearDeflection = 0.2;
     options.angularDeflection = 0.5;
     options.importCadGroups = true;
@@ -121,6 +122,17 @@ int main(int argc, char** argv) {
     CHECK(endMapping->matchRatio >= 0.8);
     CHECK(endMapping->elementCount == fixed->elementIds.size());
 
+    std::size_t exportedSurfaceElements = 0;
+    for (const auto& block : mesh.getElementBlocks())
+        if (block.type == ElementType::Triangle3 || block.type == ElementType::Triangle6 ||
+            block.type == ElementType::Quadrilateral4 || block.type == ElementType::Quadrilateral8 ||
+            block.type == ElementType::Quadrilateral9)
+            exportedSurfaceElements += block.ids.size();
+    std::size_t auditedSurfaceElements = 0;
+    for (const auto& record : mesher.faceMappingReport())
+        auditedSurfaceElements += record.elementCount;
+    CHECK(auditedSurfaceElements == exportedSurfaceElements);
+
     const auto elements = indexElements(mesh);
     std::set<NodeIndex> expectedNodes;
     double mappedArea = 0.0;
@@ -128,8 +140,7 @@ int main(int argc, char** argv) {
         const auto found = elements.find(id);
         CHECK(found != elements.end());
         const auto& block = *found->second.block;
-        CHECK(block.type == ElementType::Triangle3 ||
-              block.type == ElementType::Triangle6);
+        CHECK(block.type == ElementType::Triangle6);
         const std::size_t offset = found->second.index * block.nodesPerElement;
         std::array<std::array<double, 3>, 3> p{};
         for (std::size_t n = 0; n < block.nodesPerElement; ++n) {
