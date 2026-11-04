@@ -266,12 +266,13 @@ int main() {
         std::vector<AssimpSurfacePatch> nonManifoldPatches;
         std::vector<std::string> nonManifoldDiagnostics;
         require(AssimpSurfacePatchAnalyzer::analyze({nonManifoldPart}, 1e-6,
-                    nonManifoldPatches, nonManifoldDiagnostics, 90.0),
+                    nonManifoldPatches, nonManifoldDiagnostics, 45.0),
                 "Non-manifold patch analysis failed.");
-        require(nonManifoldPatches.size() == 1 &&
-                nonManifoldPatches.front().triangleIndices.size() == 3 &&
-                nonManifoldPatches.front().nonManifoldEdgeCount == 1,
-                "Three triangles sharing one edge were not reported as non-manifold.");
+        require(nonManifoldPatches.size() == 2,
+                "Dihedral filtering did not split the non-manifold incident triangles.");
+        for (const auto& patch : nonManifoldPatches)
+            require(patch.nonManifoldEdgeCount == 1,
+                    "A patch touching a globally non-manifold edge did not report it.");
 
         // Welding must inspect neighbouring spatial-hash cells and must not
         // depend on source triangle winding.
