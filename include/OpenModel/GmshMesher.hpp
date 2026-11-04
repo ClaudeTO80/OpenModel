@@ -32,9 +32,11 @@ struct CADFaceMappingRecord {
     bool ambiguous = false;
 };
 
-/** Gmsh owns process-global state. Calls made through this adapter are serialized.
-// This adapter owns the Gmsh initialize/finalize lifecycle; do not call it while
-// another component independently manages a Gmsh session.
+/**
+ * @brief Gmsh adapter. Gmsh owns process-global state, so calls through this
+ * adapter are serialized. This adapter owns the initialize/finalize lifecycle;
+ * do not use it while another component independently manages a Gmsh session.
+ */
 class GmshMesher final : public Mesher {
 public:
     std::string getName() const override ;
