@@ -41,6 +41,8 @@ int main() {
         AssimpModel model;
         require(model.loadFromFile(path.string()), "Assimp failed to load generated GLB: " + model.getLastError());
         require(!model.getRenderMeshes().empty(), "Assimp returned no render meshes");
+        require(model.getRenderMeshes().front().sourcePartId >= 0,
+                "Assimp source mesh identifier was not preserved.");
 
         std::size_t vertices = 0;
         std::size_t triangles = 0;
