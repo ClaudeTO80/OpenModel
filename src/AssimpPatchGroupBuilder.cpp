@@ -31,8 +31,8 @@ bool validPatch(const AssimpSurfacePatch& patch) {
     if (!std::isfinite(patch.area) || patch.area<=0.0 ||
         !finite3(patch.centroid) || !finite3(patch.meanNormal) ||
         !finite3(patch.boundsMin) || !finite3(patch.boundsMax) ||
-        !std::isfinite(patch.maxPlanarityDeviation) || patch.maxPlanarityDeviation<0.0 ||
-        !std::isfinite(patch.relativePlanarityDeviation) || patch.relativePlanarityDeviation<0.0 ||
+        std::isnan(patch.maxPlanarityDeviation) || patch.maxPlanarityDeviation<0.0 ||
+        std::isnan(patch.relativePlanarityDeviation) || patch.relativePlanarityDeviation<0.0 ||
         !std::isfinite(patch.normalCoherence) || patch.normalCoherence<0.0 ||
         patch.normalCoherence>1.0 ||
         (patch.kind!=AssimpSurfacePatchKind::Planar &&
