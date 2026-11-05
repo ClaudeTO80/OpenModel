@@ -486,15 +486,23 @@ void GmshMesher::mapCadGroups(const CADModel& cad, MeshData& mesh,
                         for (std::size_t axis = 0; axis < 3; ++axis)
                             centroid[axis] += point[axis] / static_cast<double>(numPrimary);
                     }
-                    std::vector<double> closest, parametric;
+                    std::vector<double> closest, ignoredParametric, parametric;
                     gmsh::model::getClosestPoint(2, surface.second,
-                        {centroid[0], centroid[1], centroid[2]}, closest, parametric);
+                        {centroid[0], centroid[1], centroid[2]}, closest, ignoredParametric);
                     // The projection can land on the untrimmed underlying surface.
                     // Accept it only when its UV coordinates lie inside this face.
-                    if (closest.size() == 3 && gmsh::model::isInside(2, surface.second, parametric, true))
-                        probes.push_back({{closest[0], closest[1], closest[2]}});
-                    else
-                        ++mapping.projectionFailureCount;
+                    // The parametric output of getClosestPoint is not reliable (it
+                    // returned (0,0) for every point on the OCC planes and cylinders
+                    // tested), so the UV is recomputed from the projected 3-D point.
+                    if (closest.size() == 3) {
+                        gmsh::model::getParametrization(2, surface.second, closest, parametric);
+                        if (parametric.size() == 2 &&
+                            gmsh::model::isInside(2, surface.second, parametric, true)) {
+                            probes.push_back({{closest[0], closest[1], closest[2]}});
+                            continue;
+                        }
+                    }
+                    ++mapping.projectionFailureCount;
                 }
             }
             mapping.sampledElementCount = totalElements;
