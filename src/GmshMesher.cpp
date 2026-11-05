@@ -86,7 +86,20 @@ bool GmshMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Mesh
                     : "CAD file contains no 2D surface entities");
             }
 
-            gmsh::model::mesh::generate(meshDimension);
+            try {
+                gmsh::model::mesh::generate(meshDimension);
+            } catch (const std::exception& e) {
+                std::string message = std::string(meshDimension == 3 ? "Gmsh 3D meshing" : "Gmsh 2D meshing") +
+                                      " failed: " + e.what();
+                if (meshDimension == 3) {
+                    // The boundary mesh is built first; a "PLC Error" or an HXT failure means that it
+                    // self-intersects, which happens when it is too coarse for thin or strongly curved
+                    // parts (observed on a turbine blade at element sizes of 5 and 8 but not at 3).
+                    message += ". The surface mesh is probably too coarse for the thin or curved features "
+                               "of the CAD model: reduce the element size or increase the curvature adaptation.";
+                }
+                return fail(message);
+            }
 
             MeshData candidate;
             std::vector<std::size_t> nodeTags;
