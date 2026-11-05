@@ -242,7 +242,7 @@ bool NetgenMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Me
                     std::sort(nodes.begin(), nodes.end());
                     nodes.erase(std::unique(nodes.begin(), nodes.end()), nodes.end());
                     const std::string name = group.name;
-                    if (!usedNames.insert(name).second)
+                    if (!usedGroupNames.insert(name).second)
                         throw std::runtime_error("Duplicate CAD group name across dimensions: " + name);
                     candidate.addNodeSet(name + "_NODES", nodes);
                     candidate.addMeshGroup(MeshGroup{name, group.dimension, MeshGroupSource::CAD,
@@ -287,11 +287,12 @@ bool NetgenMesher::fail(const std::string& message) {
     
 }
 
+#if defined(OPENMODEL_NETGEN_HAS_OCC)
 NetgenMesher::NetgenSession::~NetgenSession() noexcept {
  try { Ng_Exit(); } catch (...) {} 
 }
 
-explicit NetgenMesher::NetgenMeshHandle::NetgenMeshHandle(Ng_Mesh* value) : m_value(value) {
+NetgenMesher::NetgenMeshHandle::NetgenMeshHandle(Ng_Mesh* value) : m_value(value) {
 
 }
 
@@ -299,7 +300,7 @@ NetgenMesher::NetgenMeshHandle::~NetgenMeshHandle() noexcept {
  if (m_value) Ng_DeleteMesh(m_value); 
 }
 
-explicit NetgenMesher::NetgenOccHandle::NetgenOccHandle(Ng_OCC_Geometry* value) : m_value(value) {
+NetgenMesher::NetgenOccHandle::NetgenOccHandle(Ng_OCC_Geometry* value) : m_value(value) {
 
 }
 
