@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <map>
 #include <set>
 #include <sstream>
 #include <unordered_set>
@@ -262,6 +263,12 @@ bool AssimpSurfaceMesher::buildMesh(
         sourceTriangleElementIds.emplace_back(part.indices.size() / 3, ElementId{0});
         std::vector<NodeIndex> localNodes;
         localNodes.reserve(vertexCount);
+        // Assimp keeps vertices that differ in normal or UV as separate entries even
+        // when they share a position (hard edges, texture seams). A FEM surface mesh
+        // must be topologically connected, so vertices of one part with identical
+        // positions are merged into a single node. Distinct parts stay separate.
+        std::map<Vec3, NodeIndex> nodeAtPosition;
+        std::size_t weldedVertices = 0;
         for (std::size_t v = 0; v < vertexCount; ++v) {
             const double x = part.vertices[3 * v];
             const double y = part.vertices[3 * v + 1];
@@ -271,8 +278,15 @@ bool AssimpSurfaceMesher::buildMesh(
                 outMesh.clear();
                 return false;
             }
-            localNodes.push_back(outMesh.addNode(nextNodeId++, x, y, z));
+            const auto inserted = nodeAtPosition.emplace(Vec3{{x, y, z}}, NodeIndex{});
+            if (inserted.second) inserted.first->second = outMesh.addNode(nextNodeId++, x, y, z);
+            else ++weldedVertices;
+            localNodes.push_back(inserted.first->second);
         }
+        if (weldedVertices != 0)
+            m_diagnostics.push_back("Assimp part " + std::to_string(partIndex) + ": merged " +
+                                    std::to_string(weldedVertices) +
+                                    " coincident vertice(s) (normal/UV seams) into shared nodes.");
 
         const std::string name = blockName(partIndex, part.name);
         outMesh.getOrCreateBlock(name, ElementType::Triangle3, 3);

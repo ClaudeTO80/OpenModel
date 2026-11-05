@@ -856,6 +856,47 @@ int main() {
         require(mesher.sourceTriangleElementIds().empty(),
                 "Rejected Assimp build retained a stale source-element map.");
 
+        // Hard-edge regression: a cube with one normal per face has 24 vertices but only
+        // 8 distinct corners. The surface mesh must share nodes across the edges, otherwise
+        // the six faces are disconnected from one another.
+        {
+            const float corners[8][3] = {{0,0,0},{1,0,0},{1,1,0},{0,1,0},{0,0,1},{1,0,1},{1,1,1},{0,1,1}};
+            const int quads[6][4] = {{0,3,2,1},{4,5,6,7},{0,1,5,4},{2,3,7,6},{1,2,6,5},{0,4,7,3}};
+            const float faceNormals[6][3] = {{0,0,-1},{0,0,1},{0,-1,0},{0,1,0},{1,0,0},{-1,0,0}};
+            SurfaceMesh cubeFixture;
+            SurfaceMeshPart cube;
+            cube.name = "HardEdgeCube";
+            for (unsigned int f = 0; f < 6; ++f) {
+                for (int c = 0; c < 4; ++c) {
+                    cube.positions.insert(cube.positions.end(), corners[quads[f][c]], corners[quads[f][c]] + 3);
+                    cube.normals.insert(cube.normals.end(), faceNormals[f], faceNormals[f] + 3);
+                }
+                const unsigned int b = 4 * f;
+                cube.indices.insert(cube.indices.end(), {b, b + 1, b + 2, b, b + 2, b + 3});
+            }
+            cubeFixture.parts.push_back(cube);
+            const auto cubePath = std::filesystem::temp_directory_path() / "openmodel_assimp_hard_edge_cube.glb";
+            const auto cubeWritten = GltfWriter::writeGlbFile(cubePath.string(), cubeFixture);
+            require(cubeWritten.success, "Could not create hard-edge cube fixture: " + cubeWritten.error);
+            auto cubeModel = std::make_shared<AssimpModel>();
+            require(cubeModel->loadFromFile(cubePath.string()), "Hard-edge cube load failed: " + cubeModel->getLastError());
+            std::size_t sourceVertices = 0;
+            for (const auto& renderPart : cubeModel->getRenderMeshes()) sourceVertices += renderPart.vertices.size() / 3;
+            require(sourceVertices == 24, "Fixture must keep one vertex per face corner (24).");
+            MeshingOptions cubeOptions;
+            cubeOptions.dimension = MeshDimension::Surface;
+            AssimpSurfaceMesher cubeMesher;
+            MeshData cubeMesh;
+            require(cubeMesher.buildMesh(cubeModel, cubeOptions, std::vector<AssimpSurfaceSelector>{}, cubeMesh),
+                    "Hard-edge cube surface import failed.");
+            require(cubeMesh.getNumNodes() == 8,
+                    "Coincident vertices were not merged: expected 8 shared nodes, got " +
+                    std::to_string(cubeMesh.getNumNodes()));
+            require(cubeMesh.getNumElements() == 12, "Hard-edge cube must keep its 12 triangles.");
+            std::error_code cubeEc;
+            std::filesystem::remove(cubePath, cubeEc);
+        }
+
         std::error_code ec;
         std::filesystem::remove(path, ec);
         std::cout << "Assimp plane, normal, AABB and cylinder surface selection passed.\n";
