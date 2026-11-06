@@ -496,11 +496,35 @@ void GmshMesher::mapCadGroups(const CADModel& cad, MeshData& mesh,
             // Validate every exported 2-D element. The previous bounded
             // sampling strategy could miss a small unmapped region on a large
             // surface, which is unacceptable for FEM boundary-condition sets.
-            // One interior representative point is constructed per element
-            // from its primary corner nodes and projected back to the trimmed
-            // Gmsh surface before checking the original CAD B-Rep.
-            std::vector<std::array<double, 3>> probes;
-            probes.reserve(totalElements);
+            //
+            // One representative point per element, on the exact surface and inside the element's
+            // footprint: the centroid of the corner nodes' (u, v) coordinates, evaluated on the
+            // surface. Gmsh reparametrizes the nodes of the surface boundary on it, so the corner
+            // (u, v) come from one call per surface. This replaces projecting the 3-D centroid onto
+            // the untrimmed surface and testing the trim: that projection slips across the boundary
+            // of faces that are small next to the element size (small cones of a gearbox sample) and
+            // cost most of the audit time. The old projection remains as the fallback for elements
+            // whose (u, v) average is not plausible, e.g. across a periodic seam.
+            std::unordered_map<std::size_t, std::array<double, 2>> nodeUv;
+            {
+                std::vector<std::size_t> surfaceNodeTags;
+                std::vector<double> surfaceCoordinates, surfaceParametric;
+                gmsh::model::mesh::getNodes(surfaceNodeTags, surfaceCoordinates, surfaceParametric,
+                                            2, surface.second, true, true);
+                if (surfaceParametric.size() == 2 * surfaceNodeTags.size()) {
+                    nodeUv.reserve(surfaceNodeTags.size());
+                    for (std::size_t i = 0; i < surfaceNodeTags.size(); ++i)
+                        nodeUv.emplace(surfaceNodeTags[i], std::array<double, 2>{{surfaceParametric[2 * i], surfaceParametric[2 * i + 1]}});
+                }
+            }
+            struct Candidate {
+                std::array<double, 3> centroid{{0.0, 0.0, 0.0}};
+                double longestEdge = 0.0;
+                bool hasUv = false;
+            };
+            std::vector<Candidate> candidatesOfSurface;
+            std::vector<double> uvOfCandidates;     // two values per candidate with hasUv
+            candidatesOfSurface.reserve(totalElements);
             for (std::size_t t = 0; t < types.size(); ++t) {
                 if (elementTags[t].empty()) continue;
                 std::string typeName;
@@ -512,31 +536,70 @@ void GmshMesher::mapCadGroups(const CADModel& cad, MeshData& mesh,
                     elementNodeTags[t].size() != elementTags[t].size() * static_cast<std::size_t>(numNodes))
                     throw std::runtime_error("Invalid Gmsh surface element connectivity during CAD face audit");
                 for (std::size_t e = 0; e < elementTags[t].size(); ++e) {
-                    std::array<double, 3> centroid{{0.0, 0.0, 0.0}};
+                    Candidate candidate;
+                    std::vector<std::array<double, 3>> corners;
+                    corners.reserve(static_cast<std::size_t>(numPrimary));
+                    double u = 0.0, v = 0.0;
+                    bool hasUv = true;
                     for (int n = 0; n < numPrimary; ++n) {
-                        const auto point = coordinates(elementNodeTags[t][e * static_cast<std::size_t>(numNodes) +
-                                                                          static_cast<std::size_t>(n)]);
+                        const std::size_t tag = elementNodeTags[t][e * static_cast<std::size_t>(numNodes) + static_cast<std::size_t>(n)];
+                        const auto point = coordinates(tag);
+                        corners.push_back(point);
                         for (std::size_t axis = 0; axis < 3; ++axis)
-                            centroid[axis] += point[axis] / static_cast<double>(numPrimary);
+                            candidate.centroid[axis] += point[axis] / static_cast<double>(numPrimary);
+                        const auto uv = nodeUv.find(tag);
+                        if (uv == nodeUv.end()) { hasUv = false; continue; }
+                        u += uv->second[0] / static_cast<double>(numPrimary);
+                        v += uv->second[1] / static_cast<double>(numPrimary);
                     }
-                    std::vector<double> closest, ignoredParametric, parametric;
-                    gmsh::model::getClosestPoint(2, surface.second,
-                        {centroid[0], centroid[1], centroid[2]}, closest, ignoredParametric);
-                    // The projection can land on the untrimmed underlying surface.
-                    // Accept it only when its UV coordinates lie inside this face.
-                    // The parametric output of getClosestPoint is not reliable (it
-                    // returned (0,0) for every point on the OCC planes and cylinders
-                    // tested), so the UV is recomputed from the projected 3-D point.
-                    if (closest.size() == 3) {
-                        gmsh::model::getParametrization(2, surface.second, closest, parametric);
-                        if (parametric.size() == 2 &&
-                            gmsh::model::isInside(2, surface.second, parametric, true)) {
-                            probes.push_back({{closest[0], closest[1], closest[2]}});
+                    for (std::size_t c = 0; c < corners.size(); ++c) {
+                        const auto& p = corners[c];
+                        const auto& q = corners[(c + 1) % corners.size()];
+                        candidate.longestEdge = std::max(candidate.longestEdge,
+                            std::sqrt((p[0] - q[0]) * (p[0] - q[0]) + (p[1] - q[1]) * (p[1] - q[1]) + (p[2] - q[2]) * (p[2] - q[2])));
+                    }
+                    candidate.hasUv = hasUv;
+                    if (hasUv) { uvOfCandidates.push_back(u); uvOfCandidates.push_back(v); }
+                    candidatesOfSurface.push_back(candidate);
+                }
+            }
+            std::vector<double> evaluated;
+            if (!uvOfCandidates.empty()) gmsh::model::getValue(2, surface.second, uvOfCandidates, evaluated);
+
+            std::vector<std::array<double, 3>> probes;
+            probes.reserve(totalElements);
+            std::size_t uvIndex = 0;
+            for (const auto& candidate : candidatesOfSurface) {
+                if (candidate.hasUv) {
+                    const std::size_t at = 3 * uvIndex++;
+                    if (at + 2 < evaluated.size()) {
+                        const double dx = evaluated[at] - candidate.centroid[0];
+                        const double dy = evaluated[at + 1] - candidate.centroid[1];
+                        const double dz = evaluated[at + 2] - candidate.centroid[2];
+                        // The point must stay near the flat element (chord sag); an (u, v) average taken
+                        // across a periodic seam or at a cone apex lands far from it.
+                        if (std::sqrt(dx * dx + dy * dy + dz * dz) <= candidate.longestEdge + tolerance) {
+                            probes.push_back({{evaluated[at], evaluated[at + 1], evaluated[at + 2]}});
                             continue;
                         }
                     }
-                    ++mapping.projectionFailureCount;
                 }
+                // Fallback: project the 3-D centroid and require the projection to lie inside the face.
+                std::vector<double> closest, ignoredParametric, parametric;
+                gmsh::model::getClosestPoint(2, surface.second,
+                    {candidate.centroid[0], candidate.centroid[1], candidate.centroid[2]}, closest, ignoredParametric);
+                // The parametric output of getClosestPoint is not reliable (it returned (0,0) for every
+                // point on the OCC planes and cylinders tested), so the UV is recomputed from the
+                // projected 3-D point.
+                if (closest.size() == 3) {
+                    gmsh::model::getParametrization(2, surface.second, closest, parametric);
+                    if (parametric.size() == 2 &&
+                        gmsh::model::isInside(2, surface.second, parametric, true)) {
+                        probes.push_back({{closest[0], closest[1], closest[2]}});
+                        continue;
+                    }
+                }
+                ++mapping.projectionFailureCount;
             }
             mapping.sampledElementCount = totalElements;
             if (mapping.projectionFailureCount != 0) {
