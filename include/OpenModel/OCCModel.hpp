@@ -4,6 +4,7 @@
 
 #include <BRepCheck_Analyzer.hxx>
 #include <Bnd_Box.hxx>
+#include <ShapeAnalysis_Surface.hxx>
 #include <TDF_Label.hxx>
 #include <BRepMesh_IncrementalMesh.hxx>
 #include <BRep_Tool.hxx>
@@ -52,6 +53,8 @@ private:
     TopTools_IndexedMapOfShape m_vertexMap;///< Unique vertices of m_rawShape; id = index - 1.
     std::vector<Bnd_Box> m_solidBoxes;
     std::vector<Bnd_Box> m_faceBoxes;
+    /** Per-face projector onto the underlying surface (null when the face has no surface); used by the fast point-on-face test. */
+    std::vector<opencascade::handle<ShapeAnalysis_Surface>> m_faceProjectors;
     std::vector<Bnd_Box> m_edgeBoxes;
     std::vector<Bnd_Box> m_vertexBoxes;
 

@@ -108,6 +108,16 @@ int main() {
     const auto onTop = model.facesContainingPoint({{5, 5, 10}}, tol);
     CHECK(std::find(onTop.begin(), onTop.end(), top->ids[0]) != onTop.end());
     CHECK(model.facesContainingPoint({{5, 5, 11}}, tol).empty());
+
+    // Boundary behaviour of the point-on-face test (fast surface projection with an exact fallback):
+    // a face interior point hits one face, an edge point both neighbours, a corner point three, and a
+    // point farther than the tolerance from every face hits none.
+    CHECK(model.facesContainingPoint({{0, 5, 5}}, tol).size() == 1);
+    CHECK(model.facesContainingPoint({{-0.5 * tol, 5, 5}}, tol).size() == 1);
+    CHECK(model.facesContainingPoint({{-1e-4, 5, 5}}, tol).empty());
+    CHECK(model.facesContainingPoint({{0, 0, 5}}, tol).size() == 2);
+    CHECK(model.facesContainingPoint({{0, 0, 0}}, tol).size() == 3);
+    CHECK(model.facesContainingPoint({{-0.5 * tol, -0.5 * tol, 5}}, tol).size() == 2);
     CHECK(model.solidsContainingPoint({{5, 5, 12}}, tol) == cover->solidIds);
     CHECK(model.solidsContainingPoint({{5, 5, 5}}, tol) == base->solidIds);
     CHECK(model.solidsContainingPoint({{50, 5, 5}}, tol).empty());

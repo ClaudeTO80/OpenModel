@@ -3,6 +3,10 @@
 #include <BRepBndLib.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
 #include <BRepClass3d_SolidClassifier.hxx>
+#include <BRepClass_FaceClassifier.hxx>
+#include <ShapeAnalysis_Surface.hxx>
+#include <Geom_Surface.hxx>
+#include <gp_Pnt2d.hxx>
 #include <BRepExtrema_DistShapeShape.hxx>
 #include <BRep_Builder.hxx>
 #include <IGESCAFControl_Reader.hxx>
@@ -412,6 +416,7 @@ void OCCModel::indexShape() {
     m_vertexMap.Clear();
     m_solidBoxes.clear();
     m_faceBoxes.clear();
+    m_faceProjectors.clear();
     m_edgeBoxes.clear();
     m_vertexBoxes.clear();
     if (m_rawShape.IsNull()) return;
@@ -429,6 +434,9 @@ void OCCModel::indexShape() {
         Bnd_Box box;
         BRepBndLib::Add(m_faceMap(i), box, Standard_False);
         m_faceBoxes.push_back(box);
+        const opencascade::handle<Geom_Surface> surface = BRep_Tool::Surface(TopoDS::Face(m_faceMap(i)));
+        m_faceProjectors.push_back(surface.IsNull() ? opencascade::handle<ShapeAnalysis_Surface>()
+                                                    : new ShapeAnalysis_Surface(surface));
     }
     for (Standard_Integer i = 1; i <= m_edgeMap.Extent(); ++i) {
         Bnd_Box box;
@@ -463,6 +471,18 @@ std::vector<int> OCCModel::facesContainingPoint(const std::array<double, 3>& poi
         Bnd_Box box = m_faceBoxes[static_cast<std::size_t>(i - 1)];
         box.Enlarge(tolerance);
         if (box.IsOut(p)) continue;
+        // Fast path: project onto the underlying surface (cached projector). A point farther than
+        // `tolerance` from the whole surface cannot be within `tolerance` of the face, and a point
+        // within `tolerance` whose UV lies strictly inside the face is on it. Everything else
+        // (near a boundary, no surface, projection not converged) takes the exact distance query.
+        const auto& projector = m_faceProjectors[static_cast<std::size_t>(i - 1)];
+        if (!projector.IsNull()) {
+            const gp_Pnt2d uv = projector->ValueOfUV(p, tolerance);
+            const double surfaceDistance = projector->Value(uv).Distance(p);
+            if (surfaceDistance > tolerance) continue;
+            BRepClass_FaceClassifier classifier(TopoDS::Face(m_faceMap(i)), uv, tolerance);
+            if (classifier.State() == TopAbs_IN) { result.push_back(i - 1); continue; }
+        }
         BRepExtrema_DistShapeShape distance(vertex, m_faceMap(i));
         if (distance.IsDone() && distance.Value() <= tolerance) result.push_back(i - 1);
     }
