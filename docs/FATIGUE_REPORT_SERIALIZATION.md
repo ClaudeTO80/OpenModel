@@ -17,7 +17,7 @@ When `includeCycles=true`, each successful position contains its counted cycles.
 
 ## Stability and limitations
 
-The schema is explicitly versioned. JSON strings are escaped, output uses the classic numeric stream representation supplied by the caller's stream locale, and no third-party JSON dependency is required. The writer does not serialize raw tensor histories in this version; those remain accessible from each in-memory `FatigueAnalysisResult`.
+The schema is explicitly versioned. JSON strings are escaped, numbers are written locale-independently (classic locale, `.` decimal point, no digit grouping, 17 significant digits) and the caller's stream state is restored, and no third-party JSON dependency is required. The writer does not serialize raw tensor histories in this version; those remain accessible from each in-memory `FatigueAnalysisResult`.
 
 
 ## Ordered spectrum reports

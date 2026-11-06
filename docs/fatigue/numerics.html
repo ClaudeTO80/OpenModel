@@ -1,0 +1,78 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Numerics and worked examples — OpenModel fatigue analysis technical documentation."><title>Numerics and worked examples · OpenModel Fatigue</title><link rel="stylesheet" href="assets/fatigue.css"><script>window.MathJax={tex:{inlineMath:[['\\(','\\)']],displayMath:[['\\[','\\]']],processEscapes:true},options:{skipHtmlTags:['script','noscript','style','textarea','pre','code']},chtml:{scale:1}};</script><script defer src="https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-chtml.js"></script></head><body><header class="top"><div class="brand">OpenModel · Fatigue Analysis <small>Technical and mathematical reference · main branch</small></div></header><div class="layout"><aside class="side"><strong>Fatigue documentation</strong><div class="navlinks"><a href="index.html">Overview &amp; contents</a><a href="workflow.html">C++ integration workflow</a><a href="data-contract.html">FEM data contract</a><a href="tensor-history.html">Tensor history &amp; counting</a><a href="methods.html">Methods &amp; applicability</a><a href="stress-life.html">Stress-life (S–N)</a><a href="strain-life.html">Strain-life (ε–N)</a><a href="multiaxial.html">Multiaxial &amp; Wang–Brown</a><a href="reports.html">Spectra, reports &amp; maps</a><a href="parameters.html">Parameters &amp; status codes</a><a href="numerics.html" class="active">Numerics &amp; worked examples</a></div><hr><a href="https://github.com/ClaudeTO80/OpenModel/blob/main/README.md">OpenModel README ↗</a><a href="https://github.com/ClaudeTO80/OpenModel/tree/main/src/fatigue">Fatigue source ↗</a></aside><main class="content"><div class="crumb"><a href="index.html">Fatigue documentation</a> / Numerics and worked examples</div><div class="eyebrow">C++17 · solver-neutral fatigue module</div>
+<h1>Numerics and worked examples</h1>
+<p class="lead">How the nonlinear equations are solved, what accuracy and cost were measured, and end-to-end examples whose numbers were produced by the library and cross-checked independently. The values were obtained by running the library, with an independent re-computation in Python for examples A and B.</p>
+
+<h2>1. The common two-term equation</h2>
+<p>Coffin–Manson–Basquin, Morrow, SWT, Wang–Brown and the Neuber/Glinka local rules all reduce to finding \(x>0\) such that</p>
+<div class="math">\[ f(x)=P\,x^{p}+Q\,x^{q}=T,\qquad P,Q,T>0,\quad p,q\neq0\ \text{of equal sign}. \]</div>
+<table><tr><th>Equation</th><th>\(x\)</th><th>\(P\)</th><th>\(p\)</th><th>\(Q\)</th><th>\(q\)</th><th>\(T\)</th></tr>
+<tr><td>CMB</td><td>\(2N_f\)</td><td>\(\sigma_f'/E\)</td><td>\(b\)</td><td>\(\varepsilon_f'\)</td><td>\(c\)</td><td>\(\varepsilon_a\)</td></tr>
+<tr><td>Morrow</td><td>\(2N_f\)</td><td>\((\sigma_f'-\sigma_m)/E\)</td><td>\(b\)</td><td>\(\varepsilon_f'\)</td><td>\(c\)</td><td>\(\varepsilon_a\)</td></tr>
+<tr><td>SWT</td><td>\(2N_f\)</td><td>\(\sigma_f'^2/E\)</td><td>\(2b\)</td><td>\(\sigma_f'\varepsilon_f'\)</td><td>\(b+c\)</td><td>\(\sigma_{\max}\varepsilon_a\)</td></tr>
+<tr><td>Wang–Brown</td><td>\(2N_f\)</td><td>\(C_1\sigma_f'/E\)</td><td>\(b\)</td><td>\(C_2\varepsilon_f'\)</td><td>\(c\)</td><td>\(\gamma_{\max}/2+S\Delta\varepsilon_n\)</td></tr>
+<tr><td>Neuber</td><td>\(\sigma\)</td><td>\(1/E\)</td><td>2</td><td>\(K'^{-1/n'}\)</td><td>\(1+1/n'\)</td><td>\(\sigma_e^2/E\)</td></tr>
+<tr><td>Glinka</td><td>\(\sigma\)</td><td>\(1/(2E)\)</td><td>2</td><td>\(K'^{-1/n'}/(1+n')\)</td><td>\(1+1/n'\)</td><td>\(\sigma_e^2/(2E)\)</td></tr></table>
+<p>With \(u=\ln x\) the function \(h(u)=\ln f(e^u)-\ln T\) is a log-sum-exp of two affine functions: convex and strictly monotone. The solver (<code>src/fatigue/TwoTermSolver.hpp</code>, internal) works as follows:</p>
+<ol>
+<li>The coefficients are kept as logarithms (\(\ln P,\ln Q\)), so terms like \(K'^{-1/n'}\) with \(n'=0.05\) (an exponent of −20) cannot overflow before use.</li>
+<li>The search interval \([u_{\rm low},u_{\rm high}]\) is the logarithm of the configured reversal bounds (strain-life) or \([\ln\sigma_e+10^{-6}-60,\ \ln\sigma_e+10^{-6}]\) (local rules; the solution never exceeds the elastic amplitude).</li>
+<li>The target must be bracketed: \(h\) must change sign across the interval. Otherwise the call fails and the caller reports the cycle as outside the interval (strain-life) or falls back to bisection (local rules).</li>
+<li>Newton iterations \(u\leftarrow u-h/h'\) start from the end where \(h\ge0\). If the Newton point leaves the current bracket, or the step does not at least halve the previous step, a bisection step is taken instead (the safeguard of the classical <em>rtsafe</em> routine). The result therefore cannot be worse than bisection and is quadratically convergent near the root.</li>
+<li>Termination: \(|\Delta u|\le 8\varepsilon_{\rm mach}\max(1,|u|)\) or bracket narrower than the same bound; at most 200 iterations.</li>
+</ol>
+<p>The earlier implementation used 160 bisection steps per cycle on a fixed interval. The new one is a drop-in replacement; the roots agree to rounding (differential tests over random parameter sets).</p>
+
+<h2>2. Measured behaviour</h2>
+<table><tr><th>Quantity</th><th>Measured</th><th>Conditions</th></tr>
+<tr><td>Iterations per solve, median</td><td>5</td><td>200 000 random parameter sets (CMB-like and Ramberg–Osgood ranges)</td></tr>
+<tr><td>Iterations, 99th percentile</td><td>9</td><td>same</td></tr>
+<tr><td>Iterations, worst case</td><td>about 50 (≤ 53 observed)</td><td>root in a nearly flat tail, where plain Newton creeps (61 iterations before the safeguard)</td></tr>
+<tr><td>Previous method</td><td>160 bisection iterations, always</td><td></td></tr></table>
+<p>These are counts of function evaluations in a micro-benchmark on one machine; wall-clock gains depend on the cost of <code>exp/log</code> and on how much of an analysis is spent in the solver (for tensor histories read from large result files, I/O and Rainflow dominate).</p>
+<div class="note"><b>Accuracy.</b> The solver tolerance is at rounding level in \(\ln x\), i.e. a relative error in life of about \(10^{-15}\times|\ln x|\) in exact arithmetic. The practical accuracy is set by the input data, which is typically known to a few percent at best; life scatter in fatigue is a factor of 2–10. Do not read significance into digits beyond the third.</div>
+
+<h2>3. Worked example A — stress-life with Rainflow and Miner</h2>
+<p>Uniaxial elastic stress history at one node, in MPa, at times 0…7:</p>
+<div class="math">\[ \sigma(t)=0,\ 800,\ 100,\ 700,\ 0,\ 900,\ 100,\ 0. \]</div>
+<p>S–N curve at 293.15 K (stress amplitude in MPa, life in cycles): \((300,10^6),(400,2\cdot10^5),(500,5\cdot10^4),(600,10^4)\).</p>
+<p><strong>Rainflow.</strong> All eight points are turning points. The counted cycles are:</p>
+<table><tr><th>#</th><th>Range [MPa]</th><th>Mean [MPa]</th><th>Count</th><th>Amplitude [MPa]</th><th>\(N\) [cycles]</th><th>\(n/N\)</th></tr>
+<tr><td>1</td><td>600</td><td>400</td><td>1.0</td><td>300</td><td>1 000 000</td><td>1.000·10⁻⁶</td></tr>
+<tr><td>2</td><td>800</td><td>400</td><td>0.5</td><td>400</td><td>200 000</td><td>2.500·10⁻⁶</td></tr>
+<tr><td>3</td><td>800</td><td>400</td><td>0.5</td><td>400</td><td>200 000</td><td>2.500·10⁻⁶</td></tr>
+<tr><td>4</td><td>900</td><td>450</td><td>0.5</td><td>450</td><td>96 214.7</td><td>5.197·10⁻⁶</td></tr>
+<tr><td>5</td><td>900</td><td>450</td><td>0.5</td><td>450</td><td>96 214.7</td><td>5.197·10⁻⁶</td></tr></table>
+<p>The interpolated life at 450 MPa is \(\log_{10}N=4.9832\) (between the 400 and 500 MPa points). Summing gives</p>
+<div class="math">\[ D=1.6393\times10^{-5},\qquad L_{\rm block}=1/D\approx6.100\times10^{4}\ \text{repetitions}. \]</div>
+<p>Note that 800→100→700→0 contains a closed inner cycle 100–700 (range 600), which is counted as a full cycle; the rest are half cycles, so the total counted weight is 3.0 (one full cycle plus four half cycles).</p>
+<p><strong>Goodman with \(S_u=900\) MPa on the same cycles.</strong> The first cycle becomes \(300/(1-400/900)=540\) MPa, \(N\approx2.53\times10^4\), but the 400 MPa-mean cycles of amplitude 400 become 720 MPa, which is above the highest tabulated amplitude (600 MPa). The evaluation therefore fails with <code>CurveEvaluationFailed</code> (status 4) rather than returning a partial sum. Extending the table is the remedy, and it must be a deliberate decision: Goodman-equivalent amplitudes above the data are extrapolations.</p>
+<p><strong>Below the curve.</strong> A cycle with amplitude 150 MPa is outside \([300,600]\) and also fails (<code>AmplitudeOutOfRange</code> inside the curve, <code>CurveEvaluationFailed</code> at damage level), with the diagnostic <em>"Amplitude is outside the common interpolation range; extrapolation is disabled."</em> For typical histories with many small cycles, add a sub-limit point to the curve; otherwise the whole position fails.</p>
+<p>The same numbers for an S–N curve with temperature slices follow by interpolating \(\log_{10}N\) linearly in kelvin between the bracketing slices; evaluating the example curve at 350 K when the only slice is 293.15 K returns <code>TemperatureOutOfRange</code> (status 9).</p>
+
+<h2>4. Worked example B — strain-life with Neuber and Glinka</h2>
+<p>Material: \(E=210\,000\) MPa, \(K'=1000\) MPa, \(n'=0.15\); \(\sigma_f'=1000\) MPa, \(b=-0.10\), \(\varepsilon_f'=0.20\), \(c=-0.50\). One cycle with elastic amplitude \(\sigma_e=300\) MPa and elastic mean 50 MPa, count 1:</p>
+<table><tr><th>Local rule</th><th>\(\varepsilon_a\)</th><th>\(\sigma_{\max}\) [MPa]</th><th>CMB life [cycles]</th><th>Morrow life</th><th>SWT life</th></tr>
+<tr><td>Neuber</td><td>1.5339·10⁻³</td><td>329.41</td><td>281 014</td><td>220 971</td><td>130 735</td></tr>
+<tr><td>Glinka</td><td>1.4576·10⁻³</td><td>321.14</td><td>381 984</td><td>295 801</td><td>170 886</td></tr></table>
+<p>Observations: (1) the mean stress of +50 MPa shortens the life by about 21% (CMB→Morrow) and about 53% (CMB→SWT) in this example; (2) the choice Neuber versus Glinka changes the life by 36% here, more than the choice between CMB and Morrow, and the difference grows with plasticity (factor 2.2 at \(\sigma_e=600\) MPa); (3) SWT is the most conservative of the three for this tensile mean.</p>
+
+
+<h2>5. Worked example C — Wang–Brown</h2>
+<p>Same strain-life constants, \(S=0.30\), \(\nu_e=0.3\), \(\nu_p=0.499\): \(C_1=1+0.3+0.7\cdot0.3=1.510\), \(C_2=1+0.499+0.501\cdot0.3=1.6493\). A cycle with \(\gamma_{\max}/2=0.004\) and \(\Delta\varepsilon_n=0.006\) has damage parameter \(0.004+0.3\cdot0.006=0.0058\), giving \(D=1.6462\times10^{-4}\) per cycle, i.e. a life of 6075 cycles. With \(S=0\) and no normal-strain excursion (pure shear cycle) the same shear amplitude gives \(D=7.047\times10^{-5}\) (life about 14 190 cycles): non-proportionality with this calibration shortens the life by a factor of about 2.3. These values only illustrate the equations; the constants are not those of a real material.</p>
+<p>The relative strain between the zero state and \(\varepsilon_{xx}=0.002,\ \varepsilon_{yy}=\varepsilon_{zz}=-0.0006,\ \varepsilon_{xy}=0.001\) is 0.002403 for \(\nu=0.3\) and 0.002083 for \(\nu\to0.5\): the effective Poisson ratio rescales the measure by \((1+\nu)\) and matters at the 15% level.</p>
+
+<h2>6. Output formatting and reproducibility</h2>
+<ul>
+<li>CSV and JSON writers write every double with 17 significant digits (exact round trip) and always use <code>.</code> as the decimal point and no digit grouping, regardless of the locale imbued in the output stream or of the global C++ locale. The stream's locale, precision and format flags are restored when the writer returns.</li>
+<li>CSV text fields are RFC 4180 quoted with embedded quotes doubled, so labels or diagnostics containing commas, quotes or newlines parse back unchanged.</li>
+<li>Results are deterministic: no threads, no randomness, and sums use Kahan compensation. Results can still differ in the last digits between compilers or CPUs because of different <code>exp/log/pow</code> implementations and fused multiply-add contraction.</li>
+</ul>
+
+<h2>7. Known limitations of this documentation</h2>
+<ul>
+<li>Numbers on this page come from a build with GCC on Linux x86-64. The code was not built with MSVC for this review.</li>
+<li>The methods are described to the extent the code implements them; no claim is made that they reproduce results of any commercial fatigue package, and no validation against test data of a real component was performed.</li>
+<li>Typical-range remarks (e.g. \(n'\approx0.1\)–0.2, \(b\approx-0.05\) to \(-0.12\)) are general engineering experience, not values enforced or verified by the library.</li>
+</ul>
+
+<div class="prevnext"><a href="parameters.html">← Parameters &amp; status codes</a><a href="index.html">Overview &amp; contents →</a></div></main></div><footer class="footer">Mathematical descriptions are tied to the implementation in <code>src/fatigue</code> and distinguish implemented algorithms from extension contracts.</footer></body></html>

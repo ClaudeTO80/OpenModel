@@ -1,0 +1,92 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Parameters and status codes — OpenModel fatigue analysis technical documentation."><title>Parameters and status codes · OpenModel Fatigue</title><link rel="stylesheet" href="assets/fatigue.css"><script>window.MathJax={tex:{inlineMath:[['\\(','\\)']],displayMath:[['\\[','\\]']],processEscapes:true},options:{skipHtmlTags:['script','noscript','style','textarea','pre','code']},chtml:{scale:1}};</script><script defer src="https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-chtml.js"></script></head><body><header class="top"><div class="brand">OpenModel · Fatigue Analysis <small>Technical and mathematical reference · main branch</small></div></header><div class="layout"><aside class="side"><strong>Fatigue documentation</strong><div class="navlinks"><a href="index.html">Overview &amp; contents</a><a href="workflow.html">C++ integration workflow</a><a href="data-contract.html">FEM data contract</a><a href="tensor-history.html">Tensor history &amp; counting</a><a href="methods.html">Methods &amp; applicability</a><a href="stress-life.html">Stress-life (S–N)</a><a href="strain-life.html">Strain-life (ε–N)</a><a href="multiaxial.html">Multiaxial &amp; Wang–Brown</a><a href="reports.html">Spectra, reports &amp; maps</a><a href="parameters.html" class="active">Parameters &amp; status codes</a><a href="numerics.html">Numerics &amp; worked examples</a></div><hr><a href="https://github.com/ClaudeTO80/OpenModel/blob/main/README.md">OpenModel README ↗</a><a href="https://github.com/ClaudeTO80/OpenModel/tree/main/src/fatigue">Fatigue source ↗</a></aside><main class="content"><div class="crumb"><a href="index.html">Fatigue documentation</a> / Parameters and status codes</div><div class="eyebrow">C++17 · solver-neutral fatigue module</div>
+<h1>Execution parameters and status codes</h1>
+<p class="lead">Every tunable input of the fatigue module with its type, unit, default, valid range and effect, followed by the status codes each stage can return. Values shown as defaults are those of the C++ structs; nothing is read from a configuration file.</p>
+<div class="note"><b>Units.</b> The module never converts units. A <code>PhysicalUnit</code> (dimension, symbol, <code>scaleToSI</code>, <code>offsetToSI</code>) attached to the data must match the unit of the material curve <em>exactly</em> (same symbol and scale), otherwise the stage returns <code>IncompatibleUnit</code>. Temperatures are always absolute (kelvin).</div>
+
+<h2>1. Source preparation: <code>FatiguePreparationOptions</code></h2>
+<p>Policies applied by <code>FatigueSamplePreparer</code> to the provenance recorded with each FEM sample (see the <a href="data-contract.html">data contract</a>).</p>
+<table><tr><th>Field</th><th>Default</th><th>Meaning</th><th>When to change</th></tr>
+<tr><td><code>allowAveraged</code></td><td>false</td><td>Accept values averaged across elements/nodes by the solver.</td><td>Averaged nodal stress smooths peaks at discontinuities; enable only for smooth fields, and expect non-conservative results at notches.</td></tr>
+<tr><td><code>allowDerived</code></td><td>true</td><td>Accept values derived by the solver from other fields.</td><td>Disable for strict audit trails.</td></tr>
+<tr><td><code>allowInterpolated</code></td><td>false</td><td>Accept interpolated values (e.g. integration point → node).</td><td>Normally keep false: fatigue hot spots should come from the native location.</td></tr>
+<tr><td><code>allowExtrapolated</code></td><td>false</td><td>Accept extrapolated values (e.g. integration point → surface).</td><td>Extrapolation can overshoot at the surface; enable consciously.</td></tr></table>
+
+<h2>2. History and projection</h2>
+<table><tr><th>Parameter</th><th>Type / unit</th><th>Default</th><th>Valid range</th><th>Effect</th></tr>
+<tr><td><code>fieldName</code></td><td>string</td><td>—</td><td>Must exist in the source</td><td>Result field to read (e.g. <code>S</code> or <code>STRESS</code>). Matching is case-sensitive.</td></tr>
+<tr><td><code>position</code></td><td><code>ResultPosition</code></td><td>—</td><td>Location kind + id (+ integration point)</td><td>Node, element or integration point. No location fallback is performed.</td></tr>
+<tr><td><code>targetFrame</code></td><td><code>ReferenceFrame</code></td><td>Global</td><td>Frames the source can transform to</td><td>Frame in which tensors are expressed before projection. A missing transform fails the history (<code>MissingCoordinateTransform</code>).</td></tr>
+<tr><td><code>projection.direction</code></td><td>unit vector in <code>targetFrame</code></td><td>(1,0,0)</td><td>Finite, \(\big|\,|n|^2-1\big|\le10^{-8}\)</td><td>Direction \(n\) of the scalar \(n^\top\sigma n\). Not normalised for you.</td></tr>
+<tr><td>Step parameter kind</td><td><code>StepParameterKind</code></td><td>—</td><td>Must be <code>Time</code></td><td>Frequency, load-factor and user steps are rejected (<code>NonTimeStep</code>). Times must be finite and strictly increasing.</td></tr></table>
+
+<h2>3. Stress-life run (<code>FatigueAnalysis::run</code>)</h2>
+<table><tr><th>Parameter</th><th>Default</th><th>Effect and range</th></tr>
+<tr><td><code>material</code></td><td>—</td><td><code>FatigueMaterial</code> containing a valid <code>StressLifeSN</code> curve. Validated before the run.</td></tr>
+<tr><td><code>temperatureKelvin</code></td><td>293.15</td><td>Selects/interpolates S–N slices. Outside the slice range → <code>TemperatureOutOfRange</code>.</td></tr>
+<tr><td>Mean-stress correction</td><td><code>None</code></td><td><code>FatigueAnalysis::run</code> does not expose it; use <code>PalmgrenMiner</code> with <code>FatigueDamageInput::meanStressCorrection</code> on the counted cycles (see <a href="workflow.html">workflow §4</a>).</td></tr></table>
+<h3>S–N curve data (<code>FatigueCurveSlice</code>, <code>FatigueCurvePoint</code>)</h3>
+<table><tr><th>Rule</th><th>Violation reports</th></tr>
+<tr><td>At least one slice, each with ≥ 2 points (for interpolation)</td><td><code>EmptyCurve</code>, <code>InvalidPoint</code></td></tr>
+<tr><td>Slice temperatures unique, finite, &gt; 0 K</td><td><code>DuplicateTemperature</code>, <code>InvalidTemperature</code></td></tr>
+<tr><td>Amplitude strictly increasing, positive</td><td><code>NonIncreasingAmplitude</code>, <code>InvalidPoint</code></td></tr>
+<tr><td>Life strictly decreasing, positive</td><td><code>NonIncreasingLife</code>, <code>InvalidPoint</code></td></tr>
+<tr><td>Curve unit is a valid stress unit</td><td><code>InvalidUnit</code></td></tr>
+<tr><td>Amplitude, not range, is tabulated</td><td>(not checkable) — a table of ranges mistaken for amplitudes overestimates life, so check the source of the data</td></tr></table>
+
+<h2>4. Mean-stress parameters (<code>MeanStressCorrectionParameters</code>)</h2>
+<table><tr><th>Field</th><th>Used by</th><th>Unit</th><th>Default</th><th>Notes</th></tr>
+<tr><td><code>ultimateTensileStrength</code> \(S_u\)</td><td>Goodman, Gerber</td><td>stress (as the curve)</td><td>0 (invalid)</td><td>Use the minimum or mean ultimate strength consistently with the S–N data.</td></tr>
+<tr><td><code>yieldStrength</code> \(S_y\)</td><td>Soderberg</td><td>stress</td><td>0 (invalid)</td><td>Yield or 0.2 % proof stress.</td></tr>
+<tr><td><code>trueFractureStrength</code> \(S_f\)</td><td>Morrow (S–N form)</td><td>stress</td><td>0 (invalid)</td><td>May be an explicitly calibrated reference strength.</td></tr></table>
+<p>A required strength that is zero or negative yields <code>MissingMaterialProperty</code>; a mean at or beyond the strength yields <code>OutsideMaterialStrength</code> (or <code>NonPositiveDenominator</code> for Gerber); SWT with \(\sigma_{\max}\le0\) yields <code>NonTensileMaximumStress</code>.</p>
+
+<h2>5. Strain-life run (<code>StrainLifeAnalysis::run</code>)</h2>
+<table><tr><th>Parameter</th><th>Default</th><th>Valid range</th><th>Effect</th></tr>
+<tr><td><code>cyclicMaterial.youngsModulus</code> \(E\)</td><td>—</td><td>&gt; 0, stress unit</td><td>Elastic slope and CMB elastic term.</td></tr>
+<tr><td><code>cyclicMaterial.cyclicStrengthCoefficient</code> \(K'\)</td><td>—</td><td>&gt; 0</td><td>Ramberg–Osgood strength coefficient.</td></tr>
+<tr><td><code>cyclicMaterial.cyclicStrainHardeningExponent</code> \(n'\)</td><td>—</td><td>\(0&lt;n'\le1\)</td><td>Typical metals: 0.1–0.2. Very small \(n'\) makes the plastic term very steep; the solver works in logarithms to remain stable (see <a href="numerics.html">numerics</a>).</td></tr>
+<tr><td><code>strainLifeMaterial.fatigueStrengthCoefficient</code> \(\sigma_f'\)</td><td>—</td><td>&gt; 0</td><td>CMB elastic term.</td></tr>
+<tr><td><code>…fatigueStrengthExponent</code> \(b\)</td><td>—</td><td>&lt; 0</td><td>Typically −0.05 … −0.12.</td></tr>
+<tr><td><code>…fatigueDuctilityCoefficient</code> \(\varepsilon_f'\)</td><td>—</td><td>&gt; 0</td><td>CMB plastic term.</td></tr>
+<tr><td><code>…fatigueDuctilityExponent</code> \(c\)</td><td>—</td><td>&lt; 0</td><td>Typically −0.5 … −0.7.</td></tr>
+<tr><td><code>meanStressModel</code></td><td><code>None</code></td><td>None, Morrow, SmithWatsonTopper</td><td>See <a href="methods.html">methods §6</a>.</td></tr>
+<tr><td><code>correctionMethod</code></td><td><code>Neuber</code></td><td>Neuber, Glinka</td><td>Local elastic–plastic conversion.</td></tr>
+<tr><td><code>temperatureKelvin</code></td><td>293.15</td><td>—</td><td>Recorded in the result; the constants themselves are for a single condition and are not temperature interpolated.</td></tr>
+<tr><td><code>minimumReversals</code></td><td>1</td><td>&gt; 0</td><td>Lower end of the life search interval, in reversals \(2N_f\). A cycle needing less is reported as outside the interval.</td></tr>
+<tr><td><code>maximumReversals</code></td><td>\(10^{16}\)</td><td>&gt; minimum</td><td>Upper end. A cycle whose damage parameter is below the value at this life (a run-out) is also reported as outside the interval. Widen it, or filter such cycles, if run-out cycles should simply contribute zero.</td></tr></table>
+<div class="warning"><b>Run-out cycles.</b> The strain-life models return <code>CurveEvaluationFailed</code> for any cycle whose life is outside \([2N_{\min},2N_{\max}]\); they do not silently discard it. The accepted strain parameter range is therefore \([f(2N_{\max}),\,f(2N_{\min})]\), where \(f\) is the life relation of the model.</div>
+
+<h2>6. Spectrum and reports</h2>
+<table><tr><th>Parameter</th><th>Default</th><th>Effect</th></tr>
+<tr><td><code>FatigueLoadBlockInput::repetitions</code></td><td>1.0</td><td>Occurrences of the block in one spectrum repetition; finite and &gt; 0. Damage contribution \(=r_b\,D_b\).</td></tr>
+<tr><td><code>FatigueLoadBlockInput::label</code></td><td>empty</td><td>Free text carried to the result and reports.</td></tr>
+<tr><td>Per-position material</td><td>—</td><td>In multi-position reports each position carries its own material; there is no default material and damage is never aggregated across positions.</td></tr>
+<tr><td><code>FatigueReportWriter::writeJson(report, out, includeCycles)</code></td><td>false</td><td>When true, the counted Rainflow cycles of every position are included. Numbers are written with 17 significant digits and a <code>.</code> decimal point regardless of the stream's locale; the caller's stream state is restored.</td></tr></table>
+
+<h2>7. Wang–Brown material (<code>WangBrownMaterialParameters</code>)</h2>
+<table><tr><th>Field</th><th>Valid range</th><th>Notes</th></tr>
+<tr><td><code>strainLife</code></td><td>as §5 CMB constants</td><td>Elastic modulus, \(\sigma_f',b,\varepsilon_f',c\).</td></tr>
+<tr><td><code>nonProportionalityCoefficient</code> \(S\)</td><td>\(\ge0\), finite</td><td>0 = pure shear-strain criterion. Must be calibrated.</td></tr>
+<tr><td><code>elasticPoissonRatio</code> \(\nu_e\)</td><td>\(-1&lt;\nu_e&lt;0.5\)</td><td>Typically 0.3 for metals.</td></tr>
+<tr><td><code>plasticPoissonRatio</code> \(\nu_p\)</td><td>\(-1&lt;\nu_p&lt;0.5\)</td><td>0.5 is the incompressible limit; the code requires strictly below 0.5, so use e.g. 0.499.</td></tr></table>
+
+<h2>8. Status codes</h2>
+<p>All results convert to <code>bool</code> as <code>status == Success</code>. Failure never throws; always inspect <code>status</code> and <code>diagnostic</code>.</p>
+<table><tr><th>Stage</th><th>Codes</th></tr>
+<tr><td>Tensor normalisation</td><td><code>UnsupportedQuantity</code>, <code>UnsupportedComponentKind</code>, <code>InvalidComponentCount</code>, <code>UnknownComponentLabel</code>, <code>DuplicateComponent</code>, <code>MissingComponent</code>, <code>UnknownShearConvention</code>, <code>UnsupportedCoordinateFrame</code>, <code>MissingCoordinateTransform</code>, <code>InvalidCoordinateTransform</code>, <code>NonFiniteValue</code></td></tr>
+<tr><td>Sample preparation</td><td><code>SourceReadFailed</code>, <code>UnsupportedQuantity</code>, <code>IncompatiblePhysicalDimension</code>, <code>AveragedSampleRejected</code>, <code>InterpolatedSampleRejected</code>, <code>ExtrapolatedSampleRejected</code>, <code>NormalizationFailed</code></td></tr>
+<tr><td>History</td><td><code>EmptySource</code>, <code>StepUnavailable</code>, <code>NonTimeStep</code>, <code>InvalidTime</code>, <code>NonIncreasingTime</code>, <code>SamplePreparationFailed</code>, <code>MixedQuantity</code>, <code>InconsistentUnits</code></td></tr>
+<tr><td>Curve</td><td><code>EmptyCurve</code>, <code>InvalidTemperature</code>, <code>DuplicateTemperature</code>, <code>InvalidUnit</code>, <code>IncompatibleUnit</code>, <code>InvalidPoint</code>, <code>NonIncreasingAmplitude</code>, <code>NonIncreasingLife</code>, <code>TemperatureOutOfRange</code>, <code>AmplitudeOutOfRange</code>, <code>InvalidMaterial</code></td></tr>
+<tr><td>Mean stress</td><td><code>InvalidInput</code>, <code>MissingMaterialProperty</code>, <code>NonPositiveDenominator</code>, <code>OutsideMaterialStrength</code>, <code>NonTensileMaximumStress</code></td></tr>
+<tr><td>Damage</td><td><code>InvalidInput</code>, <code>IncompatibleQuantity</code>, <code>IncompatibleUnit</code>, <code>CurveEvaluationFailed</code>, <code>NumericalOverflow</code>, <code>UnsupportedModel</code></td></tr>
+<tr><td>Local correction</td><td><code>InvalidInput</code>, <code>IncompatibleUnit</code>, <code>NumericalFailure</code></td></tr>
+<tr><td>Stress-life analysis</td><td><code>InvalidMaterial</code>, <code>MissingSNcurve</code>, <code>HistoryBuildFailed</code>, <code>NonStressHistory</code>, <code>CycleCountingFailed</code>, <code>DamageEvaluationFailed</code></td></tr>
+<tr><td>Strain-life analysis</td><td><code>InvalidInput</code>, <code>HistoryBuildFailed</code>, <code>NonStressHistory</code>, <code>CycleCountingFailed</code>, <code>LocalCorrectionFailed</code>, <code>DamageEvaluationFailed</code></td></tr>
+<tr><td>Spectrum</td><td><code>EmptySpectrum</code>, <code>InvalidBlock</code>, <code>BlockAnalysisFailed</code>, <code>NumericalOverflow</code></td></tr>
+<tr><td>Reports</td><td><code>EmptySelection</code>, <code>InvalidInput</code>, <code>PartialFailure</code>, <code>AllPositionsFailed</code></td></tr>
+<tr><td>Damage map</td><td><code>EmptyReport</code>, <code>NoMeshMatch</code>, <code>PartialMeshMatch</code></td></tr>
+<tr><td>Viewer adapter</td><td><code>EmptyMap</code>, <code>UnsupportedLocation</code>, <code>MissingDamage</code>, <code>DuplicateElement</code>, <code>MissingElement</code>, <code>InvalidDamage</code></td></tr>
+<tr><td>Writers</td><td><code>InvalidReport</code>, <code>StreamError</code></td></tr></table>
+<p><strong>Partial failure policy.</strong> In multi-position reports, a failing position does not abort the others: the report status is <code>PartialFailure</code> and each failed row carries its own status and diagnostic. Only if every position fails is the status <code>AllPositionsFailed</code>. Aggregate quantities such as the maximum damage consider successful positions only; check <code>successfulPositions</code> against the number requested before trusting a maximum.</p>
+
+<div class="prevnext"><a href="reports.html">← Spectra, reports &amp; maps</a><a href="numerics.html">Numerics &amp; worked examples →</a></div></main></div><footer class="footer">Mathematical descriptions are tied to the implementation in <code>src/fatigue</code> and distinguish implemented algorithms from extension contracts.</footer></body></html>

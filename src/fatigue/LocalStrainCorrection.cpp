@@ -24,12 +24,20 @@ double cyclicStrain(double stress, const CyclicStressStrainParameters& m) {
                  1.0 / m.cyclicStrainHardeningExponent);
 }
 
+/**
+ * @brief Strain-energy density W = int_0^eps sigma d(eps) of the cyclic
+ *        Ramberg-Osgood curve.
+ *
+ * The plastic part is K' * eps_p^(n'+1) / (n'+1) = sigma * eps_p / (n'+1),
+ * with eps_p = (sigma / K')^(1/n'). Dividing by (1 + 1/n') instead would give
+ * the complementary energy int_0^sigma eps d(sigma), which is not the quantity
+ * equated by Glinka's rule.
+ */
 double glinkaEnergy(double stress, const CyclicStressStrainParameters& m) {
     const double n = m.cyclicStrainHardeningExponent;
     const double elastic = stress * stress / (2.0 * m.youngsModulus);
-    const double plastic = m.cyclicStrengthCoefficient *
-        std::pow(stress / m.cyclicStrengthCoefficient, 1.0 + 1.0 / n) /
-        (1.0 + 1.0 / n);
+    const double plastic = stress *
+        std::pow(stress / m.cyclicStrengthCoefficient, 1.0 / n) / (1.0 + n);
     return elastic + plastic;
 }
 
