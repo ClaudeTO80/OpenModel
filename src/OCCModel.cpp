@@ -1,6 +1,8 @@
+#include <cmath>
 #include <OpenModel/OCCModel.hpp>
 
 #include <BRepBndLib.hxx>
+#include <Bnd_OBB.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
 #include <BRepClass3d_SolidClassifier.hxx>
 #include <BRepClass_FaceClassifier.hxx>
@@ -180,7 +182,7 @@ bool OCCModel::loadFromFile(const std::string& filepath)  {
         m_edgeMap.Clear();
         m_vertexMap.Clear();
         m_solidBoxes.clear();
-        m_faceBoxes.clear();
+        m_faceBoxes.clear(); m_faceObbCache.reset();
         m_edgeBoxes.clear();
         m_vertexBoxes.clear();
 
@@ -242,7 +244,7 @@ bool OCCModel::loadFromFile(const std::string& filepath)  {
             m_solidMap.Clear();
             m_faceMap.Clear();
             m_solidBoxes.clear();
-            m_faceBoxes.clear();
+            m_faceBoxes.clear(); m_faceObbCache.reset();
             return false;
         }
 
@@ -417,6 +419,7 @@ void OCCModel::indexShape() {
     m_solidBoxes.clear();
     m_faceBoxes.clear();
     m_faceProjectors.clear();
+    m_faceObbCache = std::make_shared<FaceObbCache>();
     m_edgeBoxes.clear();
     m_vertexBoxes.clear();
     if (m_rawShape.IsNull()) return;
@@ -467,10 +470,29 @@ std::vector<int> OCCModel::facesContainingPoint(const std::array<double, 3>& poi
     std::vector<int> result;
     const gp_Pnt p(point[0], point[1], point[2]);
     const TopoDS_Vertex vertex = BRepBuilderAPI_MakeVertex(p);
+    FaceObbCache* obbs = m_faceObbCache.get();
+    if (obbs) {
+        std::call_once(obbs->once, [&] {
+            Bnd_Box all;
+            for (const auto& box : m_faceBoxes) all.Add(box);
+            double x0 = 0, y0 = 0, z0 = 0, x1 = 0, y1 = 0, z1 = 0;
+            if (!all.IsVoid()) all.Get(x0, y0, z0, x1, y1, z1);
+            obbs->slack = 1e-5 * std::sqrt((x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0) + (z1 - z0) * (z1 - z0));
+            obbs->boxes.resize(static_cast<std::size_t>(m_faceMap.Extent()));
+            for (Standard_Integer k = 1; k <= m_faceMap.Extent(); ++k) {
+                Bnd_OBB obb;
+                BRepBndLib::AddOBB(m_faceMap(k), obb, Standard_False, Standard_False, Standard_False);
+                obb.Enlarge(obbs->slack);
+                obbs->boxes[static_cast<std::size_t>(k - 1)] = obb;
+            }
+        });
+    }
+    const bool useObb = obbs && obbs->boxes.size() == m_faceBoxes.size() && tolerance <= obbs->slack;
     for (Standard_Integer i = 1; i <= m_faceMap.Extent(); ++i) {
         Bnd_Box box = m_faceBoxes[static_cast<std::size_t>(i - 1)];
         box.Enlarge(tolerance);
         if (box.IsOut(p)) continue;
+        if (useObb && obbs->boxes[static_cast<std::size_t>(i - 1)].IsOut(p)) continue;
         // Fast path: project onto the underlying surface (cached projector). A point farther than
         // `tolerance` from the whole surface cannot be within `tolerance` of the face, and a point
         // within `tolerance` whose UV lies strictly inside the face is on it. Everything else

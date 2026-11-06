@@ -4,6 +4,7 @@
 
 #include <BRepCheck_Analyzer.hxx>
 #include <Bnd_Box.hxx>
+#include <Bnd_OBB.hxx>
 #include <ShapeAnalysis_Surface.hxx>
 #include <TDF_Label.hxx>
 #include <BRepMesh_IncrementalMesh.hxx>
@@ -35,6 +36,8 @@
 #include <limits>
 #include <string>
 #include <utility>
+#include <memory>
+#include <mutex>
 #include <vector>
 
 // Open CASCADE Technology adapter. Keeps the native B-Rep shape separate from
@@ -55,6 +58,17 @@ private:
     std::vector<Bnd_Box> m_faceBoxes;
     /** Per-face projector onto the underlying surface (null when the face has no surface); used by the fast point-on-face test. */
     std::vector<opencascade::handle<ShapeAnalysis_Surface>> m_faceProjectors;
+    /**
+     * Oriented bounding boxes of the faces, built on the first point-on-face query (building them
+     * takes seconds on large assemblies and is not needed by callers that never query points).
+     * Tighter than the axis-aligned boxes for tilted cylinders and cones, which removes most false candidates.
+     */
+    struct FaceObbCache {
+        std::once_flag once;
+        std::vector<Bnd_OBB> boxes;   ///< Enlarged by `slack`.
+        double slack = 0.0;           ///< Queries with a larger tolerance skip this filter.
+    };
+    std::shared_ptr<FaceObbCache> m_faceObbCache;
     std::vector<Bnd_Box> m_edgeBoxes;
     std::vector<Bnd_Box> m_vertexBoxes;
 
