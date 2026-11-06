@@ -11,6 +11,7 @@
 #include <iterator>
 #include <memory>
 #include <stdexcept>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -105,6 +106,24 @@ int main() {
         const auto inp = readFile(inpPath);
         require(inp.find("*NODE") != std::string::npos, "INP output is missing *NODE");
         require(inp.find("*ELEMENT, TYPE=C3D4") != std::string::npos, "INP output is missing C3D4 elements");
+
+        {
+            // Volume -> solid assignment: the solids found at most sample points win. A coarse element
+            // spanning a bore has its centroid in the solid that fills the bore (a nut around a rod).
+            bool agree = true;
+            using Set = std::set<int>;
+            require(GmshMesher::solidsByMajority({{10}, {10}, {8}, {10}, {10}}, agree) == Set{10} && !agree,
+                    "An outlier sample outvoted the solid of the volume");
+            require(GmshMesher::solidsByMajority({{8}, {10}, {10}, {10}}, agree) == Set{10},
+                    "The first sample decided the solid of the volume");
+            require(GmshMesher::solidsByMajority({{9, 11}, {9, 11}, {11}}, agree) == Set{11},
+                    "A solid overlapping part of the volume was kept");
+            require(GmshMesher::solidsByMajority({{3, 4}, {3, 4}}, agree) == Set{3, 4} && agree,
+                    "Coincident solids were not both kept");
+            require(GmshMesher::solidsByMajority({{}, {}}, agree).empty(), "A volume outside every solid was matched");
+            require(GmshMesher::solidsByMajority({{}, {5}}, agree) == Set{5},
+                    "A sample outside every solid hid the matching solid");
+        }
 
         // Quadratic tetrahedra: verify high-order connectivity survives extraction
         // and the Abaqus writer maps it to C3D10.

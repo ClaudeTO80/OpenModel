@@ -53,6 +53,20 @@ public:
     /** Audit data from the most recent buildMesh call, one record per meshed CAD surface. */
     const std::vector<CADFaceMappingRecord>& faceMappingReport() const noexcept { return m_faceMappingReport; }
 
+    /**
+     * @brief Pick the CAD solid(s) of a Gmsh volume from the solids found at its sample points.
+     *
+     * The centroid of a coarse element can fall outside the solid, for example in the bore of a nut, where it
+     * lands in the solid filling the bore. Taking the first sample, or the intersection of all of them, then
+     * assigns the volume to the wrong solid. The solids that contain the most samples are returned, so
+     * coincident solids (all samples shared) are all kept while an outlier sample is outvoted.
+     *
+     * @param hitsPerSample For every sample point the ids of the CAD solids containing it.
+     * @param agree         Set to true when every sample produced the same set of solids.
+     * @return Solids with the highest sample count; empty when no sample hit any solid.
+     */
+    static std::set<int> solidsByMajority(const std::vector<std::vector<int>>& hitsPerSample, bool& agree);
+
     bool buildMesh(const std::shared_ptr<CADModel>& cadModel,
                    const MeshingOptions& options,
                    MeshData& outMesh) override ;

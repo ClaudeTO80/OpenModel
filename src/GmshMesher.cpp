@@ -288,6 +288,22 @@ ElementType GmshMesher::mapElementType(int gmshType) noexcept {
     
 }
 
+std::set<int> GmshMesher::solidsByMajority(const std::vector<std::vector<int>>& hitsPerSample, bool& agree) {
+    agree = true;
+    std::map<int, std::size_t> votes;
+    std::set<int> first;
+    for (std::size_t k = 0; k < hitsPerSample.size(); ++k) {
+        const std::set<int> hits(hitsPerSample[k].begin(), hitsPerSample[k].end());
+        if (k == 0) first = hits; else if (hits != first) agree = false;
+        for (const int solid : hits) ++votes[solid];
+    }
+    std::size_t best = 0;
+    for (const auto& vote : votes) best = std::max(best, vote.second);
+    std::set<int> result;
+    for (const auto& vote : votes) if (vote.second == best && best > 0) result.insert(vote.first);
+    return result;
+}
+
 void GmshMesher::mapCadGroups(const CADModel& cad, MeshData& mesh,
                               const std::unordered_map<std::size_t, NodeIndex>& nodeTagToIndex,
                               const std::map<std::pair<int, int>, std::vector<ElementId>>& elementIdsByEntity,
@@ -328,22 +344,21 @@ void GmshMesher::mapCadGroups(const CADModel& cad, MeshData& mesh,
         std::vector<double> localCoordinates;
         gmsh::model::mesh::getElementProperties(types[0], typeName, dim, order, numNodes, localCoordinates, numPrimary);
         const std::size_t count = tags[0].size();
-        std::set<int> common;
-        bool first = true, agree = true;
-        for (const std::size_t sample : {std::size_t(0), count / 2, count - 1}) {
+        // Up to 32 evenly spaced elements: the solids found at them are voted on (see solidsByMajority).
+        const std::size_t sampleCount = std::min<std::size_t>(count, 32);
+        std::vector<std::vector<int>> hitsPerSample;
+        hitsPerSample.reserve(sampleCount);
+        for (std::size_t k = 0; k < sampleCount; ++k) {
+            const std::size_t sample = sampleCount == 1 ? 0 : k * (count - 1) / (sampleCount - 1);
             std::array<double, 3> centroid{{0, 0, 0}};
             for (int n = 0; n < numPrimary; ++n) {
                 const auto c = coordinates(nodeTags[0][sample * static_cast<std::size_t>(numNodes) + static_cast<std::size_t>(n)]);
-                for (int k = 0; k < 3; ++k) centroid[static_cast<std::size_t>(k)] += c[static_cast<std::size_t>(k)] / numPrimary;
+                for (int j = 0; j < 3; ++j) centroid[static_cast<std::size_t>(j)] += c[static_cast<std::size_t>(j)] / numPrimary;
             }
-            const auto hit = cad.solidsContainingPoint(centroid, tolerance);
-            const std::set<int> hits(hit.begin(), hit.end());
-            if (first) { common = hits; first = false; continue; }
-            if (hits != common) agree = false;
-            std::set<int> both;
-            std::set_intersection(common.begin(), common.end(), hits.begin(), hits.end(), std::inserter(both, both.begin()));
-            if (!both.empty()) common = both;
+            hitsPerSample.push_back(cad.solidsContainingPoint(centroid, tolerance));
         }
+        bool agree = true;
+        const std::set<int> common = solidsByMajority(hitsPerSample, agree);
         if (common.empty()) { ++unmatchedVolumes; continue; }
         if (!agree) ++ambiguousVolumes;
         if (common.size() > 1) ++overlapVolumes;
@@ -352,7 +367,7 @@ void GmshMesher::mapCadGroups(const CADModel& cad, MeshData& mesh,
     if (unmatchedVolumes)
         m_diagnostics.push_back(std::to_string(unmatchedVolumes) + " Gmsh volume(s) could not be matched to any CAD solid (left out of the CAD groups).");
     if (ambiguousVolumes)
-        m_diagnostics.push_back(std::to_string(ambiguousVolumes) + " Gmsh volume(s) gave inconsistent solid matches across sample points.");
+        m_diagnostics.push_back(std::to_string(ambiguousVolumes) + " Gmsh volume(s) gave inconsistent solid matches across sample points; the solid(s) found at most samples were used.");
     if (overlapVolumes)
         m_diagnostics.push_back(std::to_string(overlapVolumes) + " Gmsh volume(s) lie inside more than one CAD solid (overlapping solids): they belong to several groups.");
 
