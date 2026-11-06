@@ -1,3 +1,4 @@
+#include "support/quadratic_order_check.hpp"
 #include <OpenModel/TetGenMesher.hpp>
 #include <OpenModel/MeshValidator.hpp>
 
@@ -114,6 +115,14 @@ int main() {
         require(quadraticFace && !quadraticFace->nodeIndices.empty(),
                 "TetGen quadratic face group has no boundary nodes");
         require(quadratic.validate().empty(), "TetGen quadratic mesh failed structural validation");
+        {
+            // TetGen orders the mid-edge nodes of a Tetrahedron10 differently from Abaqus/code_aster.
+            std::size_t tets = 0, tris = 0;
+            const double deviation = quadratic_order::maxMidNodeDeviation(quadratic, tets, tris);
+            require(tets > 0 && tris > 0, "No quadratic elements to check");
+            require(deviation < 1e-9, "TetGen quadratic mid-edge nodes are not in the Abaqus order (deviation " +
+                                          std::to_string(deviation) + ")");
+        }
 
         // An unmappable group is rejected atomically and reported, but must not abort the mesh;
         // a user group whose name collides with a CAD group is renamed instead of failing.

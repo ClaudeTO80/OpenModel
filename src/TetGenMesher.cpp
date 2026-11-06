@@ -179,8 +179,14 @@ bool TetGenMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Me
             for (int i = 0; i < out.numberoftetrahedra; ++i) {
                 std::vector<NodeIndex> connectivity;
                 connectivity.reserve(static_cast<std::size_t>(nodesPerElem));
+                // TetGen stores the six mid-edge nodes of a quadratic tetrahedron on the edges
+                // 2-3, 0-3, 0-1, 1-2, 1-3, 0-2 (measured on its output); OpenModel uses the
+                // Abaqus/code_aster order 0-1, 1-2, 2-0, 0-3, 1-3, 2-3. With the raw order every
+                // element has a non-positive Jacobian determinant somewhere.
+                static constexpr int kTetGenToAbaqus10[10] = {0, 1, 2, 3, 6, 7, 9, 5, 8, 4};
                 for (int n = 0; n < nodesPerElem; ++n) {
-                    const int nodeIdx = out.tetrahedronlist[i * nodesPerElem + n];
+                    const int source = nodesPerElem == 10 ? kTetGenToAbaqus10[n] : n;
+                    const int nodeIdx = out.tetrahedronlist[i * nodesPerElem + source];
                     if (nodeIdx < 0 || nodeIdx >= out.numberofpoints)
                         throw std::runtime_error("TetGen ha restituito un indice nodale non valido.");
                     connectivity.push_back(static_cast<NodeIndex>(nodeIdx));
@@ -213,8 +219,10 @@ bool TetGenMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Me
                     connectivity.push_back(static_cast<NodeIndex>(nodeIdx));
                 }
                 if (quadraticSurface) {
+                    // o2facelist holds the mid nodes of the edges 1-2, 2-0, 0-1 (measured); OpenModel
+                    // expects 0-1, 1-2, 2-0 (Abaqus/code_aster Triangle6).
                     for (int n = 0; n < 3; ++n) {
-                        const int nodeIdx = out.o2facelist[i * 3 + n];
+                        const int nodeIdx = out.o2facelist[i * 3 + (n + 2) % 3];
                         if (nodeIdx < 0 || nodeIdx >= out.numberofpoints)
                             throw std::runtime_error("TetGen second-order boundary face references an invalid node");
                         connectivity.push_back(static_cast<NodeIndex>(nodeIdx));

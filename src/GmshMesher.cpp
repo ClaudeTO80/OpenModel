@@ -168,7 +168,12 @@ bool GmshMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Mesh
                             std::vector<NodeIndex> connectivity;
                             connectivity.reserve(nodesPerElement);
                             for (std::size_t n = 0; n < nodesPerElement; ++n) {
-                                const auto found = nodeTagToIndex.find(nodes[e * nodesPerElement + n]);
+                                // Gmsh lists the last two mid-edge nodes of a 10-node tetrahedron on the
+                                // edges 3-2 and 3-1; the Abaqus/OpenModel order is 1-3 and 2-3, so they
+                                // are swapped. Other supported types already share the order.
+                                std::size_t source = n;
+                                if (type == ElementType::Tetrahedron10 && n >= 8) source = 17 - n;
+                                const auto found = nodeTagToIndex.find(nodes[e * nodesPerElement + source]);
                                 if (found == nodeTagToIndex.end())
                                     throw std::runtime_error("Element refers to an unknown Gmsh node tag");
                                 connectivity.push_back(found->second);

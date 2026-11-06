@@ -1,3 +1,4 @@
+#include "support/quadratic_order_check.hpp"
 #include <OpenModel/GmshMesher.hpp>
 #include <OpenModel/AbaqusInpWriter.hpp>
 #include <OpenModel/MeshValidator.hpp>
@@ -116,6 +117,14 @@ int main() {
                 "Quadratic mesh contains no Tetrahedron10 block");
         const auto quadraticReport = MeshValidator::validate(quadraticVolume);
         require(!quadraticReport.hasErrors(), "Quadratic volume mesh failed MeshValidator");
+        {
+            // Gmsh orders the last two mid-edge nodes of a Tetrahedron10 differently from Abaqus.
+            std::size_t tets = 0, tris = 0;
+            const double deviation = quadratic_order::maxMidNodeDeviation(quadraticVolume, tets, tris);
+            require(tets > 0, "No Tetrahedron10 elements to check");
+            require(deviation < 1e-9, "Quadratic mid-edge nodes are not in the Abaqus order (deviation " +
+                                          std::to_string(deviation) + ")");
+        }
         const auto writeQuadratic = AbaqusInpWriter::writeFile(inpQuadraticPath.string(), quadraticVolume);
         require(writeQuadratic.success, "Quadratic INP export failed");
         require(readFile(inpQuadraticPath).find("*ELEMENT, TYPE=C3D10") != std::string::npos,
