@@ -90,6 +90,44 @@ bool sameMesh(const MeshData& a, const MeshData& b) {
     return true;
 }
 
+/** Two surface groups whose names differ only in case: a pressure on "top" must use the group named "top". */
+void testPressureGroupCaseResolution() {
+    auto mesh = makeHex();
+    mesh.addPhysicalGroup("top", 2, 5, {103});   // sanitised to TOP_2 (TOP is taken by "Top")
+    const auto model = parseOk("material E=210000 nu=0.3\nfix group:Bottom\npressure group:top p=2.5\n");
+    const auto dir = tempDir();
+    CodeAsterOptions options;
+    options.jobName = "case";
+    const auto r = writeCodeAsterCase(mesh, model, dir, options);
+    CHECK(r.success);
+    if (!r.success) { std::cerr << r.error << "\n"; return; }
+    const std::string mail = slurp(r.meshFile), comm = slurp(r.commFile);
+    CHECK(contains(mail, "GROUP_MA NOM = TOP\n M102\nFINSF"));
+    CHECK(contains(mail, "GROUP_MA NOM = TOP_2\n M103\nFINSF"));
+    CHECK(contains(comm, "GROUP_MA='TOP_2', PRES=2.5"));   // not 'TOP', which is the group "Top"
+    CHECK(!contains(comm, "GROUP_MA='TOP', PRES"));
+    fs::remove_all(dir);
+}
+
+/** A directory name with a blank is reported: the .export fields are split on blanks. */
+void testBlankInPathWarning() {
+    const auto mesh = makeHex();
+    const auto model = parseOk("material E=210000 nu=0.3\nfix group:Bottom\n");
+    const auto base = tempDir();
+    const auto spaced = base / "my case";
+    CodeAsterOptions options;
+    options.jobName = "case";
+    auto r = writeCodeAsterCase(mesh, model, spaced, options);
+    CHECK(r.success);
+    bool warned = false;
+    for (const auto& d : r.diagnostics) warned = warned || d.code == "ASTER_PATH_WITH_BLANK";
+    CHECK(warned);
+    r = writeCodeAsterCase(mesh, model, base / "plain", options);
+    CHECK(r.success);
+    for (const auto& d : r.diagnostics) CHECK(d.code != "ASTER_PATH_WITH_BLANK");
+    fs::remove_all(base);
+}
+
 void testStaticExport() {
     const auto mesh = makeHex();
     const auto model = parseOk(
@@ -469,6 +507,8 @@ void testBindToMesh() {
 } // namespace
 
 int main() {
+    testPressureGroupCaseResolution();
+    testBlankInPathWarning();
     testStaticExport();
     testFrequencyExport();
     testGenericMeshGroupExport();

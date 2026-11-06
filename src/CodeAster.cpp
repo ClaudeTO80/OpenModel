@@ -505,6 +505,16 @@ CodeAsterExportResult writeCodeAsterCase(const MeshData& mesh, const AnalysisMod
     r.commFile = absolute / (job + ".comm");
     r.exportFile = absolute / (job + ".export");
 
+    // The .export file is read as whitespace-separated fields (F comm <path> D 1), so a blank in a path
+    // splits it. Warn instead of failing: the run itself is still possible with a quoting launcher.
+    for (const fs::path* path : {&r.meshFile, &r.commFile, &r.exportFile})
+        if (path->string().find_first_of(" \t") != std::string::npos) {
+            note(r, ImportDiagnosticLevel::Warning, "ASTER_PATH_WITH_BLANK",
+                 "The case path '" + path->string() + "' contains a blank; code_aster export files are split on blanks, so the run "
+                 "will probably fail. Use a directory without spaces.");
+            break;
+        }
+
     MeshNames names;
     {
         std::ostringstream text;
@@ -527,15 +537,21 @@ CodeAsterExportResult writeCodeAsterCase(const MeshData& mesh, const AnalysisMod
     for (const auto& rawName : pressureGroups) {
         bool found = false;
         const auto& physical = mesh.getPhysicalGroups();
-        for (std::size_t i = 0; i < physical.size(); ++i)
-            if (physical[i].name == rawName || lowered(physical[i].name) == lowered(rawName)) {
-                pressureNames.push_back(names.physical.at(i));
-                found = true;
-                break;
-            }
-        if (!found) {
+        // Same precedence as the lookup that validated the group: exact name before case-insensitive
+        // match, physical groups before generic ones. A single pass over "exact || case-insensitive"
+        // returns the first of two groups such as "Top" and "top" whichever one was asked for.
+        for (const bool exact : {true, false}) {
+            for (std::size_t i = 0; i < physical.size() && !found; ++i)
+                if (exact ? physical[i].name == rawName : lowered(physical[i].name) == lowered(rawName)) {
+                    pressureNames.push_back(names.physical.at(i));
+                    found = true;
+                }
+            if (found) break;
+        }
+        for (const bool exact : {true, false}) {
+            if (found) break;
             for (const auto& entry : names.genericElementGroups)
-                if (entry.first == rawName || lowered(entry.first) == lowered(rawName)) {
+                if (exact ? entry.first == rawName : lowered(entry.first) == lowered(rawName)) {
                     pressureNames.push_back(entry.second);
                     found = true;
                     break;
