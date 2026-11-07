@@ -683,8 +683,12 @@ if(OPENMODEL_BUILD_OCC_BACKEND)
     # Link only the toolkits that OCCModel actually uses. OpenCASCADE_LIBRARIES
     # may list every toolkit, including optional Draw/Test libraries that
     # distribution packages split into separate -dev packages.
-    set(_openmodel_occ_toolkits TKernel TKMath TKBRep TKGeomBase TKG3d TKTopAlgo
-        TKGeomAlgo TKMesh TKXSBase TKSTEP TKIGES TKSTEPBase TKSTEPAttr TKSTEP209 TKXCAF TKLCAF TKCDF TKXDESTEP TKXDEIGES TKBO)
+    # TKShHealing provides ShapeAnalysis_Surface (cached surface projectors of OCCModel::facesContainingPoint)
+    # and TKPrim the BRepPrim* builders used by the tests. Windows import libraries do not pull in the
+    # toolkits they depend on, so every toolkit that is used directly must be listed.
+    set(_openmodel_occ_toolkits TKernel TKMath TKG2d TKBRep TKGeomBase TKG3d TKTopAlgo
+        TKGeomAlgo TKMesh TKShHealing TKPrim TKXSBase TKSTEP TKIGES TKSTEPBase TKSTEPAttr TKSTEP209 TKXCAF TKLCAF TKCDF
+        TKXDESTEP TKXDEIGES TKBO)
     foreach(_occ_lib IN LISTS _openmodel_occ_toolkits)
         if(TARGET OpenCASCADE::${_occ_lib})
             target_link_libraries(openmodel_occ PUBLIC OpenCASCADE::${_occ_lib})
