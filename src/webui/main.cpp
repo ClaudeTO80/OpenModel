@@ -159,11 +159,21 @@ double getDoubleArg(webui_event_t* e, std::size_t index, double fallback) {
     }
 }
 
-/** Sends {ok, message, view, viewLabel} to the page. Call with the state locked. */
+/**
+ * JSON fields describing the viewer image: its version, whether model.mgwv can actually be served (it cannot
+ * before a model is loaded, or when the view could not be built) and its label. Without hasView the page would
+ * request a model that answers HTTP 404. Call with the state locked.
+ */
+std::string viewFields() {
+    return "\"view\":" + std::to_string(g.viewVersion) + ",\"hasView\":" + (g.view.empty() ? "false" : "true") +
+           ",\"viewLabel\":\"" + jsonEscape(g.viewLabel) + "\"";
+}
+
+/** Sends {ok, message, view, hasView, viewLabel} to the page. Call with the state locked. */
 void reply(webui_event_t* e, bool ok, const std::string& message) {
     std::ostringstream out;
     out << "{\"ok\":" << (ok ? "true" : "false") << ",\"message\":\"" << jsonEscape(message)
-        << "\",\"view\":" << g.viewVersion << ",\"viewLabel\":\"" << jsonEscape(g.viewLabel) << "\"}";
+        << "\"," << viewFields() << "}";
     webui_return_string(e, out.str().c_str());
 }
 
@@ -1217,7 +1227,7 @@ void solverStatus(webui_event_t* e) {
     }
     out << "{\"ok\":" << (ok ? "true" : "false") << ",\"state\":\"" << state << "\",\"elapsed\":" << status.elapsedSeconds << ",\"lines\":[";
     for (std::size_t i = 0; i < status.newLines.size(); ++i) out << (i ? "," : "") << "\"" << jsonEscape(status.newLines[i]) << "\"";
-    out << "],\"message\":\"" << jsonEscape(message) << "\",\"view\":" << g.viewVersion << ",\"viewLabel\":\"" << jsonEscape(g.viewLabel) << "\"}";
+    out << "],\"message\":\"" << jsonEscape(message) << "\"," << viewFields() << "}";
     webui_return_string(e, out.str().c_str());
 }
 
@@ -1304,8 +1314,8 @@ std::string groupsJson() {
 void replyGroups(webui_event_t* e, bool ok, const std::string& message, const std::string& selMode = {}, const std::string& selPayload = {},
                  const std::string& created = {}) {
     std::ostringstream out;
-    out << "{\"ok\":" << (ok ? "true" : "false") << ",\"message\":\"" << jsonEscape(message) << "\",\"view\":" << g.viewVersion
-        << ",\"viewLabel\":\"" << jsonEscape(g.viewLabel) << "\",\"groups\":" << groupsJson();
+    out << "{\"ok\":" << (ok ? "true" : "false") << ",\"message\":\"" << jsonEscape(message) << "\","
+        << viewFields() << ",\"groups\":" << groupsJson();
     if (!created.empty()) out << ",\"created\":\"" << jsonEscape(created) << "\"";
     if (!selMode.empty()) out << ",\"selMode\":\"" << selMode << "\",\"selection\":\"" << jsonEscape(selPayload) << "\"";
     out << "}";

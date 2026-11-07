@@ -372,7 +372,7 @@ iframe{display:block;width:100%;height:100%;border:0;background:#10141b}
 <script>
 "use strict";
 const $ = (id) => document.getElementById(id);
-let meshers = [], viewVersion = -1, pendingView = false, defaults = {cwd: ""};
+let meshers = [], viewVersion = -1, viewAvailable = false, pendingView = false, defaults = {cwd: ""};
 let busy = false, noMesher = false;
 let selectedCadFaceIds = [];
 
@@ -403,6 +403,14 @@ function setBusy(on) {
   if (!on && noMesher) $("btnMesh").disabled = true;
   if (!on) syncRibbon();
 }
+// Records the view version and loads model.mgwv only when the server has an image to serve; before a model is
+// loaded (or when the preview could not be built) the request would answer HTTP 404 and hide the real message.
+function applyView(r) {
+  if (r.view === undefined || r.view === viewVersion) return;
+  viewVersion = r.view;
+  viewAvailable = r.hasView !== false;
+  if (viewAvailable) loadView(r.viewLabel || "");
+}
 async function act(name, ...args) {
   if (busy) return null;
   setBusy(true);
@@ -410,7 +418,7 @@ async function act(name, ...args) {
   const r = await call(name, ...args);
   setBusy(false);
   show(r.message || "", r.ok ? "good" : "bad");
-  if (r.view !== undefined && r.view !== viewVersion) { viewVersion = r.view; loadView(r.viewLabel || ""); }
+  applyView(r);
   if (r.groups) renderGroups(r.groups);
   if (r.cadGroups) renderCADFaceGroups(r.cadGroups);
   if (r.nativeCADGroups) renderNativeCADGroups(r.nativeCADGroups);
@@ -423,7 +431,7 @@ function loadView(label) {
   const w = $("viewer").contentWindow;
   if (!w || !w.OpenModelViewer) { pendingView = true; return; }
   pendingView = false;
-  if (viewVersion < 0) return;
+  if (viewVersion < 0 || !viewAvailable) return;
   selectedCadFaceIds = [];
   $("cadFaceInfo").textContent = "Facce CAD: nessuna selezionata.";
   // The viewer reports the selected B-Rep face ids when the displayed model is the CAD surface.
@@ -584,7 +592,7 @@ async function pollSolver() {
   clearInterval(solverTimer); solverTimer = null; solverRunning = false;
   logLines(["— " + (r.state === "done" ? "terminato" : r.state === "cancelled" ? "annullato" : "errore") + " —"]);
   show(r.message || "", r.ok ? "good" : "bad");
-  if (r.view !== undefined && r.view !== viewVersion) { viewVersion = r.view; loadView(r.viewLabel || ""); }
+  applyView(r);
   syncRibbon();
 }
 async function analysisCancel() {
