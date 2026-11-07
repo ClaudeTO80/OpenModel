@@ -50,6 +50,8 @@ public:
     const std::string& lastError() const noexcept ;
 
     const std::vector<std::string>& diagnostics() const override { return m_diagnostics; }
+    /** Verbose log of the most recent buildMesh call (empty unless MeshingOptions::verboseLog was set). */
+    const std::vector<std::string>& log() const noexcept { return m_log; }
     /** Audit data from the most recent buildMesh call, one record per meshed CAD surface. */
     const std::vector<CADFaceMappingRecord>& faceMappingReport() const noexcept { return m_faceMappingReport; }
 
@@ -104,7 +106,12 @@ private:
                       const std::vector<CADGroup>& additionalFaceGroups,
                       bool importNativeGroups = true);
 
+    /** Writes an OpenModel trace line to the Gmsh log when the verbose log is on. */
+    void trace(const std::string& message) const;
+
     std::string m_lastError;
     std::vector<std::string> m_diagnostics;
     std::vector<CADFaceMappingRecord> m_faceMappingReport;
+    std::vector<std::string> m_log;
+    bool m_trace = false;
 };

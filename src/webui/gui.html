@@ -255,6 +255,7 @@ iframe{display:block;width:100%;height:100%;border:0;background:#10141b}
         <option value="independent">Mesh indipendenti (nodi distinti)</option>
         <option value="conformal">Mesh conforme (nodi condivisi sull'interfaccia)</option>
       </select></div>
+    <label class="check" data-f="log"><input type="checkbox" id="verbose"> Log Gmsh verboso (file <code>_gmsh.log</code> accanto al CAD)</label>
     <button class="primary full" id="btnMesh" onclick="generate()">Genera mesh volumetrica</button>
     <p class="hint" id="mesherHint"></p>
   </section>
@@ -451,7 +452,7 @@ $("viewer").addEventListener("load", () => { if (pendingView || viewVersion >= 0
 
 const importModel = () => act("openmodel_import_model", $("cadPath").value.trim(), $("linear").value, $("angular").value);
 const retessellate = () => act("openmodel_retessellate", $("linear").value, $("angular").value);
-const generate = () => act("openmodel_generate_volume", $("mesher").value, $("size").value, $("minSize").value, $("order").value, $("curv").checked ? "1" : "0", $("iface").value);
+const generate = () => act("openmodel_generate_volume", $("mesher").value, $("size").value, $("minSize").value, $("order").value, $("curv").checked ? "1" : "0", $("iface").value, $("verbose").checked ? "1" : "0");
 const loadMesh = () => act("openmodel_load_mesh", $("loadPath").value.trim());
 const loadResults = () => act("openmodel_load_results", $("resPath").value.trim(), $("resStep").value.trim());
 const save = (fn, ext) => act(fn, $("outBase").value.trim(), ext);

@@ -76,6 +76,45 @@ int main() {
         auto cad = std::make_shared<StepCADModel>(stepPath.string());
         GmshMesher mesher;
 
+        // Verbose log: off by default; when requested it holds Gmsh's own messages plus the OpenModel phase
+        // traces, and it is also written to the requested file.
+        {
+            MeshingOptions quiet;
+            quiet.dimension = MeshDimension::Volume;
+            quiet.elementSize = 0.5;
+            quiet.maxElementSize = 0.5;
+            MeshData quietMesh;
+            require(mesher.buildMesh(cad, quiet, quietMesh), "Quiet meshing failed: " + mesher.lastError());
+            require(mesher.log().empty(), "The log must stay empty unless verboseLog is set");
+
+            const auto logPath = temp / "openmodel_gmsh_fixture.log";
+            std::filesystem::remove(logPath, ec);
+            MeshingOptions verbose = quiet;
+            verbose.verboseLog = true;
+            verbose.logFile = logPath.string();
+            MeshData verboseMesh;
+            require(mesher.buildMesh(cad, verbose, verboseMesh), "Verbose meshing failed: " + mesher.lastError());
+            const auto hasLine = [&](const std::string& text) {
+                for (const auto& line : mesher.log()) if (line.find(text) != std::string::npos) return true;
+                return false;
+            };
+            require(mesher.log().size() > 10, "The verbose log is too short: " + std::to_string(mesher.log().size()));
+            require(hasLine("[OpenModel] Start"), "The verbose log has no OpenModel start trace");
+            require(hasLine("Gmsh meshing finished"), "The verbose log has no meshing trace");
+            require(hasLine("CAD group mapping finished"), "The verbose log has no mapping trace");
+            require(hasLine("Meshing 3D") || hasLine("Meshing volume") || hasLine("Tetrahedrization"),
+                    "The verbose log has no Gmsh meshing messages");
+            require(std::filesystem::is_regular_file(logPath) && std::filesystem::file_size(logPath) > 0,
+                    "The verbose log file was not written");
+            std::filesystem::remove(logPath, ec);
+
+            // A failed run keeps its log too.
+            MeshingOptions broken = verbose;
+            broken.elementSize = -1.0;
+            MeshData none;
+            require(!mesher.buildMesh(cad, broken, none), "A negative element size must be rejected");
+        }
+
         // Linear tetrahedra: generate -> validate -> export INP -> inspect output.
         MeshingOptions linear;
         linear.dimension = MeshDimension::Volume;

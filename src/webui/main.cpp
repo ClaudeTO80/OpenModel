@@ -486,7 +486,7 @@ std::vector<MesherInfo> meshers() {
 #else
         false,
 #endif
-        "min,order,curv,iface",
+        "min,order,curv,iface,log",
         "Legge direttamente il file STEP/IGES con il kernel OpenCASCADE di Gmsh. Non funziona con i formati mesh importati tramite Assimp."});
     list.push_back({"tetgen", "TetGen",
 #ifdef OPENMODEL_HAS_TETGEN
@@ -699,6 +699,7 @@ void generateVolume(webui_event_t* e) {
     const int order = static_cast<int>(getDoubleArg(e, 3, 1.0));
     const bool curvature = getStringArg(e, 4) != "0";
     const bool conformal = getStringArg(e, 5) == "conformal";
+    const bool verbose = getStringArg(e, 6) == "1" && mesherId == "gmsh";
     if (!mesherAvailable(mesherId)) { reply(e, false, "Il meshatore scelto non è stato compilato in questa versione."); return; }
     if (!g.cad) { reply(e, false, "Importa prima un modello CAD."); return; }
     if (!(size > 0.0) || !std::isfinite(size) || minSize < 0.0 || (minSize > 0.0 && minSize > size) || (order != 1 && order != 2)) {
@@ -714,6 +715,18 @@ void generateVolume(webui_event_t* e) {
     options.curvatureAdaptation = curvature;
     options.interfaceMode = conformal ? InterfaceMode::Conformal : InterfaceMode::Independent;
     options.importCadGroups = true;
+    // The verbose Gmsh log goes next to the CAD file (or the temp folder when that is not writable).
+    std::string logPath;
+    if (verbose) {
+        std::error_code logEc;
+        auto base = fs::path(g.cad->getFilePath());
+        auto candidatePath = base.parent_path() / (base.stem().string() + "_gmsh.log");
+        std::ofstream probe(candidatePath, std::ios::app);
+        if (!probe) candidatePath = fs::temp_directory_path(logEc) / (base.stem().string() + "_gmsh.log");
+        logPath = candidatePath.string();
+        options.verboseLog = true;
+        options.logFile = logPath;
+    }
     for (const auto& userGroup : g.cadFaceGroups) {
         CADGroup group;
         group.name = userGroup.name;
@@ -730,6 +743,7 @@ void generateVolume(webui_event_t* e) {
     MeshData candidate;
     std::string label, failure;
     std::vector<std::string> notes;
+    std::string logNote;
     bool built = false;
     if (mesherId == "gmsh") {
 #ifdef OPENMODEL_HAS_GMSH
@@ -742,6 +756,11 @@ void generateVolume(webui_event_t* e) {
         if (!built) failure = mesher.lastError();
         notes = mesher.diagnostics();
         label = "Gmsh";
+        if (verbose) {
+            const auto& lines = mesher.log();
+            logNote = "\nLog Gmsh verboso: " + logPath + " (" + std::to_string(lines.size()) + " righe). Ultime righe:";
+            for (std::size_t i = lines.size() > 15 ? lines.size() - 15 : 0; i < lines.size(); ++i) logNote += "\n  " + lines[i];
+        }
 #endif
     } else if (mesherId == "tetgen") {
 #ifdef OPENMODEL_HAS_TETGEN
@@ -761,7 +780,7 @@ void generateVolume(webui_event_t* e) {
     }
     if (!built) {
         for (const auto& note : notes) failure += "\n" + note;
-        reply(e, false, "Generazione volumetrica fallita: " + failure); return;
+        reply(e, false, "Generazione volumetrica fallita: " + failure + logNote); return;
     }
 
     // Convert the backend-independent CAD face membership into solver node
@@ -817,7 +836,7 @@ void generateVolume(webui_event_t* e) {
     reply(e, true, "Mesh volumetrica generata e validata con " + label + ".\n" + meshSummary() +
         cadNodeSetSummary + "\nOrdine: " + std::to_string(order) +
         "\nDimensione massima richiesta: " + std::to_string(size) +
-        "\nInterfacce tra solidi: " + (conformal ? "conformi (nodi condivisi)" : "indipendenti") + noteText +
+        "\nInterfacce tra solidi: " + (conformal ? "conformi (nodi condivisi)" : "indipendenti") + noteText + logNote +
         (g.viewNote.empty() ? "" : "\n" + g.viewNote));
 }
 

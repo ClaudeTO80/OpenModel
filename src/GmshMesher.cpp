@@ -1,5 +1,7 @@
 #include <OpenModel/GmshMesher.hpp>
 #include <cmath>
+#include <chrono>
+#include <fstream>
 #include <limits>
 
 std::string GmshMesher::getName() const  {
@@ -15,6 +17,8 @@ bool GmshMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Mesh
         m_lastError.clear();
         m_diagnostics.clear();
         m_faceMappingReport.clear();
+        m_log.clear();
+        m_trace = false;
         if (!cadModel) return fail("CAD model pointer is null");
         if (cadModel->getFilePath().empty()) return fail("CAD file path is empty");
         const double baseSize = options.maxElementSize > 0.0 ? options.maxElementSize : options.elementSize;
@@ -35,7 +39,42 @@ bool GmshMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Mesh
             gmsh::initialize();
             GmshSession session;
 
-            gmsh::option::setNumber("General.Terminal", 0);
+            // Declared after the session so it is destroyed first: the log must be read before Gmsh is
+            // finalised, and it is kept whether the run succeeds, fails or throws.
+            struct LogCapture {
+                bool on;
+                std::vector<std::string>& lines;
+                std::string file;
+                ~LogCapture() {
+                    if (!on) return;
+                    try {
+                        std::vector<std::string> captured;
+                        gmsh::logger::get(captured);
+                        gmsh::logger::stop();
+                        lines = std::move(captured);
+                        if (!file.empty()) {
+                            std::ofstream out(file, std::ios::trunc);
+                            for (const auto& line : lines) out << line << '\n';
+                        }
+                    } catch (...) { /* the log is best effort */ }
+                }
+            } logCapture{options.verboseLog, m_log, options.logFile};
+            if (options.verboseLog) {
+                gmsh::logger::start();
+                m_trace = true;
+            }
+            const auto startTime = std::chrono::steady_clock::now();
+            const auto elapsed = [&] {
+                return std::to_string(std::chrono::duration<double>(std::chrono::steady_clock::now() - startTime).count());
+            };
+
+            gmsh::option::setNumber("General.Terminal", options.verboseLog ? 1 : 0);
+            if (options.verboseLog) gmsh::option::setNumber("General.Verbosity", 99);
+            trace("Start: " + std::string(options.dimension == MeshDimension::Volume ? "volume" : "surface") +
+                  " mesh of " + cadModel->getFilePath() + ", max size " + std::to_string(baseSize) + ", min size " +
+                  std::to_string(options.minElementSize) + ", order " + std::to_string(options.order) +
+                  ", curvature points per circle " +
+                  std::to_string(options.curvatureAdaptation ? options.curvaturePointsPerCircle : 0.0));
             // A zero minimum means "let Gmsh adapt down to its backend default".
             // Setting the minimum equal to the maximum unintentionally disables
             // local refinement and curvature-driven sizing for the common case.
@@ -55,6 +94,7 @@ bool GmshMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Mesh
             std::vector<std::pair<int, int>> importedEntities;
             gmsh::model::occ::importShapes(cadModel->getFilePath(), importedEntities, true);
             gmsh::model::occ::synchronize();
+            trace("CAD imported by Gmsh after " + elapsed() + " s: " + std::to_string(importedEntities.size()) + " top-level entities");
 
             const int meshDimension = (options.dimension == MeshDimension::Volume && options.generateTetrahedra) ? 3 : 2;
 
@@ -89,7 +129,9 @@ bool GmshMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Mesh
             }
 
             try {
+                trace("Meshing in " + std::to_string(meshDimension) + "D (" + std::to_string(entities.size()) + " entities of that dimension) at " + elapsed() + " s");
                 gmsh::model::mesh::generate(meshDimension);
+                trace("Gmsh meshing finished at " + elapsed() + " s");
             } catch (const std::exception& e) {
                 std::string message = std::string(meshDimension == 3 ? "Gmsh 3D meshing" : "Gmsh 2D meshing") +
                                       " failed: " + e.what();
@@ -227,10 +269,13 @@ bool GmshMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Mesh
             // User-defined face groups are an explicit request and must not
             // depend on importCadGroups, which only governs the groups stored
             // in the CAD source (components, layers, named shapes).
+            trace("Mesh extracted: " + std::to_string(candidate.getNumNodes()) + " nodes, " +
+                  std::to_string(candidate.getNumElements()) + " elements at " + elapsed() + " s");
             if (options.importCadGroups || !options.additionalFaceGroups.empty())
                 mapCadGroups(*cadModel, candidate, nodeTagToIndex, elementIdsByEntity, usedPhysicalNames,
                              options.additionalFaceGroups, options.importCadGroups);
 
+            trace("CAD group mapping finished at " + elapsed() + " s");
             const auto structuralErrors = candidate.validate();
             if (!structuralErrors.empty())
                 throw std::runtime_error("Extracted mesh failed structural validation: " + structuralErrors.front());
@@ -244,6 +289,11 @@ bool GmshMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Mesh
             return fail("Unknown non-standard exception raised by Gmsh");
         }
     
+}
+
+void GmshMesher::trace(const std::string& message) const {
+    if (!m_trace) return;
+    try { gmsh::logger::write("[OpenModel] " + message, "info"); } catch (...) { /* tracing never fails the run */ }
 }
 
 GmshMesher::GmshSession::~GmshSession() noexcept {
@@ -312,6 +362,7 @@ void GmshMesher::mapCadGroups(const CADModel& cad, MeshData& mesh,
                               std::set<std::string>& usedPhysicalNames,
                               const std::vector<CADGroup>& additionalFaceGroups,
                               bool importNativeGroups) {
+    trace("CAD group mapping started (solid ownership of volumes first, then every meshed surface)");
     // Components are always needed to attribute faces to solids; the groups stored in
     // the CAD source are transferred only when requested.
     static const std::vector<CADGroup> noGroups;
@@ -467,7 +518,11 @@ void GmshMesher::mapCadGroups(const CADModel& cad, MeshData& mesh,
         std::vector<std::pair<int, int>> surfaces;
         gmsh::model::getEntities(surfaces, 2);
         std::map<int, std::set<int>> facesOfSurface;
+        std::size_t surfaceNumber = 0;
         for (const auto& surface : surfaces) {
+            if (m_trace && (surfaceNumber % 25 == 0))
+                trace("Mapping CAD faces: surface " + std::to_string(surfaceNumber + 1) + " of " + std::to_string(surfaces.size()));
+            ++surfaceNumber;
             std::vector<int> upward, downward;
             gmsh::model::getAdjacencies(2, surface.second, upward, downward);
             std::set<int> adjacentSolids;

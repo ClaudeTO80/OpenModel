@@ -54,6 +54,15 @@ struct MeshingOptions {
      * those memberships as node-only groups.
      */
     std::vector<CADGroup> additionalFaceGroups;
+
+    /**
+     * Gmsh only: record the verbose (debug level) log of the run, with an OpenModel trace line at the start of
+     * each phase (import, 2D/3D meshing, CAD-face mapping with its progress) and its elapsed time. The log is
+     * also echoed to the terminal when there is one, and is kept after a failed run.
+     */
+    bool verboseLog = false;
+    /** Gmsh only: file the verbose log is written to when verboseLog is set; empty keeps it in memory only. */
+    std::string logFile;
 };
 
 class Mesher {
