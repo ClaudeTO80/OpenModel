@@ -143,6 +143,10 @@ ${_bytes}0x00};
     add_executable(openmodel-webui src/webui/main.cpp)
     target_include_directories(openmodel-webui PRIVATE "${OPENMODEL_WEBUI_INCLUDE_DIR}" "${_openmodel_gen_dir}")
     target_compile_definitions(openmodel-webui PRIVATE OPENMODEL_VERSION="${PROJECT_VERSION}")
+    if(WIN32)
+        # webui.h pulls in <windows.h>, whose min/max macros break std::numeric_limits<T>::max().
+        target_compile_definitions(openmodel-webui PRIVATE NOMINMAX)
+    endif()
     target_link_libraries(openmodel-webui PRIVATE OpenModel::Core "${OPENMODEL_WEBUI_LIBRARY}")
     target_compile_features(openmodel-webui PRIVATE cxx_std_17)
     set_target_properties(openmodel-webui PROPERTIES OUTPUT_NAME openmodel-webui)
