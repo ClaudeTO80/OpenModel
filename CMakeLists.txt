@@ -423,8 +423,8 @@ if(OPENMODEL_BUILD_GMSH_BACKEND)
     # Explicit SDK paths take precedence over package discovery. This is useful
     # with the official precompiled Windows SDK, which may not ship a CMake config.
     set(_openmodel_gmsh_target "")
-    if(NOT GMSH_ROOT AND NOT GMSH_INCLUDE_DIR AND NOT GMSH_LIBRARY_DEBUG
-       AND NOT GMSH_LIBRARY_RELEASE AND NOT GMSH_LIBRARY)
+    if(NOT GMSH_ROOT AND NOT GMSH_ROOT_DEBUG AND NOT GMSH_ROOT_RELEASE AND NOT GMSH_INCLUDE_DIR
+       AND NOT GMSH_LIBRARY_DEBUG AND NOT GMSH_LIBRARY_RELEASE AND NOT GMSH_LIBRARY)
         find_package(Gmsh CONFIG QUIET)
         find_package(gmsh CONFIG QUIET)
         foreach(_candidate Gmsh::gmsh gmsh::gmsh gmsh)
@@ -436,99 +436,165 @@ if(OPENMODEL_BUILD_GMSH_BACKEND)
     endif()
 
     if(NOT _openmodel_gmsh_target)
-        # Accept both a conventional SDK root and the directory explicitly
-        # supplied by the user. Keep GMSH_INCLUDE_DIR as a cache PATH so it is
-        # visible/editable in CMake GUIs (including Visual Studio generators).
-        if(NOT GMSH_INCLUDE_DIR)
-            find_path(_OPENMODEL_GMSH_INCLUDE_DIR gmsh.h
-                HINTS "${GMSH_ROOT}" "$ENV{GMSH_ROOT}"
-                PATH_SUFFIXES include include/gmsh)
-            if(_OPENMODEL_GMSH_INCLUDE_DIR)
-                set(GMSH_INCLUDE_DIR "${_OPENMODEL_GMSH_INCLUDE_DIR}" CACHE PATH
-                    "Directory containing gmsh.h" FORCE)
-            endif()
-        endif()
+        # Gmsh does not install a CMake package, so it is located from an install prefix:
+        #   GMSH_ROOT          prefix used for every configuration (include/, lib/, bin/)
+        #   GMSH_ROOT_DEBUG    optional prefix of a separate Debug build/install
+        #   GMSH_ROOT_RELEASE  optional prefix of a separate Release build/install
+        # GMSH_INCLUDE_DIR, GMSH_LIBRARY_DEBUG/RELEASE and GMSH_RUNTIME_LIBRARY_DEBUG/RELEASE override the
+        # search. Nothing found by the search is written back to the cache, so changing a root and
+        # re-configuring always searches again.
+        set(GMSH_ROOT "" CACHE PATH "Gmsh install prefix (contains include/gmsh.h, lib/, bin/)")
+        set(GMSH_ROOT_DEBUG "" CACHE PATH "Gmsh install prefix used for Debug (defaults to GMSH_ROOT)")
+        set(GMSH_ROOT_RELEASE "" CACHE PATH "Gmsh install prefix used for Release (defaults to GMSH_ROOT)")
+        option(OPENMODEL_GMSH_LINK_CHECK "Try to link a tiny program against the located Gmsh at configure time" ON)
 
-        # Preserve the old single GMSH_LIBRARY setting, but prefer per-config
-        # paths when available. The official Windows SDK typically provides
-        # gmsh.h, gmsh.lib and gmsh.dll, without an accompanying package config.
         if(GMSH_LIBRARY AND NOT GMSH_LIBRARY_RELEASE)
-            set(GMSH_LIBRARY_RELEASE "${GMSH_LIBRARY}" CACHE FILEPATH
-                "Gmsh release import/static library (for example gmsh.lib)" FORCE)
-        endif()
-        if(NOT GMSH_LIBRARY_RELEASE)
-            find_library(_OPENMODEL_GMSH_LIBRARY_RELEASE NAMES gmsh libgmsh gmsh.lib
-                HINTS "${GMSH_ROOT}" "$ENV{GMSH_ROOT}"
-                PATH_SUFFIXES lib/Release Release lib/RelWithDebInfo lib lib64)
-            if(_OPENMODEL_GMSH_LIBRARY_RELEASE)
-                set(GMSH_LIBRARY_RELEASE "${_OPENMODEL_GMSH_LIBRARY_RELEASE}" CACHE FILEPATH
-                    "Gmsh release import/static library (for example gmsh.lib)" FORCE)
-            endif()
-        endif()
-        if(NOT GMSH_LIBRARY_DEBUG)
-            find_library(_OPENMODEL_GMSH_LIBRARY_DEBUG NAMES gmshd libgmshd gmsh-debug gmsh_d gmsh
-                HINTS "${GMSH_ROOT}" "$ENV{GMSH_ROOT}"
-                PATH_SUFFIXES lib/Debug Debug lib lib64)
-            if(_OPENMODEL_GMSH_LIBRARY_DEBUG)
-                set(GMSH_LIBRARY_DEBUG "${_OPENMODEL_GMSH_LIBRARY_DEBUG}" CACHE FILEPATH
-                    "Gmsh debug import/static library (for example gmshd.lib)" FORCE)
-            endif()
+            set(GMSH_LIBRARY_RELEASE "${GMSH_LIBRARY}" CACHE FILEPATH "Gmsh release import/static library" FORCE)
         endif()
 
-        if(NOT GMSH_INCLUDE_DIR OR (NOT GMSH_LIBRARY_RELEASE AND NOT GMSH_LIBRARY_DEBUG))
+        # Import libraries are tried before static ones: Gmsh's own MSVC build produces gmsh.dll.lib
+        # (import library of the DLL) next to gmsh.lib (static library).
+        set(_gmsh_names_RELEASE gmsh.dll gmsh libgmsh)
+        set(_gmsh_names_DEBUG gmshd.dll gmshd libgmshd gmsh_d gmsh.dll gmsh libgmsh)
+        set(_gmsh_libdirs_RELEASE lib/Release Release lib/RelWithDebInfo lib lib64 bin)
+        set(_gmsh_libdirs_DEBUG lib/Debug Debug lib lib64 bin)
+        if(CMAKE_LIBRARY_ARCHITECTURE) # Debian-style multiarch prefixes, e.g. /usr/lib/x86_64-linux-gnu
+            list(APPEND _gmsh_libdirs_RELEASE lib/${CMAKE_LIBRARY_ARCHITECTURE})
+            list(APPEND _gmsh_libdirs_DEBUG lib/${CMAKE_LIBRARY_ARCHITECTURE})
+        endif()
+        set(_gmsh_bindirs_RELEASE bin/Release Release bin lib/Release lib)
+        set(_gmsh_bindirs_DEBUG bin/Debug Debug bin lib/Debug lib)
+
+        foreach(_cfg DEBUG RELEASE)
+            set(_gmsh_root_${_cfg} "${GMSH_ROOT_${_cfg}}")
+            if(NOT _gmsh_root_${_cfg})
+                set(_gmsh_root_${_cfg} "${GMSH_ROOT}")
+            endif()
+            if(NOT _gmsh_root_${_cfg} AND DEFINED ENV{GMSH_ROOT})
+                set(_gmsh_root_${_cfg} "$ENV{GMSH_ROOT}")
+            endif()
+            set(_gmsh_search_${_cfg} "")
+            if(_gmsh_root_${_cfg})
+                set(_gmsh_search_${_cfg} NO_DEFAULT_PATH) # never mix in a Gmsh found elsewhere on the system
+            endif()
+
+            set(_gmsh_lib_${_cfg} "${GMSH_LIBRARY_${_cfg}}")
+            if(NOT _gmsh_lib_${_cfg})
+                unset(_OPENMODEL_GMSH_LIBRARY_${_cfg} CACHE)
+                find_library(_OPENMODEL_GMSH_LIBRARY_${_cfg} NAMES ${_gmsh_names_${_cfg}}
+                    HINTS "${_gmsh_root_${_cfg}}" PATH_SUFFIXES ${_gmsh_libdirs_${_cfg}} ${_gmsh_search_${_cfg}})
+                set(_gmsh_lib_${_cfg} "${_OPENMODEL_GMSH_LIBRARY_${_cfg}}")
+            endif()
+
+            set(_gmsh_dll_${_cfg} "${GMSH_RUNTIME_LIBRARY_${_cfg}}")
+            if(WIN32 AND NOT _gmsh_dll_${_cfg} AND _gmsh_root_${_cfg})
+                # The DLL carries the version in its name (for example gmsh-4.15.dll).
+                foreach(_dir ${_gmsh_bindirs_${_cfg}})
+                    file(GLOB _gmsh_dll_candidates "${_gmsh_root_${_cfg}}/${_dir}/gmsh*.dll")
+                    if(_gmsh_dll_candidates)
+                        list(GET _gmsh_dll_candidates 0 _gmsh_dll_${_cfg})
+                        break()
+                    endif()
+                endforeach()
+            endif()
+        endforeach()
+
+        if(NOT GMSH_INCLUDE_DIR)
+            set(_gmsh_inc_roots "${_gmsh_root_RELEASE}" "${_gmsh_root_DEBUG}")
+            list(REMOVE_DUPLICATES _gmsh_inc_roots)
+            unset(_OPENMODEL_GMSH_INCLUDE_DIR CACHE)
+            find_path(_OPENMODEL_GMSH_INCLUDE_DIR gmsh.h
+                HINTS ${_gmsh_inc_roots} PATH_SUFFIXES include include/gmsh ${_gmsh_search_RELEASE})
+            set(_gmsh_include "${_OPENMODEL_GMSH_INCLUDE_DIR}")
+        else()
+            set(_gmsh_include "${GMSH_INCLUDE_DIR}")
+        endif()
+
+        foreach(_v _gmsh_include _gmsh_lib_RELEASE _gmsh_lib_DEBUG)
+            if(NOT ${_v})
+                set(${_v} "")  # drop the "...-NOTFOUND" marker so messages stay readable
+            endif()
+        endforeach()
+        if(NOT _gmsh_include OR (NOT _gmsh_lib_RELEASE AND NOT _gmsh_lib_DEBUG))
             message(FATAL_ERROR
-                "OPENMODEL_BUILD_GMSH_BACKEND=ON, but Gmsh was not fully located. "
-                "Set GMSH_ROOT, GMSH_INCLUDE_DIR (directory containing gmsh.h), "
-                "and GMSH_LIBRARY_RELEASE/GMSH_LIBRARY_DEBUG. For a precompiled "
-                "Windows SDK, point them to its include directory and matching .lib files.")
+                "OPENMODEL_BUILD_GMSH_BACKEND=ON, but Gmsh was not fully located "
+                "(include: '${_gmsh_include}', Release lib: '${_gmsh_lib_RELEASE}', Debug lib: '${_gmsh_lib_DEBUG}'). "
+                "Set GMSH_ROOT to the Gmsh install prefix (containing include/gmsh.h and lib/), or "
+                "GMSH_ROOT_DEBUG / GMSH_ROOT_RELEASE for separate builds, or give GMSH_INCLUDE_DIR and "
+                "GMSH_LIBRARY_DEBUG/GMSH_LIBRARY_RELEASE explicitly.")
         endif()
 
         # If only one variant is available, use it for every configuration.
-        if(NOT GMSH_LIBRARY_DEBUG)
-            set(GMSH_LIBRARY_DEBUG "${GMSH_LIBRARY_RELEASE}")
+        if(NOT _gmsh_lib_DEBUG)
+            set(_gmsh_lib_DEBUG "${_gmsh_lib_RELEASE}")
+            set(_gmsh_dll_DEBUG "${_gmsh_dll_RELEASE}")
         endif()
-        if(NOT GMSH_LIBRARY_RELEASE)
-            set(GMSH_LIBRARY_RELEASE "${GMSH_LIBRARY_DEBUG}")
+        if(NOT _gmsh_lib_RELEASE)
+            set(_gmsh_lib_RELEASE "${_gmsh_lib_DEBUG}")
+            set(_gmsh_dll_RELEASE "${_gmsh_dll_DEBUG}")
+        endif()
+        if(NOT _gmsh_dll_DEBUG)
+            set(_gmsh_dll_DEBUG "${_gmsh_dll_RELEASE}")
+        endif()
+        if(NOT _gmsh_dll_RELEASE)
+            set(_gmsh_dll_RELEASE "${_gmsh_dll_DEBUG}")
+        endif()
+        message(STATUS "Gmsh include: ${_gmsh_include}")
+        message(STATUS "Gmsh Release library: ${_gmsh_lib_RELEASE}")
+        message(STATUS "Gmsh Debug library:   ${_gmsh_lib_DEBUG}")
+        if(WIN32)
+            message(STATUS "Gmsh Release DLL: ${_gmsh_dll_RELEASE}")
+            message(STATUS "Gmsh Debug DLL:   ${_gmsh_dll_DEBUG}")
+        endif()
+
+        # Catch a Gmsh build that cannot be used with this compiler before the long build starts, for
+        # example a MinGW build of the C++ API with MSVC (unresolved gmsh:: symbols at link time). A static
+        # Gmsh needs its own dependencies too, so a failure here is a warning, not an error.
+        if(OPENMODEL_GMSH_LINK_CHECK AND NOT CMAKE_CROSSCOMPILING)
+            file(WRITE "${CMAKE_BINARY_DIR}/gmsh_link_check.cpp"
+                "#include <gmsh.h>\nint main() { gmsh::initialize(); gmsh::model::add(\"check\"); gmsh::finalize(); return 0; }\n")
+            foreach(_cfg RELEASE DEBUG)
+                if(_gmsh_lib_${_cfg})
+                    if(_cfg STREQUAL "DEBUG")
+                        set(CMAKE_TRY_COMPILE_CONFIGURATION Debug)
+                    else()
+                        set(CMAKE_TRY_COMPILE_CONFIGURATION Release)
+                    endif()
+                    try_compile(_gmsh_link_ok
+                        "${CMAKE_BINARY_DIR}/gmsh_link_check_${_cfg}"
+                        "${CMAKE_BINARY_DIR}/gmsh_link_check.cpp"
+                        CMAKE_FLAGS "-DINCLUDE_DIRECTORIES=${_gmsh_include}"
+                        LINK_LIBRARIES "${_gmsh_lib_${_cfg}}"
+                        CXX_STANDARD 17
+                        OUTPUT_VARIABLE _gmsh_link_log)
+                    if(NOT _gmsh_link_ok)
+                        message(WARNING
+                            "A test program using the Gmsh C++ API did not link against ${_gmsh_lib_${_cfg}}. "
+                            "With MSVC this typically means the library was built by another compiler (for "
+                            "example the official MinGW SDK, whose C++ symbols are not MSVC-decorated), or it is "
+                            "a static library whose dependencies are not on the link line. Configure with "
+                            "-DOPENMODEL_GMSH_LINK_CHECK=OFF to skip this check. Details: "
+                            "${CMAKE_BINARY_DIR}/gmsh_link_check_${_cfg}")
+                        file(WRITE "${CMAKE_BINARY_DIR}/gmsh_link_check_${_cfg}.log" "${_gmsh_link_log}")
+                    endif()
+                endif()
+            endforeach()
         endif()
 
         add_library(openmodel_gmsh_external UNKNOWN IMPORTED GLOBAL)
         set_target_properties(openmodel_gmsh_external PROPERTIES
-            INTERFACE_INCLUDE_DIRECTORIES "${GMSH_INCLUDE_DIR}"
+            INTERFACE_INCLUDE_DIRECTORIES "${_gmsh_include}"
             IMPORTED_CONFIGURATIONS "DEBUG;RELEASE"
-            IMPORTED_LOCATION_DEBUG "${GMSH_LIBRARY_DEBUG}"
-            IMPORTED_LOCATION_RELEASE "${GMSH_LIBRARY_RELEASE}"
+            IMPORTED_LOCATION_DEBUG "${_gmsh_lib_DEBUG}"
+            IMPORTED_LOCATION_RELEASE "${_gmsh_lib_RELEASE}"
             MAP_IMPORTED_CONFIG_RELWITHDEBINFO Release
             MAP_IMPORTED_CONFIG_MINSIZEREL Release)
-        # The target is intentionally configuration-aware: Debug uses the
-        # debug library when supplied; Release/RelWithDebInfo/MinSizeRel use release.
+        # The target is configuration-aware: Debug uses the debug library, Release/RelWithDebInfo/MinSizeRel
+        # use the release one (a single variant is used for every configuration).
         set(_openmodel_gmsh_target openmodel_gmsh_external)
-
-        if(WIN32)
-            if(NOT GMSH_RUNTIME_LIBRARY_DEBUG)
-                find_file(_OPENMODEL_GMSH_RUNTIME_LIBRARY_DEBUG NAMES gmsh.dll libgmsh.dll gmshd.dll
-                    HINTS "${GMSH_ROOT}" "$ENV{GMSH_ROOT}"
-                    PATH_SUFFIXES bin/Debug Debug bin)
-                if(_OPENMODEL_GMSH_RUNTIME_LIBRARY_DEBUG)
-                    set(GMSH_RUNTIME_LIBRARY_DEBUG "${_OPENMODEL_GMSH_RUNTIME_LIBRARY_DEBUG}" CACHE FILEPATH
-                        "Gmsh debug runtime DLL on Windows, if applicable" FORCE)
-                endif()
-            endif()
-            if(NOT GMSH_RUNTIME_LIBRARY_RELEASE)
-                find_file(_OPENMODEL_GMSH_RUNTIME_LIBRARY_RELEASE NAMES gmsh.dll libgmsh.dll
-                    HINTS "${GMSH_ROOT}" "$ENV{GMSH_ROOT}"
-                    PATH_SUFFIXES bin/Release Release bin)
-                if(_OPENMODEL_GMSH_RUNTIME_LIBRARY_RELEASE)
-                    set(GMSH_RUNTIME_LIBRARY_RELEASE "${_OPENMODEL_GMSH_RUNTIME_LIBRARY_RELEASE}" CACHE FILEPATH
-                        "Gmsh release runtime DLL on Windows, if applicable" FORCE)
-                endif()
-            endif()
-            if(NOT GMSH_RUNTIME_LIBRARY_DEBUG)
-                set(GMSH_RUNTIME_LIBRARY_DEBUG "${GMSH_RUNTIME_LIBRARY_RELEASE}")
-            endif()
-            if(NOT GMSH_RUNTIME_LIBRARY_RELEASE)
-                set(GMSH_RUNTIME_LIBRARY_RELEASE "${GMSH_RUNTIME_LIBRARY_DEBUG}")
-            endif()
-        endif()
+        set(GMSH_INCLUDE_DIR "${_gmsh_include}")
+        set(GMSH_RUNTIME_LIBRARY_DEBUG "${_gmsh_dll_DEBUG}")
+        set(GMSH_RUNTIME_LIBRARY_RELEASE "${_gmsh_dll_RELEASE}")
     endif()
 
     add_library(openmodel_gmsh STATIC src/GmshMesher.cpp)
