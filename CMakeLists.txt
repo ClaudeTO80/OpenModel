@@ -378,6 +378,16 @@ if(OPENMODEL_BUILD_ASSIMP_BACKEND)
     include(CheckCXXSourceCompiles)
     set(_openmodel_saved_required_libraries "${CMAKE_REQUIRED_LIBRARIES}")
     set(CMAKE_REQUIRED_LIBRARIES "${_openmodel_assimp_dependency}")
+    # The check only needs the headers, so do not link: building a static library avoids failures that have
+    # nothing to do with the Assimp version (import library with a single configuration, missing runtime
+    # dependencies of a static Assimp, Debug/Release mismatch with multi-config generators).
+    set(_openmodel_saved_try_type "${CMAKE_TRY_COMPILE_TARGET_TYPE}")
+    set(_openmodel_saved_try_config "${CMAKE_TRY_COMPILE_CONFIGURATION}")
+    set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
+    get_target_property(_openmodel_assimp_configs ${_openmodel_assimp_dependency} IMPORTED_CONFIGURATIONS)
+    if(_openmodel_assimp_configs AND NOT "DEBUG" IN_LIST _openmodel_assimp_configs)
+        set(CMAKE_TRY_COMPILE_CONFIGURATION Release)
+    endif()
     unset(OPENMODEL_ASSIMP_HAS_PBR_TEXTURE_API CACHE)
     check_cxx_source_compiles("
         #include <assimp/material.h>
@@ -391,9 +401,19 @@ if(OPENMODEL_BUILD_ASSIMP_BACKEND)
         }"
         OPENMODEL_ASSIMP_HAS_PBR_TEXTURE_API)
     set(CMAKE_REQUIRED_LIBRARIES "${_openmodel_saved_required_libraries}")
+    set(CMAKE_TRY_COMPILE_TARGET_TYPE "${_openmodel_saved_try_type}")
+    set(CMAKE_TRY_COMPILE_CONFIGURATION "${_openmodel_saved_try_config}")
     unset(_openmodel_saved_required_libraries)
+    unset(_openmodel_saved_try_type)
+    unset(_openmodel_saved_try_config)
+    unset(_openmodel_assimp_configs)
     if(NOT OPENMODEL_ASSIMP_HAS_PBR_TEXTURE_API)
-        message(FATAL_ERROR "OpenModel Assimp backend requires Assimp 5.0 or newer (PBR texture semantics are missing).")
+        message(FATAL_ERROR
+            "The Assimp PBR texture check failed. Assimp 5.0 or newer is required (aiTextureType_BASE_COLOR, "
+            "aiTextureType_EMISSION_COLOR, aiTextureType_METALNESS and aiTextureType_DIFFUSE_ROUGHNESS), but the "
+            "test program may also have failed for another reason, for example the include directory of the "
+            "assimp target. The compiler output is in CMakeFiles/CMakeConfigureLog.yaml (CMakeError.log on "
+            "CMake < 3.26) of the build directory.")
     endif()
 
     add_library(openmodel_assimp STATIC
