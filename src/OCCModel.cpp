@@ -6,6 +6,10 @@
 #include <BRepBuilderAPI_MakeVertex.hxx>
 #include <BRepClass3d_SolidClassifier.hxx>
 #include <BRepClass_FaceClassifier.hxx>
+#include <BRepTopAdaptor_FClass2d.hxx>
+#include <BRepTools.hxx>
+#include <Precision.hxx>
+#include <GeomAdaptor_Surface.hxx>
 #include <ShapeAnalysis_Surface.hxx>
 #include <Geom_Surface.hxx>
 #include <gp_Pnt2d.hxx>
@@ -182,7 +186,7 @@ bool OCCModel::loadFromFile(const std::string& filepath)  {
         m_edgeMap.Clear();
         m_vertexMap.Clear();
         m_solidBoxes.clear();
-        m_faceBoxes.clear(); m_faceObbCache.reset();
+        m_faceBoxes.clear(); m_faceObbCache.reset(); m_faceClassifierCache.reset();
         m_edgeBoxes.clear();
         m_vertexBoxes.clear();
 
@@ -244,7 +248,7 @@ bool OCCModel::loadFromFile(const std::string& filepath)  {
             m_solidMap.Clear();
             m_faceMap.Clear();
             m_solidBoxes.clear();
-            m_faceBoxes.clear(); m_faceObbCache.reset();
+            m_faceBoxes.clear(); m_faceObbCache.reset(); m_faceClassifierCache.reset();
             return false;
         }
 
@@ -420,6 +424,7 @@ void OCCModel::indexShape() {
     m_faceBoxes.clear();
     m_faceProjectors.clear();
     m_faceObbCache = std::make_shared<FaceObbCache>();
+    m_faceClassifierCache = std::make_shared<FaceClassifierCache>();
     m_edgeBoxes.clear();
     m_vertexBoxes.clear();
     if (m_rawShape.IsNull()) return;
@@ -466,10 +471,7 @@ std::vector<int> OCCModel::solidsContainingPoint(const std::array<double, 3>& po
     return result;
 }
 
-std::vector<int> OCCModel::facesContainingPoint(const std::array<double, 3>& point, double tolerance) const {
-    std::vector<int> result;
-    const gp_Pnt p(point[0], point[1], point[2]);
-    const TopoDS_Vertex vertex = BRepBuilderAPI_MakeVertex(p);
+void OCCModel::prepareFaceQueryCaches() const {
     FaceObbCache* obbs = m_faceObbCache.get();
     if (obbs) {
         std::call_once(obbs->once, [&] {
@@ -487,28 +489,114 @@ std::vector<int> OCCModel::facesContainingPoint(const std::array<double, 3>& poi
             }
         });
     }
+    FaceClassifierCache* fast = m_faceClassifierCache.get();
+    if (fast) {
+        std::call_once(fast->once, [&] {
+            const std::size_t n = static_cast<std::size_t>(m_faceMap.Extent());
+            fast->classifiers.assign(n, nullptr);
+            fast->maxTolerance.assign(n, 0.0);
+            fast->farDistance.assign(n, 0.0);
+            for (std::size_t k = 0; k < n; ++k) {
+                const auto& projector = m_faceProjectors[k];
+                if (projector.IsNull()) continue;
+                const TopoDS_Face face = TopoDS::Face(m_faceMap(static_cast<Standard_Integer>(k) + 1));
+                double x0, y0, z0, x1, y1, z1;
+                if (m_faceBoxes[k].IsVoid()) continue;
+                m_faceBoxes[k].Get(x0, y0, z0, x1, y1, z1);
+                const double diagonal = std::sqrt((x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0) + (z1 - z0) * (z1 - z0));
+                fast->farDistance[k] = 1e-3 * diagonal;
+                // A point is trusted only when it is at least 1e-3 of the face size (converted to u and v) away
+                // from the trim polygon, which is meant to exceed the deviation of the polygon from a curved trim.
+                const double reach = 1e-3 * diagonal;
+                double umin, umax, vmin, vmax;
+                BRepTools::UVBounds(face, umin, umax, vmin, vmax);
+                if (!(reach > 0.0) || !std::isfinite(umax - umin) || !std::isfinite(vmax - vmin)) continue;
+                const double mu = std::min(projector->Adaptor3d()->UResolution(reach), 0.25 * (umax - umin));
+                const double mv = std::min(projector->Adaptor3d()->VResolution(reach), 0.25 * (vmax - vmin));
+                if (!std::isfinite(mu) || !std::isfinite(mv) || !(mu > 0.0) || !(mv > 0.0)) continue;
+                // A point closer than this to the trim polygon is reported ON, i.e. not trusted.
+                fast->classifiers[k] = std::make_shared<BRepTopAdaptor_FClass2d>(face, std::max(mu, mv));
+                fast->maxTolerance[k] = 0.1 * reach;
+            }
+        });
+    }
+}
+
+bool OCCModel::faceMatchesPoint(Standard_Integer i, const gp_Pnt& p, double tolerance, const gp_Pnt2d* surfaceUv) const {
+    const FaceClassifierCache* fast = m_faceClassifierCache.get();
+    // Fast path: project onto the underlying surface (cached projector). A point clearly farther than
+    // `tolerance` from the whole surface cannot be within `tolerance` of the face, and a point within
+    // `tolerance` whose UV lies inside the face is on it. Everything else (near a boundary, no surface,
+    // projection not converged, distance close to the tolerance) takes the exact distance query.
+    const auto& projector = m_faceProjectors[static_cast<std::size_t>(i - 1)];
+    if (!projector.IsNull()) {
+        gp_Pnt2d uv;
+        double surfaceDistance = 0.0;
+        bool known = false;
+        if (surfaceUv) {
+            // A caller-supplied (u, v) is trusted only if it really lands within tolerance of the point.
+            surfaceDistance = projector->Value(*surfaceUv).Distance(p);
+            if (surfaceDistance <= tolerance) { uv = *surfaceUv; known = true; }
+        }
+        if (!known) {
+            uv = projector->ValueOfUV(p, tolerance);
+            surfaceDistance = projector->Value(uv).Distance(p);
+        }
+        // ValueOfUV is not an exact minimiser: on B-spline faces it can stop at 2.5 times the tolerance
+        // from a point lying exactly on the boundary of the surface. So a point is discarded here only if
+        // it is clearly far: more than two tolerances and more than 1e-3 of the face size. Anything closer
+        // goes to the exact distance query.
+        const std::size_t kFace = static_cast<std::size_t>(i - 1);
+        const double clearlyFar = std::max(2.0 * tolerance, (fast && kFace < fast->farDistance.size()) ? fast->farDistance[kFace] : 0.0);
+        if (surfaceDistance > clearlyFar) return false;
+        if (surfaceDistance <= tolerance) {
+            // Cheap test first: IN well inside the trim cannot be wrong. Anything else, including every
+            // point near an edge (reported ON), is decided by the exact classifier below.
+            const std::size_t k = static_cast<std::size_t>(i - 1);
+            if (fast && k < fast->classifiers.size() && fast->classifiers[k] && tolerance <= fast->maxTolerance[k] &&
+                fast->classifiers[k]->Perform(uv) == TopAbs_IN)
+                return true;
+            BRepClass_FaceClassifier classifier(TopoDS::Face(m_faceMap(i)), uv, tolerance);
+            if (classifier.State() == TopAbs_IN) return true;
+        }
+    }
+    BRepExtrema_DistShapeShape distance(BRepBuilderAPI_MakeVertex(p), m_faceMap(i));
+    return distance.IsDone() && distance.Value() <= tolerance;
+}
+
+std::vector<int> OCCModel::facesContainingPoint(const std::array<double, 3>& point, double tolerance) const {
+    std::vector<int> result;
+    const gp_Pnt p(point[0], point[1], point[2]);
+    prepareFaceQueryCaches();
+    const FaceObbCache* obbs = m_faceObbCache.get();
     const bool useObb = obbs && obbs->boxes.size() == m_faceBoxes.size() && tolerance <= obbs->slack;
     for (Standard_Integer i = 1; i <= m_faceMap.Extent(); ++i) {
         Bnd_Box box = m_faceBoxes[static_cast<std::size_t>(i - 1)];
         box.Enlarge(tolerance);
         if (box.IsOut(p)) continue;
         if (useObb && obbs->boxes[static_cast<std::size_t>(i - 1)].IsOut(p)) continue;
-        // Fast path: project onto the underlying surface (cached projector). A point farther than
-        // `tolerance` from the whole surface cannot be within `tolerance` of the face, and a point
-        // within `tolerance` whose UV lies strictly inside the face is on it. Everything else
-        // (near a boundary, no surface, projection not converged) takes the exact distance query.
-        const auto& projector = m_faceProjectors[static_cast<std::size_t>(i - 1)];
-        if (!projector.IsNull()) {
-            const gp_Pnt2d uv = projector->ValueOfUV(p, tolerance);
-            const double surfaceDistance = projector->Value(uv).Distance(p);
-            if (surfaceDistance > tolerance) continue;
-            BRepClass_FaceClassifier classifier(TopoDS::Face(m_faceMap(i)), uv, tolerance);
-            if (classifier.State() == TopAbs_IN) { result.push_back(i - 1); continue; }
-        }
-        BRepExtrema_DistShapeShape distance(vertex, m_faceMap(i));
-        if (distance.IsDone() && distance.Value() <= tolerance) result.push_back(i - 1);
+        if (faceMatchesPoint(i, p, tolerance, nullptr)) result.push_back(i - 1);
     }
     return result;
+}
+
+bool OCCModel::faceContainsPoint(int faceId, const std::array<double, 3>& point, double tolerance,
+                                 const std::array<double, 2>* surfaceUv) const {
+    if (faceId < 0 || faceId >= m_faceMap.Extent()) return false;
+    const gp_Pnt p(point[0], point[1], point[2]);
+    prepareFaceQueryCaches();
+    const Standard_Integer i = faceId + 1;
+    Bnd_Box box = m_faceBoxes[static_cast<std::size_t>(faceId)];
+    box.Enlarge(tolerance);
+    if (box.IsOut(p)) return false;
+    const FaceObbCache* obbs = m_faceObbCache.get();
+    if (obbs && obbs->boxes.size() == m_faceBoxes.size() && tolerance <= obbs->slack &&
+        obbs->boxes[static_cast<std::size_t>(faceId)].IsOut(p)) return false;
+    if (surfaceUv) {
+        const gp_Pnt2d uv((*surfaceUv)[0], (*surfaceUv)[1]);
+        return faceMatchesPoint(i, p, tolerance, &uv);
+    }
+    return faceMatchesPoint(i, p, tolerance, nullptr);
 }
 
 std::vector<int> OCCModel::edgesContainingPoint(const std::array<double, 3>& point, double tolerance) const {

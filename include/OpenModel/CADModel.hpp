@@ -107,6 +107,22 @@ public:
      */
     virtual std::vector<int> facesContainingPoint(const std::array<double, 3>& point, double tolerance) const;
 
+    /**
+     * @brief Geometric query on one face: does its surface pass through a point?
+     *
+     * Gives the same answer as `facesContainingPoint(point, tolerance)` contains `faceId`, but without scanning
+     * the other faces. Callers that already know the candidate faces (for example one Gmsh surface that is
+     * checked element by element) use it to avoid repeating the scan for every point.
+     * @param faceId     Face id (numbered as RenderSubMesh::sourceFaceId).
+     * @param point      Query point in model coordinates.
+     * @param tolerance  Absolute distance tolerance.
+     * @param surfaceUv  Optional (u, v) of the point on the face's underlying surface. It is only a hint to save a
+     *                   projection and is checked before use; a wrong value never changes the result.
+     * @return True when the point lies on the face.
+     */
+    virtual bool faceContainsPoint(int faceId, const std::array<double, 3>& point, double tolerance,
+                                   const std::array<double, 2>* surfaceUv = nullptr) const;
+
     /** @brief CAD edges whose curve passes through a point within tolerance (edge IDs are importer-local). */
     virtual std::vector<int> edgesContainingPoint(const std::array<double, 3>& point, double tolerance) const;
 

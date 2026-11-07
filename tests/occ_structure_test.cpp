@@ -118,6 +118,23 @@ int main() {
     CHECK(model.facesContainingPoint({{0, 0, 5}}, tol).size() == 2);
     CHECK(model.facesContainingPoint({{0, 0, 0}}, tol).size() == 3);
     CHECK(model.facesContainingPoint({{-0.5 * tol, -0.5 * tol, 5}}, tol).size() == 2);
+
+    // Single-face query: same answer as the scan over all faces, with or without a (u, v) hint, and a wrong
+    // hint must not change it.
+    const std::vector<std::array<double, 3>> probes = {
+        {{5, 5, 10}}, {{5, 5, 11}}, {{0, 5, 5}}, {{-0.5 * tol, 5, 5}}, {{-1e-4, 5, 5}}, {{0, 0, 5}}, {{0, 0, 0}},
+        {{-0.5 * tol, -0.5 * tol, 5}}, {{5, 5, 0}}, {{2.5, 7.5, 10}}, {{10, 10, 10}}, {{50, 5, 5}}};
+    const std::array<double, 2> wrongHint{{1e9, -1e9}};
+    const std::array<double, 2> originHint{{0.0, 0.0}};
+    for (const auto& probe : probes) {
+        const auto all = model.facesContainingPoint(probe, tol);
+        for (int face = -1; face < 64; ++face) {
+            const bool expected = std::find(all.begin(), all.end(), face) != all.end();
+            CHECK(model.faceContainsPoint(face, probe, tol) == expected);
+            CHECK(model.faceContainsPoint(face, probe, tol, &wrongHint) == expected);
+            CHECK(model.faceContainsPoint(face, probe, tol, &originHint) == expected);
+        }
+    }
     CHECK(model.solidsContainingPoint({{5, 5, 12}}, tol) == cover->solidIds);
     CHECK(model.solidsContainingPoint({{5, 5, 5}}, tol) == base->solidIds);
     CHECK(model.solidsContainingPoint({{50, 5, 5}}, tol).empty());

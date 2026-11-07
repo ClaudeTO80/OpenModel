@@ -1,4 +1,6 @@
 #include <OpenModel/GmshMesher.hpp>
+#include <cmath>
+#include <limits>
 
 std::string GmshMesher::getName() const  {
  return "Gmsh Mesher"; 
@@ -568,6 +570,9 @@ void GmshMesher::mapCadGroups(const CADModel& cad, MeshData& mesh,
 
             std::vector<std::array<double, 3>> probes;
             probes.reserve(totalElements);
+            std::vector<std::array<double, 2>> probeUv;   // (u, v) of each probe on the surface; NaN when unknown
+            probeUv.reserve(totalElements);
+            const double unknownUv = std::numeric_limits<double>::quiet_NaN();
             std::size_t uvIndex = 0;
             for (const auto& candidate : candidatesOfSurface) {
                 if (candidate.hasUv) {
@@ -580,6 +585,7 @@ void GmshMesher::mapCadGroups(const CADModel& cad, MeshData& mesh,
                         // across a periodic seam or at a cone apex lands far from it.
                         if (std::sqrt(dx * dx + dy * dy + dz * dz) <= candidate.longestEdge + tolerance) {
                             probes.push_back({{evaluated[at], evaluated[at + 1], evaluated[at + 2]}});
+                            probeUv.push_back({{uvOfCandidates[2 * (uvIndex - 1)], uvOfCandidates[2 * (uvIndex - 1) + 1]}});
                             continue;
                         }
                     }
@@ -596,6 +602,7 @@ void GmshMesher::mapCadGroups(const CADModel& cad, MeshData& mesh,
                     if (parametric.size() == 2 &&
                         gmsh::model::isInside(2, surface.second, parametric, true)) {
                         probes.push_back({{closest[0], closest[1], closest[2]}});
+                        probeUv.push_back({{unknownUv, unknownUv}});
                         continue;
                     }
                 }
@@ -619,17 +626,41 @@ void GmshMesher::mapCadGroups(const CADModel& cad, MeshData& mesh,
             // representatives that lie on it. Projection failures remain in
             // the denominator, so they cannot silently inflate the match ratio.
             // Candidates must explain at least 80% of all exported elements.
+            // The 80% rule makes most of the work unnecessary: a face holding fewer than `requiredVotes`
+            // of the N probes cannot win, and a face hit by none of the first N - requiredVotes + 1 probes
+            // holds at most requiredVotes - 1. So only that prefix is searched against every face; the rest
+            // of the probes are checked against the faces the prefix found, using the (u, v) the probe was
+            // built from. The votes of those faces are exact, and so is the best vote whenever a face
+            // qualifies. A surface where nothing qualifies is searched in full, to keep its diagnostics.
+            const std::size_t requiredVotes =
+                std::max<std::size_t>(1, (totalElements * 4 + 4) / 5);
             std::map<int, std::size_t> faceVotes;
-            for (const auto& probe : probes) {
-                const auto hits = cad.facesContainingPoint(probe, tolerance);
-                for (const int faceId : hits) ++faceVotes[faceId];
+            const auto countAll = [&](std::size_t first, std::size_t last) {
+                for (std::size_t k = first; k < last; ++k)
+                    for (const int faceId : cad.facesContainingPoint(probes[k], tolerance)) ++faceVotes[faceId];
+            };
+            bool qualified = false;
+            if (probes.size() >= requiredVotes) {
+                const std::size_t prefix = probes.size() - requiredVotes + 1;
+                countAll(0, prefix);
+                std::vector<int> faceCandidates;
+                for (const auto& vote : faceVotes) faceCandidates.push_back(vote.first);
+                for (std::size_t k = prefix; k < probes.size(); ++k) {
+                    const bool hasUv = std::isfinite(probeUv[k][0]) && std::isfinite(probeUv[k][1]);
+                    for (const int faceId : faceCandidates)
+                        if (cad.faceContainsPoint(faceId, probes[k], tolerance, hasUv ? &probeUv[k] : nullptr))
+                            ++faceVotes[faceId];
+                }
+                for (const auto& vote : faceVotes) if (vote.second >= requiredVotes) qualified = true;
+            }
+            if (!qualified) {
+                faceVotes.clear();
+                countAll(0, probes.size());
             }
             for (const auto& vote : faceVotes)
                 mapping.matchedSampleCount = std::max(mapping.matchedSampleCount, vote.second);
             mapping.matchRatio = static_cast<double>(mapping.matchedSampleCount) /
                                  static_cast<double>(mapping.sampledElementCount);
-            const std::size_t requiredVotes =
-                std::max<std::size_t>(1, (totalElements * 4 + 4) / 5);
             std::vector<int> candidates;
             for (const auto& vote : faceVotes)
                 if (vote.second >= requiredVotes) candidates.push_back(vote.first);
