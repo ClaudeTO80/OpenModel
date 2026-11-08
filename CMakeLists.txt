@@ -672,7 +672,36 @@ if(OPENMODEL_BUILD_GMSH_BACKEND)
 endif()
 
 if(OPENMODEL_BUILD_OCC_BACKEND)
-    find_package(OpenCASCADE REQUIRED)
+    # Open CASCADE ships a CMake package (OpenCASCADEConfig.cmake). Any of these selects the installation:
+    #   -DOpenCASCADE_DIR=<folder containing OpenCASCADEConfig.cmake>   (standard CMake variable)
+    #   -DOPENCASCADE_ROOT=<install prefix>   (or the OPENCASCADE_ROOT / CASROOT environment variable)
+    # The prefix is searched with the layouts of the official Windows package (<prefix>/cmake), of vcpkg and of
+    # Linux distributions (<prefix>/lib/cmake/opencascade). It is also what Gmsh calls CASROOT: use the same
+    # installation for both so that a single Open CASCADE runtime is loaded.
+    set(OPENCASCADE_ROOT "" CACHE PATH "Open CASCADE install prefix (contains cmake/ or lib/cmake/opencascade)")
+    set(_openmodel_occ_root "${OPENCASCADE_ROOT}")
+    if(NOT _openmodel_occ_root AND DEFINED ENV{OPENCASCADE_ROOT})
+        set(_openmodel_occ_root "$ENV{OPENCASCADE_ROOT}")
+    endif()
+    if(NOT _openmodel_occ_root AND DEFINED ENV{CASROOT})
+        set(_openmodel_occ_root "$ENV{CASROOT}")
+    endif()
+    if(_openmodel_occ_root AND NOT OpenCASCADE_DIR)
+        find_package(OpenCASCADE CONFIG QUIET
+            HINTS "${_openmodel_occ_root}" "${_openmodel_occ_root}/cmake"
+                  "${_openmodel_occ_root}/lib/cmake/opencascade" "${_openmodel_occ_root}/lib64/cmake/opencascade"
+                  "${_openmodel_occ_root}/share/opencascade" "${_openmodel_occ_root}/share/cmake/opencascade"
+            NO_DEFAULT_PATH)
+        if(NOT OpenCASCADE_FOUND)
+            message(FATAL_ERROR
+                "OPENMODEL_BUILD_OCC_BACKEND=ON, but no OpenCASCADEConfig.cmake was found under "
+                "OPENCASCADE_ROOT='${_openmodel_occ_root}'. Point OpenCASCADE_DIR to the folder that contains it "
+                "(for the official Windows package: <prefix>/cmake).")
+        endif()
+    else()
+        find_package(OpenCASCADE REQUIRED)
+    endif()
+    message(STATUS "Open CASCADE ${OpenCASCADE_VERSION}: ${OpenCASCADE_DIR}")
     add_library(openmodel_occ STATIC src/OCCModel.cpp)
     target_link_libraries(openmodel_occ PUBLIC OpenModel::Core)
     if(DEFINED OpenCASCADE_INCLUDE_DIR)

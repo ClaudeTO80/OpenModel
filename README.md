@@ -124,6 +124,7 @@ Each backend is off by default and needs its native library to be found by CMake
 |---|---|
 | `OPENMODEL_BUILD_GMSH_BACKEND` | Gmsh surface and volume meshing. Point `GMSH_ROOT` to the Gmsh install prefix (`include/gmsh.h`, `lib/`, `bin/`); use `GMSH_ROOT_DEBUG` / `GMSH_ROOT_RELEASE` for separate Debug and Release builds. `GMSH_INCLUDE_DIR`, `GMSH_LIBRARY_DEBUG/RELEASE` and `GMSH_RUNTIME_LIBRARY_DEBUG/RELEASE` override the search. The C++ API must come from a build made by the same compiler (with MSVC, a Gmsh built with MSVC: the official MinGW SDK does not link); a configure-time link check warns about it (`OPENMODEL_GMSH_LINK_CHECK`) |
 | `OPENMODEL_BUILD_OCC_BACKEND` | Open CASCADE import of STEP / IGES / BREP, assemblies |
+| `OPENMODEL_BUILD_OCC_BACKEND` | Open CASCADE CAD import (STEP / IGES / BREP). Select the installation with `OpenCASCADE_DIR` (folder with `OpenCASCADEConfig.cmake`) or `OPENCASCADE_ROOT` / `CASROOT` (install prefix); use the same installation as Gmsh |
 | `OPENMODEL_BUILD_ASSIMP_BACKEND` | Assimp import of general 3D formats |
 | `OPENMODEL_BUILD_TETGEN_BACKEND` | TetGen volume meshing |
 | `OPENMODEL_BUILD_NETGEN_BACKEND` (+ `OPENMODEL_NETGEN_HAS_OCC`) | Netgen meshing |
