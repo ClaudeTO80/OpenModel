@@ -716,8 +716,28 @@ if(OPENMODEL_BUILD_OCC_BACKEND)
     # and TKPrim the BRepPrim* builders used by the tests. Windows import libraries do not pull in the
     # toolkits they depend on, so every toolkit that is used directly must be listed.
     set(_openmodel_occ_toolkits TKernel TKMath TKG2d TKBRep TKGeomBase TKG3d TKTopAlgo
-        TKGeomAlgo TKMesh TKShHealing TKPrim TKXSBase TKSTEP TKIGES TKSTEPBase TKSTEPAttr TKSTEP209 TKXCAF TKLCAF TKCDF
-        TKXDESTEP TKXDEIGES TKBO)
+        TKGeomAlgo TKMesh TKShHealing TKPrim TKXSBase TKXCAF TKLCAF TKCDF TKBO)
+    # The package may or may not define imported targets, so probe for the legacy toolkit both ways.
+    set(_openmodel_occ_legacy_exchange FALSE)
+    if(TARGET OpenCASCADE::TKXDESTEP OR TARGET TKXDESTEP)
+        set(_openmodel_occ_legacy_exchange TRUE)
+    else()
+        unset(_openmodel_occ_probe_xdestep CACHE)
+        find_library(_openmodel_occ_probe_xdestep NAMES TKXDESTEP
+            HINTS "${OpenCASCADE_LIBRARY_DIR}" "${OpenCASCADE_DIR}/../.." PATH_SUFFIXES lib lib64)
+        if(_openmodel_occ_probe_xdestep)
+            set(_openmodel_occ_legacy_exchange TRUE)
+        endif()
+    endif()
+    if(_openmodel_occ_legacy_exchange)
+        # Open CASCADE up to 7.8: STEP and IGES are split over several toolkits. Release 7.8 also ships the
+        # new TKDE* toolkits, but the STEPCAF/IGESCAF readers stay in these ones.
+        list(APPEND _openmodel_occ_toolkits TKSTEP TKIGES TKSTEPBase TKSTEPAttr TKSTEP209 TKXDESTEP TKXDEIGES)
+    else()
+        # Releases with the merged data-exchange toolkits: the STEP and IGES readers, XDE/CAF ones included,
+        # live in TKDESTEP and TKDEIGES (TKSTEP, TKXDESTEP, ... no longer exist).
+        list(APPEND _openmodel_occ_toolkits TKDE TKDESTEP TKDEIGES)
+    endif()
     foreach(_occ_lib IN LISTS _openmodel_occ_toolkits)
         if(TARGET OpenCASCADE::${_occ_lib})
             target_link_libraries(openmodel_occ PUBLIC OpenCASCADE::${_occ_lib})
