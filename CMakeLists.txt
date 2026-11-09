@@ -578,6 +578,15 @@ if(OPENMODEL_BUILD_GMSH_BACKEND)
             message(STATUS "Gmsh Debug DLL:   ${_gmsh_dll_DEBUG}")
         endif()
 
+        # A static Gmsh (gmsh.lib containing GamePad.obj, ...) needs the Windows system libraries it uses:
+        # joyGetPosEx/joyGetDevCapsA are in winmm, sockets in ws2_32/wsock32, process queries in psapi.
+        # They are part of the Windows SDK, so adding them is harmless for an import library (DLL build).
+        # OPENMODEL_GMSH_EXTRA_LIBRARIES appends further libraries (other dependencies of a static Gmsh).
+        set(_openmodel_gmsh_extra_libs ${OPENMODEL_GMSH_EXTRA_LIBRARIES})
+        if(WIN32)
+            list(APPEND _openmodel_gmsh_extra_libs winmm ws2_32 wsock32 psapi ole32)
+        endif()
+
         # Catch a Gmsh build that cannot be used with this compiler before the long build starts, for
         # example a MinGW build of the C++ API with MSVC (unresolved gmsh:: symbols at link time). A static
         # Gmsh needs its own dependencies too, so a failure here is a warning, not an error.
@@ -595,7 +604,7 @@ if(OPENMODEL_BUILD_GMSH_BACKEND)
                         "${CMAKE_BINARY_DIR}/gmsh_link_check_${_cfg}"
                         "${CMAKE_BINARY_DIR}/gmsh_link_check.cpp"
                         CMAKE_FLAGS "-DINCLUDE_DIRECTORIES=${_gmsh_include}"
-                        LINK_LIBRARIES "${_gmsh_lib_${_cfg}}"
+                        LINK_LIBRARIES "${_gmsh_lib_${_cfg}}" ${_openmodel_gmsh_extra_libs}
                         CXX_STANDARD 17
                         OUTPUT_VARIABLE _gmsh_link_log)
                     if(NOT _gmsh_link_ok)
@@ -620,6 +629,9 @@ if(OPENMODEL_BUILD_GMSH_BACKEND)
             IMPORTED_LOCATION_RELEASE "${_gmsh_lib_RELEASE}"
             MAP_IMPORTED_CONFIG_RELWITHDEBINFO Release
             MAP_IMPORTED_CONFIG_MINSIZEREL Release)
+        if(_openmodel_gmsh_extra_libs)
+            set_property(TARGET openmodel_gmsh_external PROPERTY INTERFACE_LINK_LIBRARIES "${_openmodel_gmsh_extra_libs}")
+        endif()
         # The target is configuration-aware: Debug uses the debug library, Release/RelWithDebInfo/MinSizeRel
         # use the release one (a single variant is used for every configuration).
         set(_openmodel_gmsh_target openmodel_gmsh_external)
