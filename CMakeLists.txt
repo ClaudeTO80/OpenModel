@@ -729,6 +729,10 @@ if(OPENMODEL_BUILD_OCC_BACKEND)
     # toolkits they depend on, so every toolkit that is used directly must be listed.
     set(_openmodel_occ_toolkits TKernel TKMath TKG2d TKBRep TKGeomBase TKG3d TKTopAlgo
         TKGeomAlgo TKMesh TKShHealing TKPrim TKXSBase TKXCAF TKLCAF TKCDF TKBO)
+    # A static Gmsh (gmsh.lib) built with Open CASCADE references the modelling toolkits for offsets,
+    # fillets, features and booleans (BRepOffsetAPI_*, BRepFilletAPI_*, ChFi2d_*, BRepAlgoAPI_*,
+    # BRepAlgoAPI_Defeaturing): the same list Gmsh itself links. They exist in every supported release.
+    list(APPEND _openmodel_occ_toolkits TKOffset TKFillet TKFeat TKBool TKHLR)
     # The package may or may not define imported targets, so probe for the legacy toolkit both ways.
     set(_openmodel_occ_legacy_exchange FALSE)
     if(TARGET OpenCASCADE::TKXDESTEP OR TARGET TKXDESTEP)
