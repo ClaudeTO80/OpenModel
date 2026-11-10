@@ -690,7 +690,7 @@ async function createCADFaceGroup() {
   const name = $("cadGrpName").value.trim();
   if (!selectedCadFaceIds.length) { show("Seleziona prima una o più facce CAD nel viewer.", "bad"); return; }
   const r = await act("openmodel_create_cad_face_group", name, selectedCadFaceIds.join(","));
-  if (r && r.ok) $("cadGrpName").value = "";
+  if (r && r.ok) { $("cadGrpName").value = ""; await refreshGroups(); }
 }
 function buildFixedSupportLine(selector) {
   const dofs = $("asDof").value.split(",").map((x) => x.trim()).filter(Boolean);

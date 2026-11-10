@@ -20,6 +20,7 @@
 #include <OpenModel/MeshData.hpp>
 #include <OpenModel/MeshSelection.hpp>
 #include <OpenModel/MeshImporter.hpp>
+#include <OpenModel/CADFaceMapper.hpp>
 #include <OpenModel/MeshQuality.hpp>
 #include <OpenModel/MeshValidator.hpp>
 #include <OpenModel/Mesher.hpp>
@@ -763,6 +764,7 @@ void generateVolume(webui_event_t* e) {
     options.structure = structured ? MeshStructure::Structured : MeshStructure::Unstructured;
     options.structuredShape = prismShape ? StructuredElementShape::Prism : StructuredElementShape::Hexahedron;
     options.thinFaceSizeFactor = thinFactor;
+    options.auditAllCadFaces = false;   // map only the requested CAD faces; others on demand after meshing
     // The verbose Gmsh log goes next to the CAD file (or the temp folder when that is not writable).
     std::string logPath;
     if (verbose) {
@@ -1516,6 +1518,36 @@ void listCADFaceGroupsHandler(webui_event_t* e) {
     replyCADFaceGroups(e, true, g.cadGroupsNote);
 }
 
+/**
+ * Add a CAD face group to the mesh already generated, without meshing again: the nodes of the boundary faces
+ * lying on the group's CAD faces become the Node Set `<name>_NODES` and a CAD mesh group.
+ * @return Empty on success, otherwise why the group could not be applied (the mesh is left untouched).
+ */
+std::string applyCADFaceGroupToMesh(const UserCADFaceGroup& group) {
+    if (g.origin != MeshOrigin::Generated || g.mesh.isEmpty() || !g.cad) return "nessuna mesh generata";
+    const std::string nodeSetName = group.name + "_NODES";
+    if (g.mesh.getNodeSets().count(nodeSetName)) return "il Node Set «" + nodeSetName + "» esiste già";
+    std::array<double, 3> low{1e300, 1e300, 1e300}, high{-1e300, -1e300, -1e300};
+    for (NodeIndex n = 0; n < g.mesh.getNumNodes(); ++n) {
+        const auto p = g.mesh.nodeCoordinates(n);
+        for (int k = 0; k < 3; ++k) { low[k] = std::min(low[k], p[k]); high[k] = std::max(high[k], p[k]); }
+    }
+    const double diagonal = std::sqrt((high[0] - low[0]) * (high[0] - low[0]) + (high[1] - low[1]) * (high[1] - low[1]) +
+                                      (high[2] - low[2]) * (high[2] - low[2]));
+    CADFaceMapping mapping;
+    try { mapping = mapCADFacesToMesh(*g.cad, g.mesh, group.faceIds, std::max(1e-6 * diagonal, 1e-9)); }
+    catch (const std::exception& error) { return error.what(); }
+    if (!mapping.faceIdsWithoutMatch.empty()) {
+        std::string ids;
+        for (const int id : mapping.faceIdsWithoutMatch) ids += (ids.empty() ? "" : ", ") + std::to_string(id);
+        return "nessuna faccia della mesh giace sulle facce CAD " + ids;
+    }
+    g.mesh.addNodeSet(nodeSetName, mapping.nodes);
+    g.mesh.addMeshGroup(MeshGroup{group.name, 2, MeshGroupSource::CAD, group.faceIds, {}, mapping.nodes});
+    clearResults();
+    return {};
+}
+
 void createCADFaceGroupHandler(webui_event_t* e) {
     StateLock lock;
     if (!lock.ok()) { replyBusy(e); return; }
@@ -1576,9 +1608,23 @@ void createCADFaceGroupHandler(webui_event_t* e) {
     }
     g.cadFaceGroups = std::move(candidate);
     g.cadGroupsNote.clear();
-    invalidateGeneratedMeshForCADGroups();
+    std::string meshNote;
+    if (g.origin == MeshOrigin::Generated) {
+        // A new group is mapped on the existing mesh (only the picked faces are searched); if that is not
+        // possible the mesh is dropped, as for any other change of the CAD groups.
+        const std::string why = applyCADFaceGroupToMesh(group);
+        if (why.empty()) {
+            const auto* set = g.mesh.getNodeSets().find(name + "_NODES") != g.mesh.getNodeSets().end()
+                ? &g.mesh.getNodeSets().at(name + "_NODES") : nullptr;
+            meshNote = "\nApplicato alla mesh esistente senza rigenerarla: Node Set " + name + "_NODES con " +
+                       std::to_string(set ? set->size() : 0) + " nodi.";
+        } else {
+            invalidateGeneratedMeshForCADGroups();
+            meshNote = "\nImpossibile applicarlo alla mesh esistente (" + why + "): la mesh è stata scartata, rigenerala.";
+        }
+    }
     replyCADFaceGroups(e, true, "Gruppo CAD «" + name + "» creato e salvato (" +
-        std::to_string(group.faceIds.size()) + " facce). Sidecar: " + cadGroupsPath(g.source).string());
+        std::to_string(group.faceIds.size()) + " facce). Sidecar: " + cadGroupsPath(g.source).string() + meshNote);
 }
 
 void updateCADFaceGroupHandler(webui_event_t* e) {
