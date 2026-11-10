@@ -20,6 +20,7 @@
 #include <OpenModel/MeshData.hpp>
 #include <OpenModel/MeshSelection.hpp>
 #include <OpenModel/MeshImporter.hpp>
+#include <OpenModel/MeshQuality.hpp>
 #include <OpenModel/MeshValidator.hpp>
 #include <OpenModel/Mesher.hpp>
 #include <OpenModel/ResultBinding.hpp>
@@ -44,6 +45,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <cstdint>
 #include <filesystem>
@@ -486,7 +488,7 @@ std::vector<MesherInfo> meshers() {
 #else
         false,
 #endif
-        "min,order,curv,iface,log",
+        "min,order,curv,iface,log,struct,thin",
         "Legge direttamente il file STEP/IGES con il kernel OpenCASCADE di Gmsh. Non funziona con i formati mesh importati tramite Assimp."});
     list.push_back({"tetgen", "TetGen",
 #ifdef OPENMODEL_HAS_TETGEN
@@ -690,6 +692,43 @@ void retessellate(webui_event_t* e) {
         (dropped ? " La mesh volumetrica precedente è stata scartata: rigenerala." : ""));
 }
 
+/// Italian name of an element type for the quality note.
+const char* qualityTypeName(ElementType type) {
+    switch (type) {
+    case ElementType::Triangle3: return "triangoli";
+    case ElementType::Triangle6: return "triangoli quadratici";
+    case ElementType::Quadrilateral4: return "quadrilateri";
+    case ElementType::Quadrilateral8: case ElementType::Quadrilateral9: return "quadrilateri quadratici";
+    case ElementType::Tetrahedron4: return "tetraedri";
+    case ElementType::Tetrahedron10: return "tetraedri quadratici";
+    case ElementType::Hexahedron8: return "esaedri";
+    case ElementType::Hexahedron20: case ElementType::Hexahedron27: return "esaedri quadratici";
+    case ElementType::Prism6: return "prismi";
+    case ElementType::Prism15: return "prismi quadratici";
+    case ElementType::Pyramid5: return "piramidi";
+    default: return "elementi";
+    }
+}
+
+/// Quality of the mesh (every backend) as reply text: minimum and mean per element type, and warnings.
+std::string qualityNote(const MeshData& mesh) {
+    MeshQualityReport report;
+    try { report = computeMeshQuality(mesh); } catch (const std::exception&) { return {}; }
+    if (report.types.empty()) return {};
+    auto number = [](double v) { char text[32]; std::snprintf(text, sizeof text, "%.3f", v); return std::string(text); };
+    std::string note = "\nQualità degli elementi (1 = ideale):";
+    for (const auto& entry : report.types)
+        note += "\n  " + std::to_string(entry.count) + " " + qualityTypeName(entry.type) + ": min " + number(entry.minimum) +
+                ", media " + number(entry.mean);
+    if (report.invertedElements > 0)
+        note += "\nATTENZIONE: " + std::to_string(report.invertedElements) +
+                " elementi invertiti o degeneri: la mesh non è utilizzabile per l'analisi.";
+    if (report.poorElements > 0)
+        note += "\nATTENZIONE: " + std::to_string(report.poorElements) + " elementi con qualità < " + number(report.poorThreshold) +
+                ". Riduci la dimensione massima o attiva il controllo delle facce sottili.";
+    return note;
+}
+
 void generateVolume(webui_event_t* e) {
     StateLock lock;
     if (!lock.ok()) { replyBusy(e); return; }
@@ -700,10 +739,16 @@ void generateVolume(webui_event_t* e) {
     const bool curvature = getStringArg(e, 4) != "0";
     const bool conformal = getStringArg(e, 5) == "conformal";
     const bool verbose = getStringArg(e, 6) == "1" && mesherId == "gmsh";
+    const bool structured = getStringArg(e, 7) == "structured" && mesherId == "gmsh";
+    const bool prismShape = getStringArg(e, 8) == "prism";
+    const double thinFactor = mesherId == "gmsh" ? getDoubleArg(e, 9, 0.0) : 0.0;
     if (!mesherAvailable(mesherId)) { reply(e, false, "Il meshatore scelto non è stato compilato in questa versione."); return; }
     if (!g.cad) { reply(e, false, "Importa prima un modello CAD."); return; }
     if (!(size > 0.0) || !std::isfinite(size) || minSize < 0.0 || (minSize > 0.0 && minSize > size) || (order != 1 && order != 2)) {
         reply(e, false, "Parametri non validi: dimensione massima > 0, minima >= 0 e <= massima, ordine 1 o 2."); return;
+    }
+    if (!std::isfinite(thinFactor) || thinFactor < 0.0) {
+        reply(e, false, "Parametri non validi: il fattore per le facce sottili deve essere >= 0 (0 = disattivato)."); return;
     }
     MeshingOptions options;
     options.dimension = MeshDimension::Volume;
@@ -715,6 +760,9 @@ void generateVolume(webui_event_t* e) {
     options.curvatureAdaptation = curvature;
     options.interfaceMode = conformal ? InterfaceMode::Conformal : InterfaceMode::Independent;
     options.importCadGroups = true;
+    options.structure = structured ? MeshStructure::Structured : MeshStructure::Unstructured;
+    options.structuredShape = prismShape ? StructuredElementShape::Prism : StructuredElementShape::Hexahedron;
+    options.thinFaceSizeFactor = thinFactor;
     // The verbose Gmsh log goes next to the CAD file (or the temp folder when that is not writable).
     std::string logPath;
     if (verbose) {
@@ -833,10 +881,12 @@ void generateVolume(webui_event_t* e) {
             cadNodeSetSummary += "\nNode Set " + userGroup.name + "_NODES: " +
                 std::to_string(set->second.size()) + " nodi";
     }
-    reply(e, true, "Mesh volumetrica generata e validata con " + label + ".\n" + meshSummary() +
+    reply(e, true, "Mesh volumetrica generata e validata con " + label + ".\n" + meshSummary() + qualityNote(g.mesh) +
         cadNodeSetSummary + "\nOrdine: " + std::to_string(order) +
         "\nDimensione massima richiesta: " + std::to_string(size) +
-        "\nInterfacce tra solidi: " + (conformal ? "conformi (nodi condivisi)" : "indipendenti") + noteText + logNote +
+        "\nInterfacce tra solidi: " + (conformal ? "conformi (nodi condivisi)" : "indipendenti") +
+        (structured ? std::string("\nStruttura richiesta: sweep strutturato (") + (prismShape ? "prismi" : "esaedri") + ")" : std::string()) +
+        (thinFactor > 0.0 ? "\nFattore facce sottili: " + std::to_string(thinFactor) : std::string()) + noteText + logNote +
         (g.viewNote.empty() ? "" : "\n" + g.viewNote));
 }
 

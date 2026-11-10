@@ -249,6 +249,19 @@ iframe{display:block;width:100%;height:100%;border:0;background:#10141b}
     <div data-f="min"><label for="minSize">Dimensione minima (0 = automatica)</label><input id="minSize" type="number" min="0" step="any" value="0"></div>
     <div data-f="order"><label for="order">Ordine degli elementi</label>
       <select id="order"><option value="1">Lineare (1° ordine)</option><option value="2">Quadratico (2° ordine)</option></select></div>
+    <div data-f="struct"><label for="struct">Tipo di mesh</label>
+      <select id="struct" onchange="structChanged()">
+        <option value="unstructured">Non strutturata (tetraedri)</option>
+        <option value="structured">Strutturata (sweep di solidi prismatici)</option>
+      </select></div>
+    <div data-f="struct" id="shapeBox" hidden><label for="shape">Elementi della mesh strutturata</label>
+      <select id="shape">
+        <option value="hex">Esaedri (hex, prismi dove serve)</option>
+        <option value="prism">Prismi (triangolo + estrusione)</option>
+      </select>
+      <p class="hint">Solo solidi estrusi in linea retta (travi, piastre, profilati). Gli altri solidi ricadono sui tetraedri.</p></div>
+    <div data-f="thin"><label for="thin">Adatta alle facce sottili (0 = disattivo, 1 = consigliato)</label>
+      <input id="thin" type="number" min="0" step="any" value="0"></div>
     <label class="check" data-f="curv"><input type="checkbox" id="curv" checked> Adatta alla curvatura</label>
     <div data-f="iface"><label for="iface">Solidi a contatto</label>
       <select id="iface">
@@ -452,15 +465,21 @@ $("viewer").addEventListener("load", () => { if (pendingView || viewVersion >= 0
 
 const importModel = () => act("openmodel_import_model", $("cadPath").value.trim(), $("linear").value, $("angular").value);
 const retessellate = () => act("openmodel_retessellate", $("linear").value, $("angular").value);
-const generate = () => act("openmodel_generate_volume", $("mesher").value, $("size").value, $("minSize").value, $("order").value, $("curv").checked ? "1" : "0", $("iface").value, $("verbose").checked ? "1" : "0");
+const generate = () => act("openmodel_generate_volume", $("mesher").value, $("size").value, $("minSize").value, $("order").value, $("curv").checked ? "1" : "0", $("iface").value, $("verbose").checked ? "1" : "0", $("struct").value, $("shape").value, $("thin").value);
 const loadMesh = () => act("openmodel_load_mesh", $("loadPath").value.trim());
 const loadResults = () => act("openmodel_load_results", $("resPath").value.trim(), $("resStep").value.trim());
 const save = (fn, ext) => act(fn, $("outBase").value.trim(), ext);
+
+function structChanged() {
+  const m = meshers.find((x) => x.id === $("mesher").value);
+  $("shapeBox").hidden = !(m && m.fields.includes("struct")) || $("struct").value !== "structured";
+}
 
 function mesherChanged() {
   const m = meshers.find((x) => x.id === $("mesher").value);
   if (!m) return;
   document.querySelectorAll("[data-f]").forEach((el) => { el.hidden = !m.fields.includes(el.dataset.f); });
+  structChanged();
   $("mesherHint").textContent = m.hint;
 }
 
