@@ -83,7 +83,6 @@ iframe{display:block;width:100%;height:100%;border:0;background:#10141b}
 
   <div class="panel" data-panel="file" role="tabpanel">
     <div class="group"><div class="items">
-      <button class="rb" data-act="demo" title="Carica il modello dimostrativo"><span class="ic">🧩</span>Modello demo</button>
       <button class="rb" data-act="cad" title="Scegli un file CAD (STEP, IGES, BREP, OBJ, STL…) e triangolalo"><span class="ic">📐</span>Importa CAD…</button>
       <button class="rb" data-act="mesh" title="Scegli una mesh .mgmb, .inp o .mail (code_aster)"><span class="ic">📂</span>Apri mesh…</button>
       <button class="rb" data-act="res" data-need="mesh" title="Scegli un file di risultati (.frd, .dat, .csv, .tab)"><span class="ic">📈</span>Apri risultati…</button>
@@ -227,7 +226,6 @@ iframe{display:block;width:100%;height:100%;border:0;background:#10141b}
     <label for="cadPath">File (STEP, IGES, BREP, oppure OBJ/STL/… via Assimp)</label>
     <div class="row"><input id="cadPath" placeholder="/percorso/parte.step"><button onclick="browse('cadPath','cad')">Sfoglia…</button></div>
     <button class="primary full" id="btnImport" onclick="importModel()">Importa e triangola</button>
-    <button class="full" onclick="act('openmodel_create_demo')">Carica modello dimostrativo</button>
   </section>
 
   <section id="secTess">
@@ -437,8 +435,8 @@ async function act(name, ...args) {
   if (r.cadGroups) renderCADFaceGroups(r.cadGroups);
   if (r.nativeCADGroups) renderNativeCADGroups(r.nativeCADGroups);
   if (r.meshGroups) renderGenericMeshGroups(r.meshGroups);
-  else if (r.ok && ["openmodel_import_model", "openmodel_load_mesh", "openmodel_create_demo", "openmodel_generate_volume"].includes(name)) await refreshCADFaceGroups();
-  if (!r.groups && r.ok && ["openmodel_load_mesh", "openmodel_create_demo", "openmodel_generate_volume"].includes(name)) refreshGroups();
+  else if (r.ok && ["openmodel_import_model", "openmodel_load_mesh", "openmodel_generate_volume"].includes(name)) await refreshCADFaceGroups();
+  if (!r.groups && r.ok && ["openmodel_load_mesh", "openmodel_generate_volume"].includes(name)) refreshGroups();
   return r;
 }
 function loadView(label) {
@@ -542,7 +540,6 @@ RIBBON_EXTRA["as-fix"] = () => assign("fix");
 RIBBON_EXTRA["as-force"] = () => assign("force");
 RIBBON_EXTRA["as-press"] = () => assign("press");
 const RIBBON_ACTIONS = {
-  demo: () => act("openmodel_create_demo"),
   cad: () => browse("cadPath", "cad", importModel),
   mesh: () => browse("loadPath", "mesh", loadMesh),
   res: () => browse("resPath", "results", loadResults),
