@@ -133,6 +133,19 @@ Each backend is off by default and needs its native library to be found by CMake
 General options: `OPENMODEL_BUILD_TESTS` (ON), `OPENMODEL_BUILD_CLI` (ON), `OPENMODEL_BUILD_SHARED` (ON), `OPENMODEL_BUILD_BENCHMARKS` (OFF),
 `OPENMODEL_BUILD_WEBUI` (OFF), `OPENMODEL_TEST_WEBGL_VIEWER` (OFF, needs Node.js with Playwright).
 
+### Gmsh meshing controls
+
+`MeshingOptions` (Gmsh backend) controls, besides the element sizes and the order:
+
+- `structure` / `structuredShape`: `Unstructured` (tetrahedra, any solid) or `Structured`, which sweeps the end-face mesh of a
+  straight prismatic solid (beam, bar) in layers into hexahedra (`Hexahedron`: triangles that the recombination leaves become
+  prisms) or prisms (`Prism`). Other solids fall back to tetrahedra with a diagnostic, or fail when `structuredFallback` is
+  false. Second-order structured meshes use 20-node hexahedra and 15-node prisms in Abaqus node order. Conformal interfaces
+  between several solids are not available for structured meshes.
+- `thinFaceSizeFactor`: limits the element size at the corners of each face to the given multiple of the face width
+  (2 * area / perimeter). It avoids needle triangles on strips such as the flange edges of a beam; 1 is a good start.
+- `computeMeshQuality(mesh)` (`MeshQuality.hpp`) reports the quality of every element type (1 = ideal; non-positive = inverted).
+
 ## Repository layout
 
 ```text

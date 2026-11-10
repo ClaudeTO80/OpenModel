@@ -15,6 +15,26 @@ enum class InterfaceMode {
     Conformal
 };
 
+/** @brief Topology of a volume mesh (Gmsh backend only). */
+enum class MeshStructure {
+    /** Tetrahedral mesh of any geometry (the default). */
+    Unstructured,
+    /**
+     * Hexahedral or prismatic mesh obtained by sweeping the mesh of one end face through the solid in
+     * layers. Possible only for straight prismatic solids (two congruent parallel planar end faces joined by
+     * walls parallel to the sweep direction, e.g. beams and bars); see MeshingOptions::structuredFallback.
+     */
+    Structured
+};
+
+/** @brief Element family of a structured volume mesh. */
+enum class StructuredElementShape {
+    /** Quadrilateral end-face mesh swept into hexahedra; triangles left by the recombination become prisms. */
+    Hexahedron,
+    /** Triangular end-face mesh swept into prisms (wedges). */
+    Prism
+};
+
 struct MeshingOptions {
     MeshDimension dimension = MeshDimension::Volume;
     // Legacy volume target size; retained for source compatibility.
@@ -33,6 +53,29 @@ struct MeshingOptions {
     double maxElementSize = 0.0;   // 0 = use elementSize as the maximum
     bool curvatureAdaptation = true;
     double curvaturePointsPerCircle = 12.0; // hint for backends that support it
+
+    /**
+     * Gmsh only: volume mesh topology. Structured meshes sweep the end-face mesh in layers of about
+     * maxElementSize (so they have far fewer elements than a tetrahedral mesh of the same size), keep the
+     * order of the nodes of second-order hexahedra and prisms (20 and 15 nodes, no pyramids) and are not
+     * available together with InterfaceMode::Conformal. Ignored for surface meshes.
+     */
+    MeshStructure structure = MeshStructure::Unstructured;
+    /** Gmsh only: element family of a structured volume mesh. */
+    StructuredElementShape structuredShape = StructuredElementShape::Hexahedron;
+    /**
+     * Gmsh only: when a structured mesh is requested but a solid is not a straight prism, fall back to the
+     * unstructured tetrahedral mesh (true, a diagnostic explains why) or fail (false).
+     */
+    bool structuredFallback = true;
+    /**
+     * Gmsh only: limit the element size near thin faces. Each CAD face gets a width estimate 2*area/perimeter
+     * (the width of a strip) and the size at its corners is limited to thinFaceSizeFactor times that width.
+     * Without it, a flat strip such as a 2.7 mm wide, 1000 mm long flange edge is meshed with needle triangles
+     * as long as the maximum element size. A value of 1 is a good start; 0 disables the control. Applies to
+     * the faces of unstructured and structured meshes; minElementSize is still respected.
+     */
+    double thinFaceSizeFactor = 0.0;
 
     /** Continuity of the mesh across contacts between solids (backends that cannot honour it ignore it and say so). */
     InterfaceMode interfaceMode = InterfaceMode::Independent;

@@ -1,8 +1,189 @@
 #include <OpenModel/GmshMesher.hpp>
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <chrono>
 #include <fstream>
 #include <limits>
+
+namespace {
+using Vec3 = std::array<double, 3>;
+
+double dot3(const Vec3& a, const Vec3& b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
+
+/** @brief A solid that is a straight prism: the planar face to sweep, the sweep direction and the height. */
+struct PrismSweep {
+    int solid = 0;
+    int baseFace = 0;
+    Vec3 direction{};   ///< unit vector from the base face towards the opposite face
+    double length = 0.0;
+};
+
+/** @brief Unit normal of a face at the point of the face closest to a given point. */
+Vec3 faceNormalNear(int face, double x, double y, double z, Vec3* closest = nullptr) {
+    std::vector<double> point, parametric, normal;
+    gmsh::model::getClosestPoint(2, face, {x, y, z}, point, parametric);
+    gmsh::model::getNormal(face, parametric, normal);
+    if (closest) *closest = {point[0], point[1], point[2]};
+    return {normal[0], normal[1], normal[2]};
+}
+
+/**
+ * @brief Decide whether a solid is a straight prism and find its sweep (the longest one when there are several).
+ *
+ * The test, all of which must hold: two planar faces with parallel planes and the same area, the volume equal
+ * to area times the distance of the planes, and every other face parallel to the sweep direction (its normal
+ * perpendicular to it at 27 sample points) and contained in the sweep of the base. The bounding box of the sweep
+ * must coincide with that of the solid. This is a sampled test, not a proof, so the result is also checked by
+ * the volume of the swept solid in the caller.
+ * @param why Set to the reason when the solid is not accepted.
+ */
+bool analysePrism(int solid, PrismSweep& sweep, std::string& why) {
+    std::vector<std::pair<int, int>> boundary;
+    gmsh::model::getBoundary({{3, solid}}, boundary, false, false, false);
+    struct FaceInfo { int tag; bool planar; double area; Vec3 normal; Vec3 point; };
+    std::vector<FaceInfo> faces;
+    for (const auto& entry : boundary) {
+        FaceInfo face{};
+        face.tag = std::abs(entry.second);
+        std::string type;
+        gmsh::model::getType(2, face.tag, type);
+        face.planar = type == "Plane";
+        double cx = 0, cy = 0, cz = 0;
+        gmsh::model::occ::getCenterOfMass(2, face.tag, cx, cy, cz);
+        gmsh::model::occ::getMass(2, face.tag, face.area);
+        face.normal = faceNormalNear(face.tag, cx, cy, cz, &face.point);
+        faces.push_back(face);
+    }
+    double volume = 0.0;
+    gmsh::model::occ::getMass(3, solid, volume);
+    double sx0, sy0, sz0, sx1, sy1, sz1;
+    gmsh::model::getBoundingBox(3, solid, sx0, sy0, sz0, sx1, sy1, sz1);
+    const double diagonal = std::sqrt((sx1 - sx0) * (sx1 - sx0) + (sy1 - sy0) * (sy1 - sy0) + (sz1 - sz0) * (sz1 - sz0));
+    why = "no pair of congruent parallel planar faces whose area times distance equals the volume";
+    bool found = false;   // a box can be swept in three ways: the longest sweep (smallest end face) is kept
+    for (std::size_t i = 0; i < faces.size(); ++i) {
+        if (!faces[i].planar) continue;
+        for (std::size_t j = i + 1; j < faces.size(); ++j) {
+            if (!faces[j].planar) continue;
+            if (std::abs(std::abs(dot3(faces[i].normal, faces[j].normal)) - 1.0) > 1e-9) continue;
+            if (std::abs(faces[i].area - faces[j].area) > 1e-6 * faces[i].area) continue;
+            const Vec3 offset = {faces[j].point[0] - faces[i].point[0], faces[j].point[1] - faces[i].point[1],
+                                 faces[j].point[2] - faces[i].point[2]};
+            const double along = dot3(offset, faces[i].normal);
+            const double length = std::abs(along);
+            if (length < 1e-9 * std::max(diagonal, 1.0)) continue;
+            if (std::abs(volume - faces[i].area * length) > 1e-6 * volume) continue;
+            Vec3 direction = faces[i].normal;
+            if (along < 0.0) for (double& v : direction) v = -v;
+            bool parallelWalls = true;
+            for (const auto& wall : faces) {
+                if (wall.tag == faces[i].tag || wall.tag == faces[j].tag) continue;
+                double x0, y0, z0, x1, y1, z1;
+                gmsh::model::getBoundingBox(2, wall.tag, x0, y0, z0, x1, y1, z1);
+                for (int a = 0; a < 3 && parallelWalls; ++a)
+                    for (int b = 0; b < 3 && parallelWalls; ++b)
+                        for (int c = 0; c < 3 && parallelWalls; ++c) {
+                            const Vec3 n = faceNormalNear(wall.tag, x0 + (x1 - x0) * a / 2.0, y0 + (y1 - y0) * b / 2.0,
+                                                          z0 + (z1 - z0) * c / 2.0);
+                            if (std::abs(dot3(n, direction)) > 1e-6) parallelWalls = false;
+                        }
+                if (!parallelWalls) break;
+            }
+            if (!parallelWalls) { why = "a side face is not parallel to the sweep direction"; continue; }
+            // The sweep of the base face must fill the bounding box of the solid.
+            double bx0, by0, bz0, bx1, by1, bz1;
+            gmsh::model::getBoundingBox(2, faces[i].tag, bx0, by0, bz0, bx1, by1, bz1);
+            const double lo[3] = {bx0, by0, bz0}, hi[3] = {bx1, by1, bz1};
+            const double slo[3] = {sx0, sy0, sz0}, shi[3] = {sx1, sy1, sz1};
+            bool same = true;
+            for (int k = 0; k < 3; ++k) {
+                const double shift = direction[static_cast<std::size_t>(k)] * length;
+                const double a = std::min(lo[k], lo[k] + shift), b = std::max(hi[k], hi[k] + shift);
+                if (std::abs(a - slo[k]) > 1e-6 * diagonal || std::abs(b - shi[k]) > 1e-6 * diagonal) same = false;
+            }
+            if (!same) { why = "the sweep of the end face does not fill the solid"; continue; }
+            if (!found || length > sweep.length) sweep = {solid, faces[i].tag, direction, length};
+            found = true;
+        }
+    }
+    return found;
+}
+
+/**
+ * @brief Replace every solid by the layered sweep of one of its end faces, when all of them are straight prisms.
+ * @param layerSize Target layer thickness; each solid gets ceil(height / layerSize) layers.
+ * @param recombine Recombine the end-face mesh into quadrilaterals (hexahedra) instead of leaving triangles (prisms).
+ * @param reason Why the model could not be swept; the model is untouched in that case.
+ * @return the number of solids swept, 0 on refusal.
+ */
+std::size_t sweepPrismaticSolids(double layerSize, bool recombine, std::string& reason) {
+    std::vector<std::pair<int, int>> solids;
+    gmsh::model::getEntities(solids, 3);
+    if (solids.empty()) { reason = "the CAD model has no solid"; return 0; }
+    std::vector<PrismSweep> sweeps;
+    for (const auto& solid : solids) {
+        PrismSweep sweep;
+        std::string why;
+        if (!analysePrism(solid.second, sweep, why)) {
+            reason = "solid " + std::to_string(solid.second) + " is not a straight prism (" + why + ")";
+            return 0;
+        }
+        sweeps.push_back(sweep);
+    }
+    for (const auto& sweep : sweeps) {
+        std::vector<std::pair<int, int>> copied;
+        gmsh::model::occ::copy({{2, sweep.baseFace}}, copied);
+        gmsh::model::occ::remove({{3, sweep.solid}}, true);
+        gmsh::model::occ::synchronize();
+        const int layers = std::max(1, static_cast<int>(std::ceil(sweep.length / layerSize - 1e-9)));
+        std::vector<std::pair<int, int>> extruded;
+        // The layers are always "recombined": for a triangular base this is what makes them prisms.
+        gmsh::model::occ::extrude(copied, sweep.direction[0] * sweep.length, sweep.direction[1] * sweep.length,
+                                  sweep.direction[2] * sweep.length, extruded, {layers}, {1.0}, true);
+        gmsh::model::occ::synchronize();
+        if (recombine) gmsh::model::mesh::setRecombine(2, copied.front().second);
+    }
+    return sweeps.size();
+}
+
+/**
+ * @brief Limit the mesh size at the corners of every thin CAD face to factor times its estimated width.
+ * @return the number of faces whose size was limited.
+ */
+std::size_t limitSizeOfThinFaces(double factor, double maximumSize, double minimumSize, double& smallestSize) {
+    std::vector<std::pair<int, int>> faces;
+    gmsh::model::getEntities(faces, 2);
+    std::size_t limited = 0;
+    smallestSize = maximumSize;
+    for (const auto& face : faces) {
+        double area = 0.0, perimeter = 0.0;
+        gmsh::model::occ::getMass(2, face.second, area);
+        std::vector<std::pair<int, int>> edges;
+        gmsh::model::getBoundary({face}, edges, false, false, false);
+        for (const auto& edge : edges) {
+            double length = 0.0;
+            gmsh::model::occ::getMass(1, std::abs(edge.second), length);
+            perimeter += length;
+        }
+        if (!(area > 0.0) || !(perimeter > 0.0)) continue;
+        const double width = 2.0 * area / perimeter;   // width of a strip: area / (perimeter / 2)
+        const double target = std::max(minimumSize, factor * width);
+        if (target >= maximumSize) continue;
+        std::vector<std::pair<int, int>> corners;
+        gmsh::model::getBoundary({face}, corners, false, false, true);
+        gmsh::model::mesh::setSize(corners, target);
+        smallestSize = std::min(smallestSize, target);
+        ++limited;
+    }
+    return limited;
+}
+
+/** Gmsh position of the node that OpenModel (Abaqus order) keeps at position 8..19 of a 20-node hexahedron. */
+constexpr int kHexahedron20FromGmsh[12] = {8, 11, 13, 9, 16, 18, 19, 17, 10, 12, 14, 15};
+/** Same for positions 6..14 of a 15-node prism. */
+constexpr int kPrism15FromGmsh[9] = {6, 9, 7, 12, 14, 13, 8, 10, 11};
+} // namespace
 
 std::string GmshMesher::getName() const  {
  return "Gmsh Mesher"; 
@@ -120,6 +301,48 @@ bool GmshMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Mesh
                                             std::to_string(after.size()) + " volumes.");
                 }
             }
+            // Structured volume mesh: sweep the end face of every straight prismatic solid.
+            bool structuredApplied = false;
+            if (options.structure == MeshStructure::Structured) {
+                std::string reason;
+                std::vector<std::pair<int, int>> currentSolids;
+                gmsh::model::getEntities(currentSolids, 3);
+                if (meshDimension != 3) {
+                    m_diagnostics.push_back("A structured mesh applies to volume meshes only; ignored for a surface mesh.");
+                } else if (options.interfaceMode == InterfaceMode::Conformal && currentSolids.size() > 1) {
+                    reason = "conformal interfaces between several solids cannot be combined with the sweep of each solid";
+                } else {
+                    const bool hexahedra = options.structuredShape == StructuredElementShape::Hexahedron;
+                    const std::size_t swept = sweepPrismaticSolids(baseSize, hexahedra, reason);
+                    structuredApplied = swept > 0;
+                    if (structuredApplied)
+                        m_diagnostics.push_back("Structured mesh: " + std::to_string(swept) + " solid(s) swept in layers of about " +
+                                                std::to_string(baseSize) + " (" + (hexahedra ? "hexahedra" : "prisms") + ").");
+                }
+                if (!structuredApplied && meshDimension == 3) {
+                    if (!options.structuredFallback)
+                        return fail("A structured mesh is not possible: " + reason + ".");
+                    m_diagnostics.push_back("A structured mesh is not possible (" + reason +
+                                            "): the unstructured tetrahedral mesh was generated instead.");
+                }
+                trace(std::string("Structured sweep ") + (structuredApplied ? "applied" : "not applied"));
+            }
+            // Second-order hexahedra and prisms use the incomplete 20- and 15-node forms; pyramids and the
+            // 27-node hexahedron have no counterpart in the solver decks.
+            if (options.order == 2 && structuredApplied)
+                gmsh::option::setNumber("Mesh.SecondOrderIncomplete", 1.0);
+            if (options.thinFaceSizeFactor > 0.0) {
+                if (!std::isfinite(options.thinFaceSizeFactor))
+                    return fail("thinFaceSizeFactor must be finite");
+                double smallest = baseSize;
+                const std::size_t limited = limitSizeOfThinFaces(options.thinFaceSizeFactor, baseSize,
+                                                                 options.minElementSize, smallest);
+                m_diagnostics.push_back("Thin-face sizing (factor " + std::to_string(options.thinFaceSizeFactor) + "): " +
+                                        std::to_string(limited) + " face(s) limited, smallest size " + std::to_string(smallest) + ".");
+                trace("Thin-face sizing limited " + std::to_string(limited) + " faces");
+            } else if (options.thinFaceSizeFactor < 0.0) {
+                return fail("thinFaceSizeFactor must be zero or positive");
+            }
             std::vector<std::pair<int, int>> entities;
             gmsh::model::getEntities(entities, meshDimension);
             if (entities.empty()) {
@@ -214,9 +437,15 @@ bool GmshMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Mesh
                             for (std::size_t n = 0; n < nodesPerElement; ++n) {
                                 // Gmsh lists the last two mid-edge nodes of a 10-node tetrahedron on the
                                 // edges 3-2 and 3-1; the Abaqus/OpenModel order is 1-3 and 2-3, so they
-                                // are swapped. Other supported types already share the order.
+                                // are swapped. The mid-edge nodes of 20-node hexahedra and 15-node prisms
+                                // follow other edge orders in Gmsh and are permuted too. The corner nodes
+                                // and the other supported types already share the order.
                                 std::size_t source = n;
                                 if (type == ElementType::Tetrahedron10 && n >= 8) source = 17 - n;
+                                else if (type == ElementType::Hexahedron20 && n >= 8)
+                                    source = static_cast<std::size_t>(kHexahedron20FromGmsh[n - 8]);
+                                else if (type == ElementType::Prism15 && n >= 6)
+                                    source = static_cast<std::size_t>(kPrism15FromGmsh[n - 6]);
                                 const auto found = nodeTagToIndex.find(nodes[e * nodesPerElement + source]);
                                 if (found == nodeTagToIndex.end())
                                     throw std::runtime_error("Element refers to an unknown Gmsh node tag");
@@ -269,6 +498,18 @@ bool GmshMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Mesh
             // User-defined face groups are an explicit request and must not
             // depend on importCadGroups, which only governs the groups stored
             // in the CAD source (components, layers, named shapes).
+            if (structuredApplied) {
+                std::size_t hexahedra = 0, prisms = 0, others = 0;
+                for (const auto& block : candidate.getElementBlocks()) {
+                    if (elementDimension(block.type) != 3) continue;
+                    if (block.type == ElementType::Hexahedron8 || block.type == ElementType::Hexahedron20) hexahedra += block.size();
+                    else if (block.type == ElementType::Prism6 || block.type == ElementType::Prism15) prisms += block.size();
+                    else others += block.size();
+                }
+                m_diagnostics.push_back("Structured mesh result: " + std::to_string(hexahedra) + " hexahedra, " +
+                                        std::to_string(prisms) + " prisms" +
+                                        (others ? ", " + std::to_string(others) + " other volume elements" : std::string()) + ".");
+            }
             trace("Mesh extracted: " + std::to_string(candidate.getNumNodes()) + " nodes, " +
                   std::to_string(candidate.getNumElements()) + " elements at " + elapsed() + " s");
             if (options.importCadGroups || !options.additionalFaceGroups.empty())
