@@ -514,7 +514,7 @@ bool GmshMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Mesh
                   std::to_string(candidate.getNumElements()) + " elements at " + elapsed() + " s");
             if (options.importCadGroups || !options.additionalFaceGroups.empty())
                 mapCadGroups(*cadModel, candidate, nodeTagToIndex, elementIdsByEntity, usedPhysicalNames,
-                             options.additionalFaceGroups, options.importCadGroups);
+                             options.additionalFaceGroups, options.importCadGroups, options.auditAllCadFaces);
 
             trace("CAD group mapping finished at " + elapsed() + " s");
             const auto structuralErrors = candidate.validate();
@@ -602,7 +602,7 @@ void GmshMesher::mapCadGroups(const CADModel& cad, MeshData& mesh,
                               const std::map<std::pair<int, int>, std::vector<ElementId>>& elementIdsByEntity,
                               std::set<std::string>& usedPhysicalNames,
                               const std::vector<CADGroup>& additionalFaceGroups,
-                              bool importNativeGroups) {
+                              bool importNativeGroups, bool auditAllFaces) {
     trace("CAD group mapping started (solid ownership of volumes first, then every meshed surface)");
     // Components are always needed to attribute faces to solids; the groups stored in
     // the CAD source are transferred only when requested.
@@ -747,8 +747,9 @@ void GmshMesher::mapCadGroups(const CADModel& cad, MeshData& mesh,
     bool anyFaceGroup = !additionalFaceGroups.empty();
     for (const auto& group : cadGroups) anyFaceGroup = anyFaceGroup || group.dimension == 2;
     // Audit all imported CAD faces even when the file has no named face groups.
-    for (const auto& component : components)
-        anyFaceGroup = anyFaceGroup || !component.faceIds.empty();
+    if (auditAllFaces)
+        for (const auto& component : components)
+            anyFaceGroup = anyFaceGroup || !component.faceIds.empty();
     if (anyFaceGroup) {
         // Which leaf components own each CAD face, to tell apart coincident faces of different solids.
         std::map<int, std::vector<const CADComponent*>> ownersOfFace;

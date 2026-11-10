@@ -84,6 +84,14 @@ struct MeshingOptions {
      * (dimension 3 for components, 2 for face groups). Needs a CADModel that reads that structure.
      */
     bool importCadGroups = true;
+    /**
+     * Gmsh only: map every meshed surface to its CAD face after meshing. This audit is what lets a CAD assembly
+     * report its component face structure, but it probes every element of every surface and can take minutes on
+     * large models. When false the mapping runs only if there are CAD face groups to build (native dimension-2
+     * groups or additionalFaceGroups); without them it is skipped. Faces can then be mapped on demand on the
+     * finished mesh with mapCADFacesToMesh().
+     */
+    bool auditAllCadFaces = true;
 
     /**
      * Additional user-defined CAD face groups. Backends transfer their boundary

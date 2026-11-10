@@ -96,6 +96,8 @@ private:
      * volumes it bounds belongs to a solid that owns the face. This stays valid after a fragment operation.
      *
      * @param additionalFaceGroups User-defined face groups; always mapped.
+     * @param auditAllFaces        When false, surfaces are mapped to CAD faces only if a dimension-2 group
+     *                             (native or additional) has to be built.
      * @param importNativeGroups   When false, components and groups stored in the CAD source are not
      *                             transferred; only @p additionalFaceGroups are.
      */
@@ -104,7 +106,8 @@ private:
                       const std::map<std::pair<int, int>, std::vector<ElementId>>& elementIdsByEntity,
                       std::set<std::string>& usedPhysicalNames,
                       const std::vector<CADGroup>& additionalFaceGroups,
-                      bool importNativeGroups = true);
+                      bool importNativeGroups = true,
+                      bool auditAllFaces = true);
 
     /** Writes an OpenModel trace line to the Gmsh log when the verbose log is on. */
     void trace(const std::string& message) const;
