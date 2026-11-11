@@ -3,6 +3,8 @@
 std::string AbaqusInpWriter::abaqusElementType(ElementType type) {
 
         switch (type) {
+        case ElementType::Line2: return "T3D2";
+        case ElementType::Line3: return "T3D3";
         case ElementType::Triangle3: return "S3";
         case ElementType::Triangle6: return "S6";
         case ElementType::Quadrilateral4: return "S4";
@@ -87,6 +89,26 @@ AbaqusWriteResult AbaqusInpWriter::writeFile(const std::string& path,
             else if (!exportedSetNames.insert(setName).second)
                 result.errors.push_back("Physical group name collides with another element set after sanitization: '" + group.name + "'");
         }
+        for (const auto& group : mesh.getMeshGroupRegistry().groups()) {
+            const auto base = sanitizeName(group.name);
+            if (base.empty()) result.errors.push_back("Mesh group name has no valid Abaqus set-name characters: '" + group.name + "'");
+            bool representedByPhysicalGroup = false;
+            for (const auto& physical : mesh.getPhysicalGroups())
+                if (physical.name == group.name && physical.dimension == group.dimension &&
+                    physical.elementIds == group.elementIds) { representedByPhysicalGroup = true; break; }
+            if (!group.elementIds.empty() && !representedByPhysicalGroup && !exportedSetNames.insert(base).second)
+                result.errors.push_back("Mesh group element-set name collides after Abaqus name sanitization: '" + group.name + "'");
+            bool representedByNodeSet = false;
+            const auto existingNodeSet = mesh.getNodeSets().find(group.name + "_NODES");
+            if (existingNodeSet != mesh.getNodeSets().end() && existingNodeSet->second == group.nodeIndices)
+                representedByNodeSet = true;
+            if (!group.nodeIndices.empty() && !representedByNodeSet) {
+                const auto nodeName = sanitizeName(group.name + "_NODES");
+                if (nodeName.empty()) result.errors.push_back("Mesh group node-set name has no valid Abaqus set-name characters: '" + group.name + "'");
+                else if (!exportedNodeSetNames.insert(nodeName).second)
+                    result.errors.push_back("Mesh group node-set name collides after Abaqus name sanitization: '" + group.name + "'");
+            }
+        }
         for (const auto id : mesh.getNodeIds()) {
             if (id == 0) result.errors.emplace_back("Node ID 0 is not accepted by this writer");
         }
@@ -124,6 +146,24 @@ AbaqusWriteResult AbaqusInpWriter::writeFile(const std::string& path,
             if (count != 0 || nodeSet.second.empty()) content << "\n";
             ++result.nodeSetsWritten;
         }
+        for (const auto& group : mesh.getMeshGroupRegistry().groups()) {
+            if (group.nodeIndices.empty()) continue;
+            const auto existingNodeSet = mesh.getNodeSets().find(group.name + "_NODES");
+            if (existingNodeSet != mesh.getNodeSets().end() && existingNodeSet->second == group.nodeIndices)
+                continue;
+            content << "** MESH_GROUP, DIMENSION=" << group.dimension << ", SOURCE="
+                    << (group.source == MeshGroupSource::CAD ? "CAD" :
+                        group.source == MeshGroupSource::Imported ? "IMPORTED" : "USER_DEFINED") << "\n";
+            content << "*NSET, NSET=" << sanitizeName(group.name + "_NODES") << "\n";
+            std::size_t count = 0;
+            for (const auto index : group.nodeIndices) {
+                if (count != 0) content << ", ";
+                content << mesh.nodeId(index);
+                if (++count == 16) { content << "\n"; count = 0; }
+            }
+            if (count != 0) content << "\n";
+            ++result.nodeSetsWritten;
+        }
 
         for (std::size_t b = 0; b < mesh.getElementBlocks().size(); ++b) {
             const auto& block = mesh.getElementBlocks()[b];
@@ -153,6 +193,26 @@ AbaqusWriteResult AbaqusInpWriter::writeFile(const std::string& path,
                 if (++count == 16) { content << "\n"; count = 0; }
             }
             if (count != 0 || group.elementIds.empty()) content << "\n";
+            ++result.elementSetsWritten;
+        }
+        for (const auto& group : mesh.getMeshGroupRegistry().groups()) {
+            if (group.elementIds.empty()) continue;
+            bool representedByPhysicalGroup = false;
+            for (const auto& physical : mesh.getPhysicalGroups())
+                if (physical.name == group.name && physical.dimension == group.dimension &&
+                    physical.elementIds == group.elementIds) { representedByPhysicalGroup = true; break; }
+            if (representedByPhysicalGroup) continue;
+            content << "** MESH_GROUP, DIMENSION=" << group.dimension
+                    << ", SOURCE=" << (group.source == MeshGroupSource::CAD ? "CAD" :
+                        group.source == MeshGroupSource::Imported ? "IMPORTED" : "USER_DEFINED") << "\n";
+            content << "*ELSET, ELSET=" << sanitizeName(group.name) << "\n";
+            std::size_t count = 0;
+            for (const auto id : group.elementIds) {
+                if (count != 0) content << ", ";
+                content << id;
+                if (++count == 16) { content << "\n"; count = 0; }
+            }
+            if (count != 0) content << "\n";
             ++result.elementSetsWritten;
         }
 

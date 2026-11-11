@@ -18,13 +18,14 @@
 namespace {
 constexpr std::array<char, 8> kMagic{{'M','G','M','B','\r','\n',0x1a,'\n'}};
 constexpr std::uint16_t kMajor = 1;
-constexpr std::uint16_t kMinor = 0;
+constexpr std::uint16_t kMinor = 1;
 constexpr std::uint32_t kEndianMarker = 0x01020304u;
 constexpr std::uint64_t kHeaderSize = 64;
 constexpr std::uint64_t kDirectoryRecordSize = 48;
-constexpr std::uint32_t kSectionCount = 5;
+constexpr std::uint32_t kLegacySectionCount = 5;
+constexpr std::uint32_t kSectionCount = 6;
 
-enum SectionId : std::uint32_t { NodeIds = 1, Coordinates = 2, Blocks = 3, NodeSets = 4, PhysicalGroups = 5 };
+enum SectionId : std::uint32_t { NodeIds = 1, Coordinates = 2, Blocks = 3, NodeSets = 4, PhysicalGroups = 5, MeshGroups = 6 };
 struct DirectoryEntry {
     std::uint32_t id = 0;
     std::uint32_t flags = 0;
@@ -232,6 +233,7 @@ struct FileLayout {
     std::uint64_t nodeCount = 0;
     std::uint64_t elementCount = 0;
     std::uint32_t blockCount = 0;
+    std::uint16_t minorVersion = 0;
     std::map<std::uint32_t, DirectoryEntry> sections;
 };
 
@@ -248,6 +250,7 @@ FileLayout parseFileLayout(std::istream& in, std::uint64_t actualSize) {
     const auto endian = readLE<std::uint32_t>(in);
     const auto flags = readLE<std::uint64_t>(in);
     FileLayout layout;
+    layout.minorVersion = minor;
     layout.nodeCount = readLE<std::uint64_t>(in);
     layout.elementCount = readLE<std::uint64_t>(in);
     layout.blockCount = readLE<std::uint32_t>(in);
@@ -257,7 +260,8 @@ FileLayout parseFileLayout(std::istream& in, std::uint64_t actualSize) {
 
     if (major != kMajor || minor > kMinor) throw MeshBinaryIO::Error("MGMB: unsupported format version");
     if (endian != kEndianMarker || flags != 0) throw MeshBinaryIO::Error("MGMB: unsupported endian marker or feature flags");
-    if (sectionCount != kSectionCount) throw MeshBinaryIO::Error("MGMB: invalid section count");
+    const auto expectedSectionCount = minor == 0 ? kLegacySectionCount : kSectionCount;
+    if (sectionCount != expectedSectionCount) throw MeshBinaryIO::Error("MGMB: invalid section count for format version");
     if (declaredFileSize != actualSize) throw MeshBinaryIO::Error("MGMB: declared file size does not match actual size");
     if (directoryOffset < kHeaderSize || directoryOffset > actualSize ||
         static_cast<std::uint64_t>(sectionCount) * kDirectoryRecordSize > actualSize - directoryOffset ||
@@ -275,12 +279,12 @@ FileLayout parseFileLayout(std::istream& in, std::uint64_t actualSize) {
     ranges.reserve(sectionCount);
     for (std::uint32_t i = 0; i < sectionCount; ++i) {
         auto entry = readDirectoryEntry(in);
-        if (entry.id < NodeIds || entry.id > PhysicalGroups || !layout.sections.emplace(entry.id, entry).second)
+        if (entry.id < NodeIds || entry.id > (minor == 0 ? PhysicalGroups : MeshGroups) || !layout.sections.emplace(entry.id, entry).second)
             throw MeshBinaryIO::Error("MGMB: unknown or duplicate section ID");
         ensureSection(entry, actualSize, directoryOffset);
         ranges.emplace_back(entry.offset, entry.offset + entry.storedSize);
     }
-    if (layout.sections.size() != kSectionCount) throw MeshBinaryIO::Error("MGMB: missing required section");
+    if (layout.sections.size() != expectedSectionCount) throw MeshBinaryIO::Error("MGMB: missing required section");
     std::sort(ranges.begin(), ranges.end());
     for (std::size_t i = 1; i < ranges.size(); ++i)
         if (ranges[i].first < ranges[i - 1].second) throw MeshBinaryIO::Error("MGMB: overlapping sections");
@@ -296,7 +300,8 @@ void MeshBinaryIO::write(const std::filesystem::path& path, const MeshData& mesh
     if (path.empty()) throw Error("MGMB: output path is empty");
     if (mesh.m_blocks.size() > std::numeric_limits<std::uint32_t>::max() ||
         mesh.m_nodeSets.size() > std::numeric_limits<std::uint32_t>::max() ||
-        mesh.m_physicalGroups.size() > std::numeric_limits<std::uint32_t>::max())
+        mesh.m_physicalGroups.size() > std::numeric_limits<std::uint32_t>::max() ||
+        mesh.m_groupRegistry.groups().size() > std::numeric_limits<std::uint32_t>::max())
         throw Error("MGMB: section count exceeds format limits");
     const auto nonce = std::chrono::steady_clock::now().time_since_epoch().count();
     const auto temporary = std::filesystem::path(path.string() + ".tmp." + std::to_string(nonce));
@@ -357,6 +362,24 @@ void MeshBinaryIO::write(const std::filesystem::path& path, const MeshData& mesh
             writeLE(out, static_cast<std::int32_t>(group.tag)); writeString(out, group.materialName);
             writeLE(out, static_cast<std::uint64_t>(group.elementIds.size()));
             writeU64Vector(out, group.elementIds);
+        }
+        endSection(e);
+
+        // MGMB 1.1: backend-independent mesh groups. Keep v1.0 readable;
+        // all variable-length records are length-prefixed and little-endian.
+        e = beginSection(MeshGroups, mesh.m_groupRegistry.groups().size());
+        writeLE(out, static_cast<std::uint32_t>(mesh.m_groupRegistry.groups().size()));
+        for (const auto& group : mesh.m_groupRegistry.groups()) {
+            writeString(out, group.name);
+            writeLE(out, static_cast<std::int32_t>(group.dimension));
+            writeLE(out, static_cast<std::uint8_t>(group.source));
+            for (int r = 0; r < 3; ++r) writeLE(out, std::uint8_t{0});
+            writeLE(out, static_cast<std::uint64_t>(group.sourceEntityIds.size()));
+            for (const auto id : group.sourceEntityIds) writeLE(out, static_cast<std::int32_t>(id));
+            writeLE(out, static_cast<std::uint64_t>(group.elementIds.size()));
+            writeU64Vector(out, group.elementIds);
+            writeLE(out, static_cast<std::uint64_t>(group.nodeIndices.size()));
+            writeU64Vector(out, group.nodeIndices);
         }
         endSection(e);
 
@@ -510,6 +533,60 @@ MeshData MeshBinaryIO::read(const std::filesystem::path& path, const Options& op
                 throw Error("MGMB: physical group element list exceeds section");
             group.elementIds.resize(static_cast<std::size_t>(n)); readU64Vector(in, group.elementIds);
             mesh.m_physicalGroups.push_back(std::move(group));
+        }
+        requireConsumed(in, s);
+    }
+    // MGMB 1.0 files have no MeshGroups section. Treat that as an empty
+    // registry; files written by this version always carry section 6.
+    if (layout.minorVersion >= 1) {
+        const auto& s = openSection(MeshGroups);
+        const auto count = readLE<std::uint32_t>(in);
+        if (count != s.count || s.rawSize < 4 || count > (s.rawSize - 4) / 28)
+            throw Error("MGMB: mesh group count mismatch or exceeds section bounds");
+        for (std::uint32_t i = 0; i < count; ++i) {
+            auto readBoundedString = [&]() {
+                const auto length = readLE<std::uint32_t>(in);
+                const auto current = static_cast<std::uint64_t>(in.tellg());
+                if (current > s.offset + s.rawSize || length > s.offset + s.rawSize - current)
+                    throw Error("MGMB: invalid mesh group name length");
+                std::string value(length, '\0');
+                if (length) in.read(&value[0], static_cast<std::streamsize>(length));
+                if (!in) throw Error("MGMB: truncated mesh group name");
+                return value;
+            };
+            MeshGroup group;
+            group.name = readBoundedString();
+            group.dimension = readLE<std::int32_t>(in);
+            const auto source = readLE<std::uint8_t>(in);
+            for (int r = 0; r < 3; ++r)
+                if (readLE<std::uint8_t>(in) != 0) throw Error("MGMB: nonzero reserved mesh group byte");
+            if (source > static_cast<std::uint8_t>(MeshGroupSource::Imported))
+                throw Error("MGMB: invalid mesh group source");
+            group.source = static_cast<MeshGroupSource>(source);
+            auto readCount = [&](const char* what) {
+                const auto n = readLE<std::uint64_t>(in);
+                const auto current = static_cast<std::uint64_t>(in.tellg());
+                if (current > s.offset + s.rawSize || n > std::numeric_limits<std::size_t>::max())
+                    throw Error(std::string("MGMB: invalid ") + what + " count");
+                return n;
+            };
+            const auto sourceCount = readCount("mesh group source entity");
+            if (sourceCount > (s.offset + s.rawSize - static_cast<std::uint64_t>(in.tellg())) / sizeof(std::int32_t))
+                throw Error("MGMB: mesh group source entity list exceeds section");
+            group.sourceEntityIds.resize(static_cast<std::size_t>(sourceCount));
+            for (auto& id : group.sourceEntityIds) id = readLE<std::int32_t>(in);
+            const auto elementCountInGroup = readCount("mesh group element");
+            if (elementCountInGroup > (s.offset + s.rawSize - static_cast<std::uint64_t>(in.tellg())) / sizeof(ElementId))
+                throw Error("MGMB: mesh group element list exceeds section");
+            group.elementIds.resize(static_cast<std::size_t>(elementCountInGroup));
+            readU64Vector(in, group.elementIds);
+            const auto nodeCountInGroup = readCount("mesh group node");
+            if (nodeCountInGroup > (s.offset + s.rawSize - static_cast<std::uint64_t>(in.tellg())) / sizeof(NodeIndex))
+                throw Error("MGMB: mesh group node list exceeds section");
+            group.nodeIndices.resize(static_cast<std::size_t>(nodeCountInGroup));
+            readU64Vector(in, group.nodeIndices);
+            try { mesh.addMeshGroup(std::move(group)); }
+            catch (const std::exception& ex) { throw Error(std::string("MGMB: invalid mesh group: ") + ex.what()); }
         }
         requireConsumed(in, s);
     }

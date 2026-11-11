@@ -60,12 +60,12 @@ enum class CADGroupKind {
     NamedShape    ///< A named sub-shape (typically a named face or solid inside a part).
 };
 
-/** @brief A named set of faces or solids stored in the CAD file. */
+/** @brief A named set of topological entities (vertices, edges, faces or solids) stored in the CAD file. */
 struct CADGroup {
     std::string name;             ///< Name as written in the CAD file.
     CADGroupKind kind = CADGroupKind::Layer;
-    int dimension = 2;            ///< 2 = ids are face ids, 3 = ids are solid ids.
-    std::vector<int> ids;         ///< Face ids (dimension 2) or solid ids (dimension 3), sorted, unique.
+    int dimension = 2;            ///< 0 = vertex ids, 1 = edge ids, 2 = face ids, 3 = solid ids.
+    std::vector<int> ids;         ///< Entity IDs for the selected topological dimension, sorted and unique.
 };
 
 class CADModel {
@@ -106,4 +106,26 @@ public:
      * @return Ids of the faces (numbered as RenderSubMesh::sourceFaceId) the point lies on.
      */
     virtual std::vector<int> facesContainingPoint(const std::array<double, 3>& point, double tolerance) const;
+
+    /**
+     * @brief Geometric query on one face: does its surface pass through a point?
+     *
+     * Gives the same answer as `facesContainingPoint(point, tolerance)` contains `faceId`, but without scanning
+     * the other faces. Callers that already know the candidate faces (for example one Gmsh surface that is
+     * checked element by element) use it to avoid repeating the scan for every point.
+     * @param faceId     Face id (numbered as RenderSubMesh::sourceFaceId).
+     * @param point      Query point in model coordinates.
+     * @param tolerance  Absolute distance tolerance.
+     * @param surfaceUv  Optional (u, v) of the point on the face's underlying surface. It is only a hint to save a
+     *                   projection and is checked before use; a wrong value never changes the result.
+     * @return True when the point lies on the face.
+     */
+    virtual bool faceContainsPoint(int faceId, const std::array<double, 3>& point, double tolerance,
+                                   const std::array<double, 2>* surfaceUv = nullptr) const;
+
+    /** @brief CAD edges whose curve passes through a point within tolerance (edge IDs are importer-local). */
+    virtual std::vector<int> edgesContainingPoint(const std::array<double, 3>& point, double tolerance) const;
+
+    /** @brief CAD vertices within tolerance of a point (vertex IDs are importer-local). */
+    virtual std::vector<int> verticesContainingPoint(const std::array<double, 3>& point, double tolerance) const;
 };

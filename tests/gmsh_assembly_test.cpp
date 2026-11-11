@@ -7,10 +7,13 @@
 
 #include <OpenModel/GmshMesher.hpp>
 #include <OpenModel/OCCModel.hpp>
+#include <OpenModel/AbaqusInpWriter.hpp>
 
 #include <cmath>
 #include <cstdio>
+#include <fstream>
 #include <iostream>
+#include <sstream>
 #include <map>
 #include <memory>
 #include <set>
@@ -41,6 +44,23 @@ const MeshPhysicalGroup* group(const MeshData& mesh, const std::string& name) {
     for (const auto& g : mesh.getPhysicalGroups())
         if (g.name == name) return &g;
     return nullptr;
+}
+
+bool validFaceAudit(const GmshMesher& mesher) {
+    const auto& report = mesher.faceMappingReport();
+    if (report.empty()) return false;
+    std::set<int> seenSurfaces;
+    for (const auto& record : report) {
+        if (!seenSurfaces.insert(record.gmshSurfaceTag).second) return false;
+        if (record.matchedSampleCount > record.sampledElementCount) return false;
+        if (record.sampledElementCount != record.elementCount) return false;
+        if (record.projectionFailureCount != 0) return false;
+        if (record.matchRatio < 0.0 || record.matchRatio > 1.0) return false;
+        if (record.elementCount > 0 && record.sampledElementCount == 0) return false;
+        if (!record.cadFaceIds.empty() && record.matchRatio < 0.8) return false;
+        if (record.ambiguous && !record.cadFaceIds.empty()) return false;
+    }
+    return true;
 }
 
 /** Sum of tetrahedron volumes of a group; also collects the node indices lying on the plane z = 10. */
@@ -77,6 +97,7 @@ int run(InterfaceMode mode, const std::string& step) {
     GmshMesher mesher;
     MeshData mesh;
     CHECK(mesher.buildMesh(cad, options, mesh));
+    CHECK(validFaceAudit(mesher));
     const char* label = mode == InterfaceMode::Conformal ? "conformal" : "independent";
     std::cout << "--- " << label << ": " << mesh.getNumNodes() << " nodes, " << mesh.getNumElements() << " elements\n";
     for (const auto& line : mesher.diagnostics()) std::cout << "    " << line << '\n';
@@ -104,6 +125,12 @@ int run(InterfaceMode mode, const std::string& step) {
     const auto* named = group(mesh, "TopFace");
     CHECK(layer && named && layer->dimension == 2 && named->dimension == 2);
     CHECK(!layer->elementIds.empty() && layer->elementIds == named->elementIds);
+    const auto* edgeGroup = mesh.getMeshGroupRegistry().find("EdgeLayer");
+    const auto* vertexGroup = mesh.getMeshGroupRegistry().find("VertexLayer");
+    CHECK(edgeGroup && edgeGroup->dimension == 1 && !edgeGroup->elementIds.empty());
+    CHECK(vertexGroup && vertexGroup->dimension == 0 && !vertexGroup->nodeIndices.empty());
+    CHECK(mesh.getNodeSets().count("EdgeLayer_NODES") == 1);
+    CHECK(mesh.getNodeSets().count("VertexLayer_NODES") == 1);
     for (const ElementId id : layer->elementIds) {
         const auto& at = elements.at(id);
         CHECK(at.block->type == ElementType::Triangle3);
@@ -122,6 +149,176 @@ int run(InterfaceMode mode, const std::string& step) {
     return 0;
 }
 
+
+int runSurfaceOnly(const std::string& step, bool incompleteSecondOrder, bool recombineSurfaceElements) {
+    auto cad = std::make_shared<OCCModel>();
+    CHECK(cad->loadFromFile(step));
+    MeshingOptions options;
+    options.dimension = MeshDimension::Surface;
+    options.generateTetrahedra = false;
+    options.elementSize = 2.0;
+    options.maxElementSize = 2.0;
+    options.order = 2;
+    options.recombineSurfaceElements = recombineSurfaceElements;
+    options.incompleteSecondOrder = incompleteSecondOrder;
+    options.importCadGroups = true;
+    const auto uniqueSideFace = cad->facesContainingPoint({{0.0, 5.0, 5.0}}, 1e-6);
+    CHECK(uniqueSideFace.size() == 1);
+    options.additionalFaceGroups.push_back(
+        CADGroup{"UniqueSideFace", CADGroupKind::NamedShape, 2, uniqueSideFace});
+    // A user-defined group must never be emitted partially: the second source
+    // face id deliberately does not exist in this imported STEP model.
+    options.additionalFaceGroups.push_back(
+        CADGroup{"IncompleteFaceGroup", CADGroupKind::NamedShape, 2,
+                 {uniqueSideFace.front(), 999999999}});
+
+    GmshMesher mesher;
+    MeshData mesh;
+    CHECK(mesher.buildMesh(cad, options, mesh));
+    CHECK(validFaceAudit(mesher));
+    CHECK(mesh.getNumElements() > 0);
+    bool sawExpectedSurfaceType = false;
+    for (const auto& block : mesh.getElementBlocks()) {
+        CHECK(block.type != ElementType::Tetrahedron4 && block.type != ElementType::Tetrahedron10);
+        if (!recombineSurfaceElements && block.type == ElementType::Triangle6)
+            sawExpectedSurfaceType = true;
+        if (recombineSurfaceElements && incompleteSecondOrder &&
+            block.type == ElementType::Quadrilateral8)
+            sawExpectedSurfaceType = true;
+        if (recombineSurfaceElements && !incompleteSecondOrder &&
+            block.type == ElementType::Quadrilateral9)
+            sawExpectedSurfaceType = true;
+    }
+    CHECK(sawExpectedSurfaceType);
+
+    // Surface-only meshes have no upward volume adjacency. CAD faces must still
+    // be mapped from their geometric location and actual 2-D mesh elements.
+    const auto* uniqueFace = mesh.getMeshGroupRegistry().find("UniqueSideFace");
+    CHECK(uniqueFace && uniqueFace->dimension == 2);
+    CHECK(!uniqueFace->elementIds.empty());
+
+    // Verify that the CAD-derived Node Set includes every node of every
+    // quadratic boundary element, including all midside/interior nodes.
+    const auto elementIndex = indexElements(mesh);
+    std::set<NodeIndex> expectedFaceNodes;
+    for (const ElementId id : uniqueFace->elementIds) {
+        const auto found = elementIndex.find(id);
+        CHECK(found != elementIndex.end());
+        const auto& block = *found->second.block;
+        if (!recombineSurfaceElements)
+            CHECK(block.type == ElementType::Triangle6);
+        else if (incompleteSecondOrder)
+            CHECK(block.type == ElementType::Triangle6 || block.type == ElementType::Quadrilateral8);
+        else
+            CHECK(block.type == ElementType::Triangle6 || block.type == ElementType::Quadrilateral9);
+        const std::size_t offset = found->second.index * block.nodesPerElement;
+        for (std::size_t n = 0; n < block.nodesPerElement; ++n)
+            expectedFaceNodes.insert(block.connectivity[offset + n]);
+    }
+    const std::set<NodeIndex> actualFaceNodes(uniqueFace->nodeIndices.begin(),
+                                               uniqueFace->nodeIndices.end());
+    CHECK(actualFaceNodes == expectedFaceNodes);
+
+    const auto* physical = group(mesh, "UniqueSideFace");
+    CHECK(physical && !physical->elementIds.empty());
+
+    // Incomplete groups are rejected atomically in both the backend-neutral
+    // registry and Gmsh physical-group representation.
+    CHECK(mesh.getMeshGroupRegistry().find("IncompleteFaceGroup") == nullptr);
+    CHECK(group(mesh, "IncompleteFaceGroup") == nullptr);
+    bool reportedMissingFace = false;
+    for (const auto& diagnostic : mesher.diagnostics())
+        if (diagnostic.find("IncompleteFaceGroup") != std::string::npos &&
+            diagnostic.find("999999999") != std::string::npos)
+            reportedMissingFace = true;
+    CHECK(reportedMissingFace);
+
+    // Abaqus and CalculiX share the INP keyword format. Verify that the
+    // backend-neutral CAD group exports both the element set and its derived
+    // node set, not merely the Gmsh-specific physical group.
+    const std::string inpPath = "gmsh_surface_face_group.inp";
+    const auto writeResult = AbaqusInpWriter::writeFile(inpPath, mesh);
+    if (!writeResult.success)
+        for (const auto& error : writeResult.errors) std::cerr << "Abaqus export: " << error << '\n';
+    CHECK(writeResult.success);
+    CHECK(writeResult.elementSetsWritten > 0);
+    CHECK(writeResult.nodeSetsWritten > 0);
+    std::ifstream inpFile(inpPath);
+    CHECK(inpFile.good());
+    std::ostringstream inpContents;
+    inpContents << inpFile.rdbuf();
+    const std::string inpText = inpContents.str();
+    CHECK(inpText.find("*ELSET, ELSET=UNIQUESIDEFACE") != std::string::npos);
+    CHECK(inpText.find("*NSET, NSET=UNIQUESIDEFACE_NODES") != std::string::npos);
+    // Quadratic CAD boundary curves are exported as Abaqus T3D3 elements.
+    CHECK(inpText.find("*ELEMENT, TYPE=T3D3") != std::string::npos);
+    inpFile.close();
+    std::remove(inpPath.c_str());
+
+    std::cout << "--- surface-only CAD face mapping: " << uniqueFace->elementIds.size()
+              << " elements, " << uniqueFace->nodeIndices.size() << " nodes\n";
+    return 0;
+}
+
+bool hasElementType(const MeshData& mesh, ElementType type) {
+    for (const auto& block : mesh.getElementBlocks())
+        if (block.type == type && !block.ids.empty()) return true;
+    return false;
+}
+
+/**
+ * @brief Regression for 3-D meshes with CAD groups enabled and for user face groups.
+ *
+ * - A volume mesh with the default importCadGroups=true must not contain Point1
+ *   elements (they cannot be exported to a solver deck) and must export to Abaqus.
+ * - User-defined face groups must be mapped even when importCadGroups=false, while
+ *   no component or CAD-source group may be created in that case.
+ */
+int runVolumeExportAndUserGroups(const std::string& step) {
+    auto cad = std::make_shared<OCCModel>();
+    CHECK(cad->loadFromFile(step));
+    const auto sideFace = cad->facesContainingPoint({{0.0, 5.0, 5.0}}, 1e-6);
+    CHECK(sideFace.size() == 1);
+
+    {
+        MeshingOptions options;
+        options.elementSize = 2.0;
+        options.maxElementSize = 2.0;
+        options.importCadGroups = true;
+        GmshMesher mesher;
+        MeshData mesh;
+        CHECK(mesher.buildMesh(cad, options, mesh));
+        CHECK(!hasElementType(mesh, ElementType::Point1));
+        const std::string inpPath = "gmsh_volume_default_groups.inp";
+        const auto written = AbaqusInpWriter::writeFile(inpPath, mesh);
+        if (!written.success)
+            for (const auto& error : written.errors) std::cerr << "Abaqus export: " << error << '\n';
+        CHECK(written.success);
+        std::remove(inpPath.c_str());
+    }
+
+    {
+        MeshingOptions options;
+        options.elementSize = 2.0;
+        options.maxElementSize = 2.0;
+        options.importCadGroups = false;
+        options.additionalFaceGroups.push_back(
+            CADGroup{"UserSideFace", CADGroupKind::NamedShape, 2, sideFace});
+        GmshMesher mesher;
+        MeshData mesh;
+        CHECK(mesher.buildMesh(cad, options, mesh));
+        CHECK(!hasElementType(mesh, ElementType::Point1));
+        const auto* userGroup = mesh.getMeshGroupRegistry().find("UserSideFace");
+        CHECK(userGroup != nullptr);
+        CHECK(userGroup->dimension == 2 && !userGroup->elementIds.empty() && !userGroup->nodeIndices.empty());
+        // Nothing stored in the CAD source may leak in: exactly the user group exists.
+        CHECK(mesh.getMeshGroupRegistry().groups().size() == 1);
+        CHECK(group(mesh, "Assy/Base") == nullptr);
+    }
+    std::cout << "--- volume export and user groups without native import: ok\n";
+    return 0;
+}
+
 } // namespace
 
 int main() {
@@ -129,7 +326,11 @@ int main() {
     CHECK(writeAssemblyFixture(step));
     const int a = run(InterfaceMode::Independent, step);
     const int b = a == 0 ? run(InterfaceMode::Conformal, step) : a;
+    const int c = (a == 0 && b == 0) ? runSurfaceOnly(step, false, false) : 1;
+    const int d = (a == 0 && b == 0 && c == 0) ? runSurfaceOnly(step, false, true) : 1;
+    const int e = (a == 0 && b == 0 && c == 0 && d == 0) ? runSurfaceOnly(step, true, true) : 1;
+    const int f = (a == 0 && b == 0 && c == 0 && d == 0 && e == 0) ? runVolumeExportAndUserGroups(step) : 1;
     std::remove(step.c_str());
-    if (a == 0 && b == 0) std::cout << "gmsh_assembly_test passed\n";
-    return a != 0 ? a : b;
+    if (a == 0 && b == 0 && c == 0 && d == 0 && e == 0 && f == 0) std::cout << "gmsh_assembly_test passed\n";
+    return a != 0 ? a : (b != 0 ? b : (c != 0 ? c : (d != 0 ? d : (e != 0 ? e : f))));
 }

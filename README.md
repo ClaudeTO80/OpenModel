@@ -122,8 +122,9 @@ Each backend is off by default and needs its native library to be found by CMake
 
 | CMake option | Adds |
 |---|---|
-| `OPENMODEL_BUILD_GMSH_BACKEND` | Gmsh surface and volume meshing (set `GMSH_INCLUDE_DIR` / library if not found) |
+| `OPENMODEL_BUILD_GMSH_BACKEND` | Gmsh surface and volume meshing. Point `GMSH_ROOT` to the Gmsh install prefix (`include/gmsh.h`, `lib/`, `bin/`); use `GMSH_ROOT_DEBUG` / `GMSH_ROOT_RELEASE` for separate Debug and Release builds. `GMSH_INCLUDE_DIR`, `GMSH_LIBRARY_DEBUG/RELEASE` and `GMSH_RUNTIME_LIBRARY_DEBUG/RELEASE` override the search. The C++ API must come from a build made by the same compiler (with MSVC, a Gmsh built with MSVC: the official MinGW SDK does not link); a configure-time link check warns about it (`OPENMODEL_GMSH_LINK_CHECK`). On Windows `winmm`, `ws2_32`, `wsock32`, `psapi` and `ole32` are linked for a static `gmsh.lib`; `OPENMODEL_GMSH_EXTRA_LIBRARIES` adds other libraries a static Gmsh needs |
 | `OPENMODEL_BUILD_OCC_BACKEND` | Open CASCADE import of STEP / IGES / BREP, assemblies |
+| `OPENMODEL_BUILD_OCC_BACKEND` | Open CASCADE CAD import (STEP / IGES / BREP). Select the installation with `OpenCASCADE_DIR` (folder with `OpenCASCADEConfig.cmake`) or `OPENCASCADE_ROOT` / `CASROOT` (install prefix); use the same installation as Gmsh |
 | `OPENMODEL_BUILD_ASSIMP_BACKEND` | Assimp import of general 3D formats |
 | `OPENMODEL_BUILD_TETGEN_BACKEND` | TetGen volume meshing |
 | `OPENMODEL_BUILD_NETGEN_BACKEND` (+ `OPENMODEL_NETGEN_HAS_OCC`) | Netgen meshing |
@@ -131,6 +132,19 @@ Each backend is off by default and needs its native library to be found by CMake
 
 General options: `OPENMODEL_BUILD_TESTS` (ON), `OPENMODEL_BUILD_CLI` (ON), `OPENMODEL_BUILD_SHARED` (ON), `OPENMODEL_BUILD_BENCHMARKS` (OFF),
 `OPENMODEL_BUILD_WEBUI` (OFF), `OPENMODEL_TEST_WEBGL_VIEWER` (OFF, needs Node.js with Playwright).
+
+### Gmsh meshing controls
+
+`MeshingOptions` (Gmsh backend) controls, besides the element sizes and the order:
+
+- `structure` / `structuredShape`: `Unstructured` (tetrahedra, any solid) or `Structured`, which sweeps the end-face mesh of a
+  straight prismatic solid (beam, bar) in layers into hexahedra (`Hexahedron`: triangles that the recombination leaves become
+  prisms) or prisms (`Prism`). Other solids fall back to tetrahedra with a diagnostic, or fail when `structuredFallback` is
+  false. Second-order structured meshes use 20-node hexahedra and 15-node prisms in Abaqus node order. Conformal interfaces
+  between several solids are not available for structured meshes.
+- `thinFaceSizeFactor`: limits the element size at the corners of each face to the given multiple of the face width
+  (2 * area / perimeter). It avoids needle triangles on strips such as the flange edges of a beam; 1 is a good start.
+- `computeMeshQuality(mesh)` (`MeshQuality.hpp`) reports the quality of every element type (1 = ideal; non-positive = inverted).
 
 ## Repository layout
 

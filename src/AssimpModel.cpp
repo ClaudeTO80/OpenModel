@@ -1,5 +1,8 @@
 #include <OpenModel/AssimpModel.hpp>
 
+#include <stdexcept>
+#include <limits>
+
 std::string AssimpModel::lower(std::string s) {
 
         std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
@@ -39,7 +42,7 @@ void AssimpModel::readTextureTo(const aiScene* scene, const aiString& path, cons
         if (texturePath.empty()) return;
         if (texturePath[0] == '*') {
             const aiTexture* texture = scene ? scene->GetEmbeddedTexture(texturePath.c_str()) : nullptr;
-            if (!texture || texture->mHeight != 0 || texture->mWidth == 0) return;
+            if (!texture || texture->mHeight != 0 || texture->mWidth == 0 || !texture->pcData) return;
             const auto* begin = reinterpret_cast<const unsigned char*>(texture->pcData);
             image.assign(begin, begin + texture->mWidth);
             mimeType = mimeFromHint(texture->achFormatHint);
@@ -68,10 +71,7 @@ void AssimpModel::readMaterial(const aiScene* scene, const aiMesh* mesh, const s
         if (!scene || !mesh || mesh->mMaterialIndex >= scene->mNumMaterials) return;
         const aiMaterial* mat = scene->mMaterials[mesh->mMaterialIndex];
         aiColor4D color(0.8f, 0.8f, 0.8f, 1.0f);
-#if ASSIMP_VERSION_MAJOR >= 5
-        if (aiGetMaterialColor(mat, AI_MATKEY_BASE_COLOR, &color) != AI_SUCCESS)
-#endif
-        {
+        if (aiGetMaterialColor(mat, AI_MATKEY_BASE_COLOR, &color) != AI_SUCCESS) {
             aiColor3D diffuse(0.8f, 0.8f, 0.8f);
             if (mat->Get(AI_MATKEY_COLOR_DIFFUSE, diffuse) == AI_SUCCESS) {
                 color.r = diffuse.r; color.g = diffuse.g; color.b = diffuse.b;
@@ -79,14 +79,23 @@ void AssimpModel::readMaterial(const aiScene* scene, const aiMesh* mesh, const s
             float opacity = 1.0f;
             if (mat->Get(AI_MATKEY_OPACITY, opacity) == AI_SUCCESS) color.a = opacity;
         }
-        out.baseColorFactor = {{color.r, color.g, color.b, color.a}};
+        const auto safeColor=[](float component) {
+            return std::isfinite(component) ? std::max(0.0f,std::min(1.0f,component)) : 0.8f;
+        };
+        out.baseColorFactor = {{safeColor(color.r),safeColor(color.g),safeColor(color.b),safeColor(color.a)}};
         float value = 0.0f;
-        if (mat->Get(AI_MATKEY_METALLIC_FACTOR, value) == AI_SUCCESS) out.metallicFactor = value;
+        if (mat->Get(AI_MATKEY_METALLIC_FACTOR, value) == AI_SUCCESS && std::isfinite(value))
+            out.metallicFactor = std::max(0.0f, std::min(1.0f, value));
         value = 0.8f;
-        if (mat->Get(AI_MATKEY_ROUGHNESS_FACTOR, value) == AI_SUCCESS) out.roughnessFactor = value;
+        if (mat->Get(AI_MATKEY_ROUGHNESS_FACTOR, value) == AI_SUCCESS && std::isfinite(value))
+            out.roughnessFactor = std::max(0.0f, std::min(1.0f, value));
         aiColor3D emissive(0.0f, 0.0f, 0.0f);
-        if (mat->Get(AI_MATKEY_COLOR_EMISSIVE, emissive) == AI_SUCCESS)
-            out.emissiveFactor = {{emissive.r, emissive.g, emissive.b}};
+        if (mat->Get(AI_MATKEY_COLOR_EMISSIVE, emissive) == AI_SUCCESS) {
+            const auto safeEmissive=[](float component) {
+                return std::isfinite(component) ? std::max(0.0f,component) : 0.0f;
+            };
+            out.emissiveFactor = {{safeEmissive(emissive.r),safeEmissive(emissive.g),safeEmissive(emissive.b)}};
+        }
         int twoSided = 0;
         if (mat->Get(AI_MATKEY_TWOSIDED, twoSided) == AI_SUCCESS) out.doubleSided = twoSided != 0;
         aiString alphaMode;
@@ -98,25 +107,65 @@ void AssimpModel::readMaterial(const aiScene* scene, const aiMesh* mesh, const s
             out.alphaCutoff = std::max(0.0f, std::min(1.0f, value));
 
         aiString texturePath;
-        // DIFFUSE is widely supported by Assimp; glTF base-color textures are
-        // exposed through this compatibility texture slot by many importers.
+        bool hasBaseColorTexture = false;
         if (mat->GetTextureCount(aiTextureType_BASE_COLOR) > 0 &&
             mat->GetTexture(aiTextureType_BASE_COLOR, 0, &texturePath) == AI_SUCCESS) {
             readTexture(scene, texturePath, modelDir, out);
-        } else if (mat->GetTextureCount(aiTextureType_DIFFUSE) > 0 &&
-                   mat->GetTexture(aiTextureType_DIFFUSE, 0, &texturePath) == AI_SUCCESS) {
+            hasBaseColorTexture = true;
+        }
+        // DIFFUSE remains the portable fallback for formats/importers that do
+        // not expose a dedicated base-color texture slot.
+        if (!hasBaseColorTexture && mat->GetTextureCount(aiTextureType_DIFFUSE) > 0 &&
+            mat->GetTexture(aiTextureType_DIFFUSE, 0, &texturePath) == AI_SUCCESS) {
             readTexture(scene, texturePath, modelDir, out);
         }
         if (mat->GetTextureCount(aiTextureType_NORMALS) > 0 && mat->GetTexture(aiTextureType_NORMALS, 0, &texturePath) == AI_SUCCESS)
             readTextureTo(scene, texturePath, modelDir, out.normalImage, out.normalImageMimeType, out.normalImageName);
-        if (mat->GetTextureCount(aiTextureType_EMISSIVE) > 0 && mat->GetTexture(aiTextureType_EMISSIVE, 0, &texturePath) == AI_SUCCESS)
-            readTextureTo(scene, texturePath, modelDir, out.emissiveImage, out.emissiveImageMimeType, out.emissiveImageName);
-#if ASSIMP_VERSION_MAJOR >= 5
-        // Assimp exposes the packed glTF metallic-roughness map as UNKNOWN in some importers.
-        if (mat->GetTextureCount(aiTextureType_UNKNOWN) > 0 && mat->GetTexture(aiTextureType_UNKNOWN, 0, &texturePath) == AI_SUCCESS)
-            readTextureTo(scene, texturePath, modelDir, out.metallicRoughnessImage, out.metallicRoughnessImageMimeType, out.metallicRoughnessImageName);
-#endif
+        // PBR emissive textures use EMISSION_COLOR; EMISSIVE is retained
+        // as a compatibility fallback for legacy material importers.
+        if (mat->GetTextureCount(aiTextureType_EMISSION_COLOR) > 0 &&
+            mat->GetTexture(aiTextureType_EMISSION_COLOR, 0, &texturePath) == AI_SUCCESS) {
+            readTextureTo(scene, texturePath, modelDir, out.emissiveImage,
+                          out.emissiveImageMimeType, out.emissiveImageName);
+        } else if (mat->GetTextureCount(aiTextureType_EMISSIVE) > 0 &&
+                   mat->GetTexture(aiTextureType_EMISSIVE, 0, &texturePath) == AI_SUCCESS) {
+            readTextureTo(scene, texturePath, modelDir, out.emissiveImage,
+                          out.emissiveImageMimeType, out.emissiveImageName);
+        }
+
+        // Prefer the combined glTF metallic-roughness texture. Some Assimp
+        // importers expose the same source as METALNESS or DIFFUSE_ROUGHNESS.
+        bool hasMetallicRoughnessTexture = false;
+        if (mat->GetTextureCount(aiTextureType_UNKNOWN) > 0 &&
+            mat->GetTexture(aiTextureType_UNKNOWN, 0, &texturePath) == AI_SUCCESS) {
+            readTextureTo(scene, texturePath, modelDir, out.metallicRoughnessImage,
+                          out.metallicRoughnessImageMimeType, out.metallicRoughnessImageName);
+            hasMetallicRoughnessTexture = !out.metallicRoughnessImage.empty();
+        }
+        if (!hasMetallicRoughnessTexture &&
+            mat->GetTextureCount(aiTextureType_METALNESS) > 0 &&
+            mat->GetTexture(aiTextureType_METALNESS, 0, &texturePath) == AI_SUCCESS) {
+            readTextureTo(scene, texturePath, modelDir, out.metallicRoughnessImage,
+                          out.metallicRoughnessImageMimeType, out.metallicRoughnessImageName);
+            hasMetallicRoughnessTexture = !out.metallicRoughnessImage.empty();
+        }
+        if (!hasMetallicRoughnessTexture &&
+            mat->GetTextureCount(aiTextureType_DIFFUSE_ROUGHNESS) > 0 &&
+            mat->GetTexture(aiTextureType_DIFFUSE_ROUGHNESS, 0, &texturePath) == AI_SUCCESS) {
+            readTextureTo(scene, texturePath, modelDir, out.metallicRoughnessImage,
+                          out.metallicRoughnessImageMimeType, out.metallicRoughnessImageName);
+        }
     
+}
+
+bool AssimpModel::setImportOptions(const AssimpImportOptions& options, std::string* error) {
+    if (!std::isfinite(options.coordinateScale) || options.coordinateScale <= 0.0) {
+        if (error) *error = "Assimp coordinateScale must be finite and positive.";
+        return false;
+    }
+    m_importOptions = options;
+    if (error) error->clear();
+    return true;
 }
 
 bool AssimpModel::loadFromFile(const std::string& filepath)  {
@@ -125,15 +174,23 @@ bool AssimpModel::loadFromFile(const std::string& filepath)  {
         m_lastError.clear();
         m_renderMeshes.clear();
         Assimp::Importer importer;
-        const aiScene* scene = importer.ReadFile(filepath,
-            aiProcess_Triangulate | aiProcess_GenSmoothNormals | aiProcess_JoinIdenticalVertices |
-            aiProcess_ValidateDataStructure);
+        unsigned int importFlags = aiProcess_Triangulate | aiProcess_ValidateDataStructure;
+        if (m_importOptions.generateNormals) importFlags |= aiProcess_GenSmoothNormals;
+        if (m_importOptions.joinIdenticalVertices) importFlags |= aiProcess_JoinIdenticalVertices;
+        if (m_importOptions.flipUVs) importFlags |= aiProcess_FlipUVs;
+        const aiScene* scene = importer.ReadFile(filepath, importFlags);
         if (!scene || (scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE) || !scene->mRootNode) {
             m_lastError = importer.GetErrorString();
             if (m_lastError.empty()) m_lastError = "Assimp could not load the model.";
             return false;
         }
-        processNode(scene->mRootNode, scene, std::filesystem::path(filepath).parent_path(), aiMatrix4x4());
+        try {
+            processNode(scene->mRootNode, scene, std::filesystem::path(filepath).parent_path(), aiMatrix4x4());
+        } catch (const std::exception& error) {
+            m_renderMeshes.clear();
+            m_lastError = error.what();
+            return false;
+        }
         if (m_renderMeshes.empty()) {
             m_lastError = "The imported scene contains no triangle meshes.";
             return false;
@@ -160,41 +217,93 @@ const std::string& AssimpModel::getLastError() const  {
 
 void AssimpModel::processNode(const aiNode* node, const aiScene* scene, const std::filesystem::path& modelDir, const aiMatrix4x4& parentTransform) {
 
+        if (!node || !scene) throw std::runtime_error("Assimp returned an invalid scene node.");
         const aiMatrix4x4 transform = parentTransform * node->mTransformation;
+        if (node->mNumMeshes && (!node->mMeshes || !scene->mMeshes))
+            throw std::runtime_error("Assimp scene node contains an invalid mesh array.");
         for (unsigned int i = 0; i < node->mNumMeshes; ++i) {
+            if (node->mMeshes[i] >= scene->mNumMeshes)
+                throw std::runtime_error("Assimp node references an invalid mesh index.");
             const aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
-            m_renderMeshes.push_back(processMesh(mesh, scene, modelDir, transform));
+            auto imported = processMesh(mesh, scene, modelDir, transform);
+            if (node->mMeshes[i] > static_cast<unsigned int>(std::numeric_limits<int>::max()))
+                throw std::runtime_error("Assimp source mesh index exceeds the supported identifier range.");
+            imported.sourcePartId = static_cast<int>(node->mMeshes[i]);
+            if (!imported.indices.empty()) m_renderMeshes.push_back(std::move(imported));
         }
         for (unsigned int i = 0; i < node->mNumChildren; ++i)
             processNode(node->mChildren[i], scene, modelDir, transform);
     
 }
 
-RenderSubMesh AssimpModel::processMesh(const aiMesh* mesh, const aiScene* scene, const std::filesystem::path& modelDir, const aiMatrix4x4& transform) {
+RenderSubMesh AssimpModel::processMesh(const aiMesh* mesh, const aiScene* scene,
+    const std::filesystem::path& modelDir, const aiMatrix4x4& transform) {
+    if (!mesh) throw std::runtime_error("Assimp returned a null mesh.");
 
-        RenderSubMesh out;
-        out.name = mesh->mName.length ? mesh->mName.C_Str() : "UnnamedMesh";
-        const unsigned int nv = mesh->mNumVertices;
-        out.vertices.reserve(static_cast<std::size_t>(nv) * 3);
-        out.normals.reserve(static_cast<std::size_t>(nv) * 3);
-        if (mesh->HasTextureCoords(0)) out.texcoords.reserve(static_cast<std::size_t>(nv) * 2);
-        aiMatrix3x3 normalTransform(transform);
-        normalTransform.Inverse().Transpose();
-        for (unsigned int i = 0; i < nv; ++i) {
-            aiVector3D position = transform * mesh->mVertices[i];
-            out.vertices.insert(out.vertices.end(), {position.x, position.y, position.z});
-            if (mesh->HasNormals()) {
-                aiVector3D normal = normalTransform * mesh->mNormals[i];
-                normal.Normalize();
-                out.normals.insert(out.normals.end(), {normal.x, normal.y, normal.z});
-            }
-            if (mesh->HasTextureCoords(0)) out.texcoords.insert(out.texcoords.end(), {mesh->mTextureCoords[0][i].x, mesh->mTextureCoords[0][i].y});
+    RenderSubMesh out;
+    out.name = mesh->mName.length ? mesh->mName.C_Str() : "UnnamedMesh";
+    const unsigned int nv = mesh->mNumVertices;
+    if (nv == 0) throw std::runtime_error("Assimp mesh '" + out.name + "' has no vertices.");
+
+    aiMatrix3x3 normalTransform(transform);
+    const double a1=normalTransform.a1,a2=normalTransform.a2,a3=normalTransform.a3;
+    const double b1=normalTransform.b1,b2=normalTransform.b2,b3=normalTransform.b3;
+    const double c1=normalTransform.c1,c2=normalTransform.c2,c3=normalTransform.c3;
+    const double determinant=a1*(b2*c3-b3*c2)-a2*(b1*c3-b3*c1)+a3*(b1*c2-b2*c1);
+    const double matrixScale=std::max({std::abs(a1),std::abs(a2),std::abs(a3),
+        std::abs(b1),std::abs(b2),std::abs(b3),std::abs(c1),std::abs(c2),std::abs(c3)});
+    const double singularTolerance=std::numeric_limits<double>::epsilon()*
+        matrixScale*matrixScale*matrixScale*64.0;
+    if (!std::isfinite(determinant) || matrixScale==0.0 ||
+        std::abs(determinant)<=singularTolerance)
+        throw std::runtime_error("Assimp mesh '" + out.name + "' has a singular or invalid node transform.");
+    const bool mirrored = determinant < 0.0;
+    normalTransform.Inverse().Transpose();
+
+    out.vertices.reserve(static_cast<std::size_t>(nv) * 3);
+    out.normals.reserve(static_cast<std::size_t>(nv) * 3);
+    if (mesh->HasTextureCoords(0)) out.texcoords.reserve(static_cast<std::size_t>(nv) * 2);
+    for (unsigned int i = 0; i < nv; ++i) {
+        const aiVector3D transformed = transform * mesh->mVertices[i];
+        const double x = static_cast<double>(transformed.x) * m_importOptions.coordinateScale;
+        const double y = static_cast<double>(transformed.y) * m_importOptions.coordinateScale;
+        const double z = static_cast<double>(transformed.z) * m_importOptions.coordinateScale;
+        const double floatLimit = std::numeric_limits<float>::max();
+        const double floatDenormalMin=std::numeric_limits<float>::denorm_min();
+        if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z) ||
+            std::abs(x) > floatLimit || std::abs(y) > floatLimit || std::abs(z) > floatLimit ||
+            (transformed.x!=0.0f && std::abs(x)<floatDenormalMin) ||
+            (transformed.y!=0.0f && std::abs(y)<floatDenormalMin) ||
+            (transformed.z!=0.0f && std::abs(z)<floatDenormalMin))
+            throw std::runtime_error("Assimp mesh '" + out.name +
+                "' produced a scaled vertex outside the representable float range.");
+        out.vertices.insert(out.vertices.end(), {
+            static_cast<float>(x), static_cast<float>(y), static_cast<float>(z)});
+
+        if (mesh->HasNormals()) {
+            aiVector3D normal = normalTransform * mesh->mNormals[i];
+            const double normalLength = std::sqrt(static_cast<double>(normal.x) * normal.x +
+                static_cast<double>(normal.y) * normal.y + static_cast<double>(normal.z) * normal.z);
+            if (!std::isfinite(normalLength) || normalLength <= 1e-15)
+                throw std::runtime_error("Assimp mesh '" + out.name + "' contains an invalid transformed normal.");
+            normal /= static_cast<ai_real>(normalLength);
+            out.normals.insert(out.normals.end(), {normal.x, normal.y, normal.z});
         }
-        for (unsigned int i = 0; i < mesh->mNumFaces; ++i) {
-            const aiFace& face = mesh->mFaces[i];
-            if (face.mNumIndices == 3) for (unsigned int j = 0; j < 3; ++j) out.indices.push_back(face.mIndices[j]);
+        if (mesh->HasTextureCoords(0))
+            out.texcoords.insert(out.texcoords.end(), {mesh->mTextureCoords[0][i].x, mesh->mTextureCoords[0][i].y});
+    }
+
+    for (unsigned int i = 0; i < mesh->mNumFaces; ++i) {
+        const aiFace& face = mesh->mFaces[i];
+        if (face.mNumIndices != 3) continue;
+        for (unsigned int j = 0; j < 3; ++j) {
+            const unsigned int sourceIndex = mirrored && j != 0 ? face.mIndices[3-j] : face.mIndices[j];
+            if (sourceIndex >= nv)
+                throw std::runtime_error("Assimp mesh '" + out.name + "' contains an out-of-range triangle index.");
+            out.indices.push_back(sourceIndex);
         }
-        readMaterial(scene, mesh, modelDir, out);
-        return out;
-    
+    }
+    readMaterial(scene, mesh, modelDir, out);
+    return out;
 }
+

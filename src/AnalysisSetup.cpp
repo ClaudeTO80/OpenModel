@@ -10,6 +10,7 @@
 #include <limits>
 #include <map>
 #include <sstream>
+#include <set>
 #include <unordered_map>
 
 namespace OpenModel {
@@ -44,6 +45,24 @@ struct Parser {
     AnalysisParseResult result;
     bool haveMaterial = false, haveStep = false;
     std::size_t line = 0;
+    std::map<std::string, std::size_t> idCounters;
+    std::set<std::string> conditionIds;
+
+    std::string conditionId(const std::string& kind, std::map<std::string, std::string>& keys) {
+        std::string value;
+        const auto it = keys.find("id");
+        if (it != keys.end()) { value = it->second; keys.erase(it); }
+        else {
+            do { value = kind + "-" + std::to_string(++idCounters[kind]); }
+            while (conditionIds.count(value) != 0);
+        }
+        const bool valid = !value.empty() && std::all_of(value.begin(), value.end(), [](unsigned char ch) {
+            return std::isalnum(ch) || ch == '_' || ch == '-' || ch == '.';
+        });
+        if (!valid) { error("SCRIPT_BAD_ID", "Condition id must contain only letters, digits, underscore, hyphen or dot"); return {}; }
+        if (!conditionIds.insert(value).second) { error("SCRIPT_DUPLICATE_ID", "Condition id '" + value + "' is used more than once"); return {}; }
+        return value;
+    }
 
     void error(std::string code, std::string message) {
         result.diagnostics.push_back({ImportDiagnosticLevel::Error, std::move(code), std::move(message), line});
@@ -125,6 +144,7 @@ struct Parser {
             number("rho", m.density, false);
             std::string name;
             if (take("name", name)) m.name = name;
+            m.id = conditionId("material", keys);
             if (!positional.empty()) error("SCRIPT_UNEXPECTED", "Unexpected '" + positional[0] + "' after material");
             leftovers();
             if (result.diagnostics.size() == errorsBefore) { result.model.material = m; haveMaterial = true; }
@@ -141,7 +161,11 @@ struct Parser {
                     else { error("SCRIPT_BAD_DOF", "dof must list 1, 2, 3 (x, y, z) separated by commas, or 'all'"); return; }
                 }
             }
+            std::string prescribed;
+            if (take("value", prescribed) && !parseVector3(prescribed, f.displacement))
+                error("SCRIPT_BAD_VECTOR", "'" + prescribed + "' is not three comma separated prescribed translations (value)");
             if (take("tol", tol) && !parseNumber(tol, f.where.tolerance)) error("SCRIPT_BAD_NUMBER", "'" + tol + "' is not a number (tol)");
+            f.id = conditionId("fix", keys);
             leftovers();
             if (result.diagnostics.size() == errorsBefore) result.model.supports.push_back(f);
         } else if (command == "force") {
@@ -150,6 +174,7 @@ struct Parser {
             vector3("f", f.total);
             std::string tol;
             if (take("tol", tol) && !parseNumber(tol, f.where.tolerance)) error("SCRIPT_BAD_NUMBER", "'" + tol + "' is not a number (tol)");
+            f.id = conditionId("force", keys);
             leftovers();
             if (result.diagnostics.size() == errorsBefore) result.model.forces.push_back(f);
         } else if (command == "pressure") {
@@ -161,6 +186,7 @@ struct Parser {
             }
             p.group = sel.name;
             number("p", p.pressure, true);
+            p.id = conditionId("pressure", keys);
             leftovers();
             if (result.diagnostics.size() == errorsBefore) result.model.pressures.push_back(p);
         } else if (command == "gravity") {
@@ -223,6 +249,108 @@ AnalysisParseResult parseAnalysisScript(const std::string& text) {
     return std::move(p.result);
 }
 
+std::string serializeAnalysisScript(const AnalysisModel& model) {
+    std::ostringstream out;
+    out << std::setprecision(17);
+    out << "material";
+    if (!model.material.id.empty()) out << " id=" << model.material.id;
+    out << " E=" << model.material.youngModulus << " nu=" << model.material.poisson
+        << " rho=" << model.material.density << " name=" << model.material.name << '\n';
+    auto selectorText = [](const NodeSelector& selector) {
+        if (selector.kind == SelectorKind::All) return std::string("all");
+        if (selector.kind == SelectorKind::Group) return std::string("group:") + selector.name;
+        std::ostringstream value;
+        value << "plane:" << "xyz"[std::max(0, std::min(2, selector.axis))] << '=' << selector.position;
+        return value.str();
+    };
+    for (const auto& support : model.supports) {
+        out << "fix";
+        if (!support.id.empty()) out << " id=" << support.id;
+        out << ' ' << selectorText(support.where) << " dof=";
+        const bool all = support.dof[0] && support.dof[1] && support.dof[2];
+        if (all) out << "all";
+        else {
+            bool first = true;
+            for (std::size_t i = 0; i < 3; ++i) if (support.dof[i]) {
+                if (!first) out << ',';
+                out << (i + 1); first = false;
+            }
+        }
+        out << " value=" << support.displacement[0] << ',' << support.displacement[1] << ',' << support.displacement[2];
+        if (support.where.tolerance >= 0.0) out << " tol=" << support.where.tolerance;
+        out << '\n';
+    }
+    for (const auto& force : model.forces) {
+        out << "force";
+        if (!force.id.empty()) out << " id=" << force.id;
+        out << ' ' << selectorText(force.where) << " F=" << force.total[0] << ',' << force.total[1] << ',' << force.total[2];
+        if (force.where.tolerance >= 0.0) out << " tol=" << force.where.tolerance;
+        out << '\n';
+    }
+    for (const auto& pressure : model.pressures) {
+        out << "pressure";
+        if (!pressure.id.empty()) out << " id=" << pressure.id;
+        out << " group:" << pressure.group << " p=" << pressure.pressure << '\n';
+    }
+    if (model.hasGravity)
+        out << "gravity g=" << model.gravity[0] << ',' << model.gravity[1] << ',' << model.gravity[2] << '\n';
+    out << "step " << (model.step == StepType::Static ? "static" : "frequency");
+    if (model.step == StepType::Frequency) out << " modes=" << model.modes;
+    out << '\n';
+    out << "output element=" << (model.elementPrint > 0 ? "on" : model.elementPrint == 0 ? "off" : "auto") << '\n';
+    return out.str();
+}
+
+
+namespace {
+bool validConditionId(const std::string& id) {
+    return !id.empty() && std::all_of(id.begin(), id.end(), [](unsigned char c) {
+        return std::isalnum(c) || c == '_' || c == '-' || c == '.';
+    });
+}
+template<class T> T* findCondition(std::vector<T>& values, const std::string& id) {
+    const auto it = std::find_if(values.begin(), values.end(), [&](const T& value) { return value.id == id; });
+    return it == values.end() ? nullptr : &*it;
+}
+template<class T> const T* findCondition(const std::vector<T>& values, const std::string& id) {
+    const auto it = std::find_if(values.begin(), values.end(), [&](const T& value) { return value.id == id; });
+    return it == values.end() ? nullptr : &*it;
+}
+template<class T> bool eraseCondition(std::vector<T>& values, const std::string& id) {
+    const auto it = std::find_if(values.begin(), values.end(), [&](const T& value) { return value.id == id; });
+    if (it == values.end()) return false;
+    values.erase(it);
+    return true;
+}
+template<class T> bool replaceCondition(std::vector<T>& values, const std::string& id, const T& replacement, std::string& error) {
+    auto* current = findCondition(values, id);
+    if (!current) { error = "Condition not found: " + id; return false; }
+    if (!validConditionId(id)) { error = "Invalid condition ID: " + id; return false; }
+    T updated = replacement;
+    updated.id = id;
+    *current = std::move(updated);
+    error.clear();
+    return true;
+}
+}
+FixedSupport* findSupport(AnalysisModel& m, const std::string& id) { return findCondition(m.supports, id); }
+NodalForce* findForce(AnalysisModel& m, const std::string& id) { return findCondition(m.forces, id); }
+SurfacePressure* findPressure(AnalysisModel& m, const std::string& id) { return findCondition(m.pressures, id); }
+const FixedSupport* findSupport(const AnalysisModel& m, const std::string& id) { return findCondition(m.supports, id); }
+const NodalForce* findForce(const AnalysisModel& m, const std::string& id) { return findCondition(m.forces, id); }
+const SurfacePressure* findPressure(const AnalysisModel& m, const std::string& id) { return findCondition(m.pressures, id); }
+bool updateMaterial(AnalysisModel& m, const std::string& id, const AnalysisMaterial& r, std::string& e) {
+    if (m.material.id != id) { e = "Material not found: " + id; return false; }
+    if (!validConditionId(id)) { e = "Invalid condition ID: " + id; return false; }
+    m.material = r; m.material.id = id; e.clear(); return true;
+}
+bool updateSupport(AnalysisModel& m, const std::string& id, const FixedSupport& r, std::string& e) { return replaceCondition(m.supports, id, r, e); }
+bool updateForce(AnalysisModel& m, const std::string& id, const NodalForce& r, std::string& e) { return replaceCondition(m.forces, id, r, e); }
+bool updatePressure(AnalysisModel& m, const std::string& id, const SurfacePressure& r, std::string& e) { return replaceCondition(m.pressures, id, r, e); }
+bool eraseSupport(AnalysisModel& m, const std::string& id) { return eraseCondition(m.supports, id); }
+bool eraseForce(AnalysisModel& m, const std::string& id) { return eraseCondition(m.forces, id); }
+bool erasePressure(AnalysisModel& m, const std::string& id) { return eraseCondition(m.pressures, id); }
+
 std::string exampleAnalysisScript() {
     return "# Cantilever: clamped at x = 0, load at x = 10 (units: mm, N, tonne, s)\n"
            "material E=210000 nu=0.3 rho=7.85e-9\n"
@@ -230,6 +358,32 @@ std::string exampleAnalysisScript() {
            "force plane:x=10 F=0,-100,0\n"
            "step static\n"
            "# step frequency modes=6\n";
+}
+
+std::string PrescribedDisplacementTracker::add(std::size_t supportIndex, const FixedSupport& support,
+                                               const std::vector<NodeIndex>& nodes, const MeshData& mesh) {
+    for (std::size_t d = 0; d < 3; ++d)
+        if (support.dof[d] && !std::isfinite(support.displacement[d]))
+            return "fix #" + std::to_string(supportIndex + 1) + " has a non-finite prescribed displacement";
+    for (const NodeIndex n : nodes) {
+        auto& entries = m_entries[n];
+        for (std::size_t d = 0; d < 3; ++d) {
+            if (!support.dof[d]) continue;
+            const double value = support.displacement[d];
+            Entry& entry = entries[d];
+            if (entry.support == static_cast<std::size_t>(-1)) {
+                entry.support = supportIndex;
+                entry.value = value;
+                continue;
+            }
+            const double scale = std::max({1.0, std::fabs(value), std::fabs(entry.value)});
+            if (std::fabs(value - entry.value) > 1e-12 * scale)
+                return "conflicting prescribed displacements: fix #" + std::to_string(entry.support + 1) +
+                       " and fix #" + std::to_string(supportIndex + 1) + " assign different values to node " +
+                       std::to_string(mesh.nodeId(n)) + " degree of freedom " + std::to_string(d + 1);
+        }
+    }
+    return {};
 }
 
 std::vector<NodeIndex> selectNodes(const MeshData& mesh, const NodeSelector& selector, std::string& error) {
@@ -260,7 +414,9 @@ std::vector<NodeIndex> selectNodes(const MeshData& mesh, const NodeSelector& sel
         }
         return out;
     }
-    // Group: a node set first, then a physical group (matched exactly, then case-insensitively).
+    // Group: prefer an explicit node set, then a generic mesh group, then
+    // legacy physical groups. Generic node memberships are authoritative: they
+    // preserve many-to-many CAD membership without reconstructing it from elements.
     const auto& sets = mesh.getNodeSets();
     auto set = sets.find(selector.name);
     if (set == sets.end())
@@ -269,25 +425,42 @@ std::vector<NodeIndex> selectNodes(const MeshData& mesh, const NodeSelector& sel
     if (set != sets.end()) {
         out = set->second;
     } else {
-        const MeshPhysicalGroup* group = nullptr;
-        for (const auto& g : mesh.getPhysicalGroups()) if (g.name == selector.name) { group = &g; break; }
-        if (!group)
-            for (const auto& g : mesh.getPhysicalGroups()) if (lowered(g.name) == lowered(selector.name)) { group = &g; break; }
-        if (!group) {
-            std::string known;
-            for (const auto& g : mesh.getPhysicalGroups()) known += (known.empty() ? "" : ", ") + g.name;
-            for (const auto& s : sets) known += (known.empty() ? "" : ", ") + s.first;
-            error = "Unknown group or node set '" + selector.name + "'" + (known.empty() ? " (the mesh has none)" : " (available: " + known + ")");
-            return out;
+        const MeshGroup* generic = mesh.getMeshGroupRegistry().find(selector.name);
+        if (!generic)
+            for (const auto& g : mesh.getMeshGroupRegistry().groups())
+                if (lowered(g.name) == lowered(selector.name)) { generic = &g; break; }
+        if (generic) {
+            out = generic->nodeIndices;
+            if (out.empty() && !generic->elementIds.empty()) {
+                std::unordered_map<ElementId, char> ids;
+                for (const ElementId id : generic->elementIds) ids.emplace(id, 1);
+                for (const auto& block : mesh.getElementBlocks())
+                    for (std::size_t e = 0; e < block.size(); ++e)
+                        if (ids.count(block.ids[e]))
+                            for (std::size_t k = 0; k < block.nodesPerElement; ++k)
+                                out.push_back(block.connectivity[e * block.nodesPerElement + k]);
+            }
+        } else {
+            const MeshPhysicalGroup* group = nullptr;
+            for (const auto& g : mesh.getPhysicalGroups()) if (g.name == selector.name) { group = &g; break; }
+            if (!group)
+                for (const auto& g : mesh.getPhysicalGroups()) if (lowered(g.name) == lowered(selector.name)) { group = &g; break; }
+            if (!group) {
+                std::string known;
+                for (const auto& g : mesh.getPhysicalGroups()) known += (known.empty() ? "" : ", ") + g.name;
+                for (const auto& g : mesh.getMeshGroupRegistry().groups()) known += (known.empty() ? "" : ", ") + g.name;
+                for (const auto& s : sets) known += (known.empty() ? "" : ", ") + s.first;
+                error = "Unknown group or node set '" + selector.name + "'" + (known.empty() ? " (the mesh has none)" : " (available: " + known + ")");
+                return out;
+            }
+            std::unordered_map<ElementId, char> ids;
+            for (const ElementId id : group->elementIds) ids.emplace(id, 1);
+            for (const auto& block : mesh.getElementBlocks())
+                for (std::size_t e = 0; e < block.size(); ++e)
+                    if (ids.count(block.ids[e]))
+                        for (std::size_t k = 0; k < block.nodesPerElement; ++k)
+                            out.push_back(block.connectivity[e * block.nodesPerElement + k]);
         }
-        std::unordered_map<ElementId, std::pair<std::size_t, std::size_t>> where;
-        std::vector<char> wanted;
-        std::unordered_map<ElementId, char> ids;
-        for (const ElementId id : group->elementIds) ids.emplace(id, 1);
-        for (const auto& block : mesh.getElementBlocks())
-            for (std::size_t e = 0; e < block.size(); ++e)
-                if (ids.count(block.ids[e]))
-                    for (std::size_t k = 0; k < block.nodesPerElement; ++k) out.push_back(block.connectivity[e * block.nodesPerElement + k]);
     }
     std::sort(out.begin(), out.end());
     out.erase(std::unique(out.begin(), out.end()), out.end());
@@ -392,19 +565,26 @@ SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& mo
             solid.addPhysicalGroup(g.name, g.dimension, g.tag, ids, g.materialName);
         }
     }
+    // Preserve user/imported node sets in the analysis deck. The volume-only
+    // mesh retains all original nodes, so their node-index memberships remain valid.
+    for (const auto& nodeSet : mesh.getNodeSets())
+        solid.addNodeSet(nodeSet.first, nodeSet.second);
     r.nodes = solid.getNumNodes();
     r.elements = volumeIds.size();
 
     // Resolve conditions.
     std::string error;
     std::vector<std::vector<NodeIndex>> supportNodes, forceNodes;
+    PrescribedDisplacementTracker displacementTracker;
     std::vector<char> constrained(mesh.getNumNodes(), 0);
     for (std::size_t i = 0; i < model.supports.size(); ++i) {
         supportNodes.push_back(selectNodes(mesh, model.supports[i].where, error));
         if (!error.empty()) return failed(r, "fix #" + std::to_string(i + 1) + ": " + error);
-        for (const NodeIndex n : supportNodes.back()) constrained[n] = 1;
         if (!model.supports[i].dof[0] && !model.supports[i].dof[1] && !model.supports[i].dof[2])
             return failed(r, "fix #" + std::to_string(i + 1) + " constrains no direction");
+        const auto conflict = displacementTracker.add(i, model.supports[i], supportNodes.back(), mesh);
+        if (!conflict.empty()) return failed(r, conflict);
+        for (const NodeIndex n : supportNodes.back()) constrained[n] = 1;
     }
     for (const char c : constrained) r.fixedNodes += c ? 1 : 0;
     std::size_t quadratic = 0;
@@ -438,14 +618,25 @@ SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& mo
         for (const auto& block : mesh.getElementBlocks())
             for (std::size_t e = 0; e < block.size(); ++e) location.emplace(block.ids[e], std::make_pair(&block, e));
         for (const auto& p : model.pressures) {
-            const MeshPhysicalGroup* group = nullptr;
-            for (const auto& g : mesh.getPhysicalGroups()) if (g.name == p.group) { group = &g; break; }
-            if (!group)
-                for (const auto& g : mesh.getPhysicalGroups()) if (lowered(g.name) == lowered(p.group)) { group = &g; break; }
-            if (!group) return failed(r, "pressure: unknown surface group '" + p.group + "'");
-            if (group->dimension != 2) return failed(r, "pressure: group '" + p.group + "' is not a surface group (dimension " + std::to_string(group->dimension) + ")");
+            const std::vector<ElementId>* groupElements = nullptr;
+            int groupDimension = -1;
+            for (const auto& g : mesh.getPhysicalGroups())
+                if (g.name == p.group) { groupElements = &g.elementIds; groupDimension = g.dimension; break; }
+            if (!groupElements)
+                for (const auto& g : mesh.getPhysicalGroups())
+                    if (lowered(g.name) == lowered(p.group)) { groupElements = &g.elementIds; groupDimension = g.dimension; break; }
+            if (!groupElements) {
+                const MeshGroup* generic = mesh.getMeshGroupRegistry().find(p.group);
+                if (!generic)
+                    for (const auto& g : mesh.getMeshGroupRegistry().groups())
+                        if (lowered(g.name) == lowered(p.group)) { generic = &g; break; }
+                if (generic) { groupElements = &generic->elementIds; groupDimension = generic->dimension; }
+            }
+            if (!groupElements) return failed(r, "pressure: unknown surface group '" + p.group + "'");
+            if (groupDimension != 2) return failed(r, "pressure: group '" + p.group + "' is not a surface group (dimension " + std::to_string(groupDimension) + ")");
+            if (groupElements->empty()) return failed(r, "pressure: surface group '" + p.group + "' has no surface elements");
             std::size_t unmatched = 0, shared = 0;
-            for (const ElementId id : group->elementIds) {
+            for (const ElementId id : *groupElements) {
                 const auto at = location.find(id);
                 const int corners = at == location.end() ? 0 : surfaceCorners(at->second.first->type);
                 if (corners == 0) { ++unmatched; continue; }
@@ -497,7 +688,9 @@ SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& mo
         out << "*BOUNDARY\n";
         for (std::size_t i = 0; i < model.supports.size(); ++i)
             for (int d = 0; d < 3; ++d)
-                if (model.supports[i].dof[static_cast<std::size_t>(d)]) out << "MG_FIX" << i + 1 << ", " << d + 1 << ", " << d + 1 << ", 0.\n";
+                if (model.supports[i].dof[static_cast<std::size_t>(d)])
+                    out << "MG_FIX" << i + 1 << ", " << d + 1 << ", " << d + 1 << ", "
+                        << model.supports[i].displacement[static_cast<std::size_t>(d)] << "\n";
     }
     out << "*STEP\n";
     if (model.step == StepType::Static) {

@@ -94,11 +94,47 @@ int main() {
     CHECK(top && top->dimension == 2 && top->ids.size() == 1);
     CHECK(layer->ids == top->ids);
 
+    const auto* edgeLayer = findGroup(groups, "EdgeLayer");
+    const auto* vertexLayer = findGroup(groups, "VertexLayer");
+    const auto* namedEdge = findGroup(groups, "BaseEdge");
+    const auto* namedVertex = findGroup(groups, "BaseVertex");
+    CHECK(edgeLayer && edgeLayer->dimension == 1 && !edgeLayer->ids.empty());
+    CHECK(vertexLayer && vertexLayer->dimension == 0 && !vertexLayer->ids.empty());
+    CHECK(namedEdge && namedEdge->dimension == 1 && !namedEdge->ids.empty());
+    CHECK(namedVertex && namedVertex->dimension == 0 && !namedVertex->ids.empty());
+
     // Geometric queries: the named face lies at z = 10; (5,5,12) is inside the cover; (5,5,5) inside the base.
     const double tol = 1e-6;
     const auto onTop = model.facesContainingPoint({{5, 5, 10}}, tol);
     CHECK(std::find(onTop.begin(), onTop.end(), top->ids[0]) != onTop.end());
     CHECK(model.facesContainingPoint({{5, 5, 11}}, tol).empty());
+
+    // Boundary behaviour of the point-on-face test (fast surface projection with an exact fallback):
+    // a face interior point hits one face, an edge point both neighbours, a corner point three, and a
+    // point farther than the tolerance from every face hits none.
+    CHECK(model.facesContainingPoint({{0, 5, 5}}, tol).size() == 1);
+    CHECK(model.facesContainingPoint({{-0.5 * tol, 5, 5}}, tol).size() == 1);
+    CHECK(model.facesContainingPoint({{-1e-4, 5, 5}}, tol).empty());
+    CHECK(model.facesContainingPoint({{0, 0, 5}}, tol).size() == 2);
+    CHECK(model.facesContainingPoint({{0, 0, 0}}, tol).size() == 3);
+    CHECK(model.facesContainingPoint({{-0.5 * tol, -0.5 * tol, 5}}, tol).size() == 2);
+
+    // Single-face query: same answer as the scan over all faces, with or without a (u, v) hint, and a wrong
+    // hint must not change it.
+    const std::vector<std::array<double, 3>> probes = {
+        {{5, 5, 10}}, {{5, 5, 11}}, {{0, 5, 5}}, {{-0.5 * tol, 5, 5}}, {{-1e-4, 5, 5}}, {{0, 0, 5}}, {{0, 0, 0}},
+        {{-0.5 * tol, -0.5 * tol, 5}}, {{5, 5, 0}}, {{2.5, 7.5, 10}}, {{10, 10, 10}}, {{50, 5, 5}}};
+    const std::array<double, 2> wrongHint{{1e9, -1e9}};
+    const std::array<double, 2> originHint{{0.0, 0.0}};
+    for (const auto& probe : probes) {
+        const auto all = model.facesContainingPoint(probe, tol);
+        for (int face = -1; face < 64; ++face) {
+            const bool expected = std::find(all.begin(), all.end(), face) != all.end();
+            CHECK(model.faceContainsPoint(face, probe, tol) == expected);
+            CHECK(model.faceContainsPoint(face, probe, tol, &wrongHint) == expected);
+            CHECK(model.faceContainsPoint(face, probe, tol, &originHint) == expected);
+        }
+    }
     CHECK(model.solidsContainingPoint({{5, 5, 12}}, tol) == cover->solidIds);
     CHECK(model.solidsContainingPoint({{5, 5, 5}}, tol) == base->solidIds);
     CHECK(model.solidsContainingPoint({{50, 5, 5}}, tol).empty());

@@ -4,6 +4,8 @@
 
 #include <BRepCheck_Analyzer.hxx>
 #include <Bnd_Box.hxx>
+#include <Bnd_OBB.hxx>
+#include <ShapeAnalysis_Surface.hxx>
 #include <TDF_Label.hxx>
 #include <BRepMesh_IncrementalMesh.hxx>
 #include <BRep_Tool.hxx>
@@ -34,10 +36,14 @@
 #include <limits>
 #include <string>
 #include <utility>
+#include <memory>
+#include <mutex>
 #include <vector>
 
 // Open CASCADE Technology adapter. Keeps the native B-Rep shape separate from
 // the render triangulation; this class does not perform volume meshing.
+class BRepTopAdaptor_FClass2d;
+
 class OCCModel final : public CADModel {
 private:
     std::string m_filepath;
@@ -48,10 +54,52 @@ private:
     std::vector<CADGroup> m_groups;
     TopTools_IndexedMapOfShape m_solidMap; ///< Unique solids of m_rawShape; id = index - 1.
     TopTools_IndexedMapOfShape m_faceMap;  ///< Unique faces of m_rawShape; id = index - 1.
+    TopTools_IndexedMapOfShape m_edgeMap;  ///< Unique edges of m_rawShape; id = index - 1.
+    TopTools_IndexedMapOfShape m_vertexMap;///< Unique vertices of m_rawShape; id = index - 1.
     std::vector<Bnd_Box> m_solidBoxes;
     std::vector<Bnd_Box> m_faceBoxes;
+    /** Per-face projector onto the underlying surface (null when the face has no surface); used by the fast point-on-face test. */
+    std::vector<opencascade::handle<ShapeAnalysis_Surface>> m_faceProjectors;
+    /**
+     * Oriented bounding boxes of the faces, built on the first point-on-face query (building them
+     * takes seconds on large assemblies and is not needed by callers that never query points).
+     * Tighter than the axis-aligned boxes for tilted cylinders and cones, which removes most false candidates.
+     */
+    struct FaceObbCache {
+        std::once_flag once;
+        std::vector<Bnd_OBB> boxes;   ///< Enlarged by `slack`.
+        double slack = 0.0;           ///< Queries with a larger tolerance skip this filter.
+    };
+    std::shared_ptr<FaceObbCache> m_faceObbCache;
+    /**
+     * Per-face 2-D classifiers of the (u, v) trim, built on the first point-on-face query.
+     * `BRepClass_FaceClassifier` rebuilds its edge intersectors on every call (40-90 us per face),
+     * `BRepTopAdaptor_FClass2d` precomputes the trim polygons once and answers in about 1 us. The polygon
+     * only approximates curved trims, so a result is trusted only well inside the face (see
+     * OCCModel::facesContainingPoint); everything else takes the exact classifier.
+     */
+    struct FaceClassifierCache {
+        std::once_flag once;
+        std::vector<std::shared_ptr<BRepTopAdaptor_FClass2d>> classifiers; ///< Null when a face cannot use the fast test.
+        std::vector<double> maxTolerance;                                   ///< Larger query tolerances skip the fast test.
+        std::vector<double> farDistance;                                    ///< Surface distance beyond which a face is discarded without the exact query.
+    };
+    std::shared_ptr<FaceClassifierCache> m_faceClassifierCache;
 
-    /** @brief Fill the unique solid/face maps and their bounding boxes from m_rawShape. */
+    /** @brief Build the lazily created per-face caches (oriented boxes, 2-D classifiers) once; thread-safe. */
+    void prepareFaceQueryCaches() const;
+
+    /**
+     * @brief Exact-equivalent test of one face (1-based index) against a point whose box tests already passed.
+     * @param surfaceUv Optional (u, v) of the point on the face's surface, used instead of a projection when it is
+     *                  within tolerance of the point.
+     */
+    bool faceMatchesPoint(Standard_Integer index, const gp_Pnt& point, double tolerance,
+                          const gp_Pnt2d* surfaceUv) const;
+    std::vector<Bnd_Box> m_edgeBoxes;
+    std::vector<Bnd_Box> m_vertexBoxes;
+
+    /** @brief Fill unique solid/face/edge/vertex maps and their bounding boxes from m_rawShape. */
     void indexShape();
 
     /**
@@ -87,5 +135,9 @@ public:
     const std::vector<CADGroup>& getGroups() const override;
     std::vector<int> solidsContainingPoint(const std::array<double, 3>& point, double tolerance) const override;
     std::vector<int> facesContainingPoint(const std::array<double, 3>& point, double tolerance) const override;
+    bool faceContainsPoint(int faceId, const std::array<double, 3>& point, double tolerance,
+                           const std::array<double, 2>* surfaceUv = nullptr) const override;
+    std::vector<int> edgesContainingPoint(const std::array<double, 3>& point, double tolerance) const override;
+    std::vector<int> verticesContainingPoint(const std::array<double, 3>& point, double tolerance) const override;
     bool hasShape() const ;
 };

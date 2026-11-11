@@ -3,12 +3,44 @@
 include(CMakeFindDependencyMacro)
 find_dependency(Threads)
 
+if(@OPENMODEL_BUILD_ASSIMP_BACKEND@)
+    find_dependency(assimp CONFIG REQUIRED)
+    if(TARGET assimp::assimp)
+        set(_openmodel_assimp_dependency assimp::assimp)
+    elseif(TARGET assimp)
+        set(_openmodel_assimp_dependency assimp)
+    else()
+        message(FATAL_ERROR "OpenModel::Assimp requires an Assimp package exporting an assimp target.")
+    endif()
+    include(CheckCXXSourceCompiles)
+    set(_openmodel_saved_required_libraries "${CMAKE_REQUIRED_LIBRARIES}")
+    set(CMAKE_REQUIRED_LIBRARIES "${_openmodel_assimp_dependency}")
+    unset(OpenModel_ASSIMP_HAS_PBR_TEXTURE_API CACHE)
+    check_cxx_source_compiles("
+        #include <assimp/material.h>
+        int main() {
+            aiTextureType baseColor = aiTextureType_BASE_COLOR;
+            aiTextureType emissive = aiTextureType_EMISSION_COLOR;
+            aiTextureType metalness = aiTextureType_METALNESS;
+            aiTextureType roughness = aiTextureType_DIFFUSE_ROUGHNESS;
+            (void)baseColor; (void)emissive; (void)metalness; (void)roughness;
+            return 0;
+        }"
+        OpenModel_ASSIMP_HAS_PBR_TEXTURE_API)
+    set(CMAKE_REQUIRED_LIBRARIES "${_openmodel_saved_required_libraries}")
+    unset(_openmodel_saved_required_libraries)
+    unset(_openmodel_assimp_dependency)
+    if(NOT OpenModel_ASSIMP_HAS_PBR_TEXTURE_API)
+        message(FATAL_ERROR "OpenModel::Assimp requires Assimp 5.0 or newer (PBR texture semantics are missing).")
+    endif()
+    set(OpenModel_Assimp_FOUND TRUE)
+endif()
+
 include("${CMAKE_CURRENT_LIST_DIR}/OpenModelTargets.cmake")
 
 set(OpenModel_VERSION "@PROJECT_VERSION@")
 set(OpenModel_Core_FOUND TRUE)
 
 # The core package needs only the system threads library (ProcessRunner).
-# Optional backend libraries are built separately and are not imported by
-# the core-only package configuration.
+# Optional backends are exported only when they were enabled at build time.
 check_required_components(OpenModel)

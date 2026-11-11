@@ -1103,7 +1103,17 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
       const info = buildFaceInfo();
       for (const f of S.sel.face) {
         const t = info.first[f]; if (t === undefined) continue;
-        out.faces.push({ element: m.triElementId[t], nodes: [0, 1, 2].map((k) => m.vertexNodeId[m.triIndices[3 * t + k]]) });
+        const selectedFace = {
+          element: m.triElementId[t],
+          nodes: [0, 1, 2].map((k) => m.vertexNodeId[m.triIndices[3 * t + k]]),
+        };
+        // CAD surface meshes carry a reserved physical-group name for each source B-Rep face.
+        // Keep the original FEM face-selection contract and add CAD provenance only when present.
+        const region = m.triRegion[t];
+        const group = region > 0 ? m.meta.groups[region - 1] : null;
+        const match = group && /^__openmodel_cad_face_(\d+)$/.exec(group.name);
+        if (match) selectedFace.cadFaceId = Number(match[1]);
+        out.faces.push(selectedFace);
       }
     }
     return out;

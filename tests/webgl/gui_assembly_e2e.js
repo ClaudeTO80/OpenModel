@@ -64,6 +64,9 @@ function countPixels(png, pred) {
   await click('Importa e triangola');
   const msg = await message();
   check(/Struttura CAD: 5 nodi di assieme \(4 componenti\), 2 gruppi di facce/.test(msg), 'import reports the CAD structure: ' + (msg.split('\n').find((l) => l.startsWith('Struttura')) || msg));
+  await page.waitForFunction(() => document.querySelector('#nativeCadGrpList')?.textContent.includes('TopFace'), null, { timeout: 10000 });
+  const nativeGroups = await page.textContent('#nativeCadGrpList');
+  check(/TopFace/.test(nativeGroups) && /Facce/.test(nativeGroups), 'Workbench lists native CAD named groups with topological dimension: ' + nativeGroups);
   await page.waitForTimeout(800);
   const names = await frame().locator('#comps .nm').allTextContents();
   check(['Assy', 'Base', 'Cover', 'Pin', 'Pin #2'].every((n) => names.includes(n)), 'viewer lists the components as a tree: ' + names.join(' | '));
@@ -89,6 +92,8 @@ function countPixels(png, pred) {
   await page.waitForTimeout(800);
   const vol = await leaves();
   check(['Assy/Base', 'Assy/Cover', 'Assy/Pin', 'Assy/Pin #2'].every((n) => vol.includes(n)), 'mesh groups carry the CAD paths: ' + vol.join(', '));
+  await page.waitForFunction(() => document.querySelector('#genericMeshGrpList')?.textContent.includes('Assy/Base'), null, { timeout: 10000 });
+  check(/CAD/.test(await page.textContent('#genericMeshGrpList')), 'Workbench lists backend-independent FEM groups and their source');
   const redVol = await redPixels();
   await frame().locator('#comps label:has(.nm:text-is("Base")) input').uncheck();
   const redVolHidden = await redPixels();
@@ -132,6 +137,17 @@ function countPixels(png, pred) {
   await click('Genera mesh volumetrica');
   const tmsg = await message();
   check(/TetGen/.test(tmsg) && /does not transfer CAD components/.test(tmsg), 'TetGen reports that it does not transfer CAD groups');
+
+  // 6. Analysis conditions are listed and can be edited/removed without editing unrelated lines.
+  await page.fill('#anScript', 'material E=210000 nu=0.3\nfix group:CLAMP dof=1,2,3 value=0,0,0\nforce group:LOAD F=0,0,-10\nstep static\n');
+  await page.waitForFunction(() => document.querySelectorAll('#analysisConditions > li button').length === 8);
+  check(await page.locator('#analysisConditions > li').count() === 4, 'analysis condition list recognises material, support, load and step');
+  page.once('dialog', (dialog) => dialog.accept('fix group:CLAMP dof=1,2 value=0.1,0,0'));
+  await page.locator('#analysisConditions > li').nth(1).getByRole('button', {name:'Modifica'}).click();
+  check((await page.inputValue('#anScript')).includes('fix group:CLAMP dof=1,2 value=0.1,0,0'), 'editing a condition updates its script line');
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.locator('#analysisConditions > li').nth(2).getByRole('button', {name:'Rimuovi'}).click();
+  check(await page.locator('#analysisConditions > li').count() === 3 && !(await page.inputValue('#anScript')).includes('force group:LOAD'), 'removing a condition leaves unrelated conditions intact');
 
   check(problems.length === 0, 'no page errors' + (problems.length ? ': ' + problems[0] : ''));
   await browser.close();

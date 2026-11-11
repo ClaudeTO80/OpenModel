@@ -20,6 +20,8 @@
 #include <OpenModel/MeshData.hpp>
 #include <OpenModel/MeshSelection.hpp>
 #include <OpenModel/MeshImporter.hpp>
+#include <OpenModel/CADFaceMapper.hpp>
+#include <OpenModel/MeshQuality.hpp>
 #include <OpenModel/MeshValidator.hpp>
 #include <OpenModel/Mesher.hpp>
 #include <OpenModel/ResultBinding.hpp>
@@ -44,10 +46,15 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
+#include <cstdint>
 #include <filesystem>
+#include <fstream>
+#include <iomanip>
 #include <memory>
 #include <map>
+#include <limits>
 #include <mutex>
 #include <set>
 #include <stdexcept>
@@ -71,9 +78,17 @@ namespace fs = std::filesystem;
 /** Where the current mesh comes from. */
 enum class MeshOrigin { None, Demo, Generated, Loaded };
 
+/** A user-defined group of original CAD B-Rep faces. Face ids refer to the current CAD import. */
+struct UserCADFaceGroup {
+    std::string name;
+    std::vector<int> faceIds;
+};
+
 /** Whole application state; always accessed with g_mutex held. */
 struct AppState {
     std::shared_ptr<CADModel> cad;
+    std::vector<UserCADFaceGroup> cadFaceGroups;
+    std::string cadGroupsNote;
     SurfaceMesh surface;
     MeshData mesh;
     MeshOrigin origin = MeshOrigin::None;
@@ -86,6 +101,8 @@ struct AppState {
     std::string viewLabel;
     std::string viewNote;            ///< Non-empty when the view could not be built.
     OpenModel::FemResults results;     ///< Solver results attached to the current mesh (empty when none).
+    OpenModel::AnalysisModel analysis;
+    bool hasAnalysis = false;
     std::string resultsName;         ///< File name of the loaded results.
     std::size_t resultsStep = OpenModel::BindOptions::kLastStep;
     std::string resultsNote;         ///< Warnings produced while attaching the results to the current view.
@@ -145,11 +162,21 @@ double getDoubleArg(webui_event_t* e, std::size_t index, double fallback) {
     }
 }
 
-/** Sends {ok, message, view, viewLabel} to the page. Call with the state locked. */
+/**
+ * JSON fields describing the viewer image: its version, whether model.mgwv can actually be served (it cannot
+ * before a model is loaded, or when the view could not be built) and its label. Without hasView the page would
+ * request a model that answers HTTP 404. Call with the state locked.
+ */
+std::string viewFields() {
+    return "\"view\":" + std::to_string(g.viewVersion) + ",\"hasView\":" + (g.view.empty() ? "false" : "true") +
+           ",\"viewLabel\":\"" + jsonEscape(g.viewLabel) + "\"";
+}
+
+/** Sends {ok, message, view, hasView, viewLabel} to the page. Call with the state locked. */
 void reply(webui_event_t* e, bool ok, const std::string& message) {
     std::ostringstream out;
     out << "{\"ok\":" << (ok ? "true" : "false") << ",\"message\":\"" << jsonEscape(message)
-        << "\",\"view\":" << g.viewVersion << ",\"viewLabel\":\"" << jsonEscape(g.viewLabel) << "\"}";
+        << "\"," << viewFields() << "}";
     webui_return_string(e, out.str().c_str());
 }
 
@@ -204,6 +231,112 @@ fs::path absolutePath(const std::string& text) {
     return ec ? fs::path(text) : path;
 }
 
+/** Sidecar identity: face indices are only meaningful for the exact imported source file. */
+bool cadSourceFingerprint(const fs::path& source, std::uintmax_t& size, long long& modified) {
+    std::error_code ec;
+    size = fs::file_size(source, ec);
+    if (ec) return false;
+    const auto stamp = fs::last_write_time(source, ec);
+    if (ec) return false;
+    modified = static_cast<long long>(stamp.time_since_epoch().count());
+    return true;
+}
+
+fs::path cadGroupsPath(const std::string& source) {
+    return fs::path(source + ".omgroups");
+}
+
+bool saveCADFaceGroups(const std::string& source, const std::vector<UserCADFaceGroup>& groups, std::string& error) {
+    std::uintmax_t size = 0;
+    long long modified = 0;
+    if (!cadSourceFingerprint(source, size, modified)) {
+        error = "Impossibile leggere dimensione/data del file CAD per salvare i gruppi.";
+        return false;
+    }
+    const auto target = cadGroupsPath(source);
+    const auto temporary = fs::path(target.string() + ".tmp");
+    {
+        std::ofstream out(temporary, std::ios::trunc);
+        if (!out) { error = "Impossibile creare il sidecar dei gruppi CAD: " + temporary.string(); return false; }
+        out << "OPENMODEL_CAD_FACE_GROUPS 1\n" << std::quoted(source) << ' ' << size << ' ' << modified << '\n';
+        out << groups.size() << '\n';
+        for (const auto& group : groups) {
+            out << std::quoted(group.name) << ' ' << group.faceIds.size();
+            for (const int id : group.faceIds) out << ' ' << id;
+            out << '\n';
+        }
+        if (!out) { error = "Scrittura del sidecar dei gruppi CAD fallita."; return false; }
+    }
+    std::error_code ec;
+    fs::rename(temporary, target, ec);
+    if (ec) {
+        // Windows does not replace an existing destination with rename().
+        std::error_code removeError;
+        fs::remove(target, removeError);
+        ec.clear();
+        fs::rename(temporary, target, ec);
+    }
+    if (ec) { error = "Impossibile finalizzare il sidecar: " + ec.message(); return false; }
+    return true;
+}
+
+bool loadCADFaceGroups(const std::string& source, const SurfaceMesh& surface,
+                       std::vector<UserCADFaceGroup>& groups, std::string& note) {
+    groups.clear();
+    const auto path = cadGroupsPath(source);
+    std::error_code ec;
+    if (!fs::exists(path, ec)) return true;
+    std::ifstream in(path);
+    std::string magic;
+    int version = 0;
+    std::string storedSource;
+    std::uintmax_t storedSize = 0;
+    long long storedModified = 0;
+    if (!(in >> magic >> version) || magic != "OPENMODEL_CAD_FACE_GROUPS" || version != 1 ||
+        !(in >> std::quoted(storedSource) >> storedSize >> storedModified)) {
+        note = "Sidecar dei gruppi CAD non valido: ignorato.";
+        return false;
+    }
+    std::uintmax_t actualSize = 0;
+    long long actualModified = 0;
+    if (!cadSourceFingerprint(source, actualSize, actualModified) ||
+        storedSource != source || storedSize != actualSize || storedModified != actualModified) {
+        note = "Sidecar dei gruppi CAD riferito a una versione diversa del file: ignorato per evitare associazioni errate.";
+        return false;
+    }
+    std::set<int> availableFaces;
+    for (const auto& part : surface.parts) if (part.sourceFaceId >= 0) availableFaces.insert(part.sourceFaceId);
+    std::size_t count = 0;
+    if (!(in >> count) || count > 10000) { note = "Numero di gruppi CAD non valido: sidecar ignorato."; return false; }
+    std::vector<UserCADFaceGroup> loaded;
+    std::set<std::string> names;
+    for (std::size_t i = 0; i < count; ++i) {
+        UserCADFaceGroup group;
+        std::size_t faceCount = 0;
+        if (!(in >> std::quoted(group.name) >> faceCount) || group.name.empty() || faceCount == 0 || faceCount > availableFaces.size() ||
+            !names.insert(group.name).second) {
+            note = "Definizione di gruppo CAD non valida: sidecar ignorato.";
+            return false;
+        }
+        for (std::size_t j = 0; j < faceCount; ++j) {
+            int id = -1;
+            if (!(in >> id) || availableFaces.count(id) == 0) {
+                note = "Il sidecar contiene un ID faccia non presente nel CAD importato: gruppi ignorati.";
+                return false;
+            }
+            group.faceIds.push_back(id);
+        }
+        std::sort(group.faceIds.begin(), group.faceIds.end());
+        if (std::adjacent_find(group.faceIds.begin(), group.faceIds.end()) != group.faceIds.end()) {
+            note = "Il sidecar contiene facce duplicate: gruppi ignorati.";
+            return false;
+        }
+        loaded.push_back(std::move(group));
+    }
+    groups = std::move(loaded);
+    return true;
+}
+
 /** Appends extension to a base name unless it is already present. */
 std::string withExtension(const std::string& base, const std::string& ext) {
     if (lowerExtension(fs::path(base)) == ext) return base;
@@ -212,17 +345,20 @@ std::string withExtension(const std::string& base, const std::string& ext) {
 
 /* ------------------------------------------------------------------- views */
 
-/** Converts the CAD tessellation into a triangle MeshData with one block per CAD face. */
+/** Converts the CAD tessellation into a triangle MeshData with explicit CAD-face provenance. */
 MeshData surfaceToMesh(const SurfaceMesh& surface, const CADModel* cad) {
     MeshData mesh;
-    // CAD structure: every leaf component becomes a group of its faces' triangles, so the viewer can
-    // colour, list and hide the model by component. Face -> first leaf component that owns it.
+    // CAD face groups are inserted first: WebViewWriter uses the first matching physical
+    // group as the region of a 2D element. This makes the CAD face id available to the
+    // viewer without confusing it with a generated triangle/element id.
+    std::map<int, std::vector<ElementId>> idsOfCadFace;
     std::map<int, int> componentOfFace;
     std::map<int, std::vector<ElementId>> idsOfComponent;
     if (cad)
         for (const auto& component : cad->getComponents())
             if (!component.isAssembly)
                 for (const int face : component.faceIds) componentOfFace.emplace(face, component.id);
+
     NodeId nextNode = 1;
     ElementId nextElement = 1;
     std::size_t partIndex = 0;
@@ -236,12 +372,15 @@ MeshData surfaceToMesh(const SurfaceMesh& surface, const CADModel* cad) {
         for (std::size_t i = 0; i + 2 < part.indices.size(); i += 3) {
             const auto a = part.indices[i], b = part.indices[i + 1], c = part.indices[i + 2];
             if (a >= vertexCount || b >= vertexCount || c >= vertexCount) continue;
+            if (part.sourceFaceId >= 0) idsOfCadFace[part.sourceFaceId].push_back(nextElement);
             const auto owner = componentOfFace.find(part.sourceFaceId);
             if (owner != componentOfFace.end()) idsOfComponent[owner->second].push_back(nextElement);
             mesh.addElement(name, ElementType::Triangle3, nextElement++, {base + a, base + b, base + c});
         }
     }
     int tag = 1;
+    for (const auto& [faceId, ids] : idsOfCadFace)
+        mesh.addPhysicalGroup("__openmodel_cad_face_" + std::to_string(faceId), 2, tag++, ids);
     for (const auto& [componentId, ids] : idsOfComponent)
         mesh.addPhysicalGroup(cad->getComponents()[static_cast<std::size_t>(componentId)].path, 2, tag++, ids);
     return mesh;
@@ -267,9 +406,15 @@ void updateView() {
     }
     // Colours stored in the CAD file for the components whose group exists in the mesh being shown.
     WebViewOptions viewOptions;
-    if (g.cad && (source == &surfaceMesh || g.origin == MeshOrigin::Generated))
-        for (const auto& component : g.cad->getComponents())
-            if (component.hasColor && !component.isAssembly) viewOptions.groupColors[component.path] = component.color;
+    if (g.cad && (source == &surfaceMesh || g.origin == MeshOrigin::Generated)) {
+        for (const auto& component : g.cad->getComponents()) {
+            if (!component.hasColor || component.isAssembly) continue;
+            viewOptions.groupColors[component.path] = component.color;
+            if (source == &surfaceMesh)
+                for (const int faceId : component.faceIds)
+                    viewOptions.groupColors.emplace("__openmodel_cad_face_" + std::to_string(faceId), component.color);
+        }
+    }
     if (source == &g.mesh) attachResults(*source, viewOptions);
     else g.resultsNote.clear();
     const auto result = WebViewWriter::build(*source, viewOptions, g.view);
@@ -344,7 +489,7 @@ std::vector<MesherInfo> meshers() {
 #else
         false,
 #endif
-        "min,order,curv,iface",
+        "min,order,curv,iface,log,struct,thin",
         "Legge direttamente il file STEP/IGES con il kernel OpenCASCADE di Gmsh. Non funziona con i formati mesh importati tramite Assimp."});
     list.push_back({"tetgen", "TetGen",
 #ifdef OPENMODEL_HAS_TETGEN
@@ -448,6 +593,8 @@ void createDemo(webui_event_t* e) {
     if (!lock.ok()) { replyBusy(e); return; }
     g.cad.reset();
     g.surface = SurfaceMesh{};
+    g.cadFaceGroups.clear();
+    g.cadGroupsNote.clear();
     clearResults();
     g.mesh = makeDemoGrid(10);
     g.origin = MeshOrigin::Demo;
@@ -498,6 +645,9 @@ void importModel(webui_event_t* e) {
         reply(e, false, "Tessellazione fallita: " + error); return;
     }
     g.source = file.string();
+    g.cadFaceGroups.clear();
+    g.cadGroupsNote.clear();
+    loadCADFaceGroups(g.source, g.surface, g.cadFaceGroups, g.cadGroupsNote);
     clearResults();
     g.mesh = MeshData{};
     g.origin = MeshOrigin::None;
@@ -513,6 +663,8 @@ void importModel(webui_event_t* e) {
     reply(e, true, "Modello importato e triangolato.\nFile: " + g.source + structure + "\nParti: " + std::to_string(g.surface.parts.size()) +
         "\nVertici: " + std::to_string(g.surface.vertexCount()) + "\nTriangoli: " + std::to_string(g.surface.triangleCount()) +
         "\nDeflessione lineare: " + std::to_string(g.linearDeflection) + "\nDeflessione angolare: " + std::to_string(g.angularDeflection) +
+        "\nGruppi CAD utente: " + std::to_string(g.cadFaceGroups.size()) +
+        (g.cadGroupsNote.empty() ? "" : "\n" + g.cadGroupsNote) +
         (g.viewNote.empty() ? "" : "\n" + g.viewNote));
 }
 
@@ -541,6 +693,43 @@ void retessellate(webui_event_t* e) {
         (dropped ? " La mesh volumetrica precedente è stata scartata: rigenerala." : ""));
 }
 
+/// Italian name of an element type for the quality note.
+const char* qualityTypeName(ElementType type) {
+    switch (type) {
+    case ElementType::Triangle3: return "triangoli";
+    case ElementType::Triangle6: return "triangoli quadratici";
+    case ElementType::Quadrilateral4: return "quadrilateri";
+    case ElementType::Quadrilateral8: case ElementType::Quadrilateral9: return "quadrilateri quadratici";
+    case ElementType::Tetrahedron4: return "tetraedri";
+    case ElementType::Tetrahedron10: return "tetraedri quadratici";
+    case ElementType::Hexahedron8: return "esaedri";
+    case ElementType::Hexahedron20: case ElementType::Hexahedron27: return "esaedri quadratici";
+    case ElementType::Prism6: return "prismi";
+    case ElementType::Prism15: return "prismi quadratici";
+    case ElementType::Pyramid5: return "piramidi";
+    default: return "elementi";
+    }
+}
+
+/// Quality of the mesh (every backend) as reply text: minimum and mean per element type, and warnings.
+std::string qualityNote(const MeshData& mesh) {
+    MeshQualityReport report;
+    try { report = computeMeshQuality(mesh); } catch (const std::exception&) { return {}; }
+    if (report.types.empty()) return {};
+    auto number = [](double v) { char text[32]; std::snprintf(text, sizeof text, "%.3f", v); return std::string(text); };
+    std::string note = "\nQualità degli elementi (1 = ideale):";
+    for (const auto& entry : report.types)
+        note += "\n  " + std::to_string(entry.count) + " " + qualityTypeName(entry.type) + ": min " + number(entry.minimum) +
+                ", media " + number(entry.mean);
+    if (report.invertedElements > 0)
+        note += "\nATTENZIONE: " + std::to_string(report.invertedElements) +
+                " elementi invertiti o degeneri: la mesh non è utilizzabile per l'analisi.";
+    if (report.poorElements > 0)
+        note += "\nATTENZIONE: " + std::to_string(report.poorElements) + " elementi con qualità < " + number(report.poorThreshold) +
+                ". Riduci la dimensione massima o attiva il controllo delle facce sottili.";
+    return note;
+}
+
 void generateVolume(webui_event_t* e) {
     StateLock lock;
     if (!lock.ok()) { replyBusy(e); return; }
@@ -550,10 +739,17 @@ void generateVolume(webui_event_t* e) {
     const int order = static_cast<int>(getDoubleArg(e, 3, 1.0));
     const bool curvature = getStringArg(e, 4) != "0";
     const bool conformal = getStringArg(e, 5) == "conformal";
+    const bool verbose = getStringArg(e, 6) == "1" && mesherId == "gmsh";
+    const bool structured = getStringArg(e, 7) == "structured" && mesherId == "gmsh";
+    const bool prismShape = getStringArg(e, 8) == "prism";
+    const double thinFactor = mesherId == "gmsh" ? getDoubleArg(e, 9, 0.0) : 0.0;
     if (!mesherAvailable(mesherId)) { reply(e, false, "Il meshatore scelto non è stato compilato in questa versione."); return; }
     if (!g.cad) { reply(e, false, "Importa prima un modello CAD."); return; }
     if (!(size > 0.0) || !std::isfinite(size) || minSize < 0.0 || (minSize > 0.0 && minSize > size) || (order != 1 && order != 2)) {
         reply(e, false, "Parametri non validi: dimensione massima > 0, minima >= 0 e <= massima, ordine 1 o 2."); return;
+    }
+    if (!std::isfinite(thinFactor) || thinFactor < 0.0) {
+        reply(e, false, "Parametri non validi: il fattore per le facce sottili deve essere >= 0 (0 = disattivato)."); return;
     }
     MeshingOptions options;
     options.dimension = MeshDimension::Volume;
@@ -565,12 +761,39 @@ void generateVolume(webui_event_t* e) {
     options.curvatureAdaptation = curvature;
     options.interfaceMode = conformal ? InterfaceMode::Conformal : InterfaceMode::Independent;
     options.importCadGroups = true;
+    options.structure = structured ? MeshStructure::Structured : MeshStructure::Unstructured;
+    options.structuredShape = prismShape ? StructuredElementShape::Prism : StructuredElementShape::Hexahedron;
+    options.thinFaceSizeFactor = thinFactor;
+    options.auditAllCadFaces = false;   // map only the requested CAD faces; others on demand after meshing
+    // The verbose Gmsh log goes next to the CAD file (or the temp folder when that is not writable).
+    std::string logPath;
+    if (verbose) {
+        std::error_code logEc;
+        auto base = fs::path(g.cad->getFilePath());
+        auto candidatePath = base.parent_path() / (base.stem().string() + "_gmsh.log");
+        std::ofstream probe(candidatePath, std::ios::app);
+        if (!probe) candidatePath = fs::temp_directory_path(logEc) / (base.stem().string() + "_gmsh.log");
+        logPath = candidatePath.string();
+        options.verboseLog = true;
+        options.logFile = logPath;
+    }
+    for (const auto& userGroup : g.cadFaceGroups) {
+        CADGroup group;
+        group.name = userGroup.name;
+        group.kind = CADGroupKind::NamedShape;
+        group.dimension = 2;
+        group.ids = userGroup.faceIds;
+        options.additionalFaceGroups.push_back(std::move(group));
+    }
+    // CAD face groups are transferred through the backend-independent
+    // MeshGroupRegistry. Each adapter must provide a complete mapping.
     options.linearDeflection = g.linearDeflection;
     options.angularDeflection = g.angularDeflection;
 
     MeshData candidate;
     std::string label, failure;
     std::vector<std::string> notes;
+    std::string logNote;
     bool built = false;
     if (mesherId == "gmsh") {
 #ifdef OPENMODEL_HAS_GMSH
@@ -583,6 +806,11 @@ void generateVolume(webui_event_t* e) {
         if (!built) failure = mesher.lastError();
         notes = mesher.diagnostics();
         label = "Gmsh";
+        if (verbose) {
+            const auto& lines = mesher.log();
+            logNote = "\nLog Gmsh verboso: " + logPath + " (" + std::to_string(lines.size()) + " righe). Ultime righe:";
+            for (std::size_t i = lines.size() > 15 ? lines.size() - 15 : 0; i < lines.size(); ++i) logNote += "\n  " + lines[i];
+        }
 #endif
     } else if (mesherId == "tetgen") {
 #ifdef OPENMODEL_HAS_TETGEN
@@ -596,13 +824,40 @@ void generateVolume(webui_event_t* e) {
 #ifdef OPENMODEL_HAS_NETGEN
         NetgenMesher mesher;
         built = mesher.buildMesh(g.cad, options, candidate);
-        if (!built) failure = "Netgen non ha prodotto una mesh. Dettagli nel terminale.";
+        if (!built) failure = mesher.lastError();
         label = "Netgen";
 #endif
     }
     if (!built) {
         for (const auto& note : notes) failure += "\n" + note;
-        reply(e, false, "Generazione volumetrica fallita: " + failure); return;
+        reply(e, false, "Generazione volumetrica fallita: " + failure + logNote); return;
+    }
+
+    // Convert the backend-independent CAD face membership into solver node
+    // sets. Physical groups remain an optional backend/export representation.
+    for (const auto& userGroup : g.cadFaceGroups) {
+        const auto* mapped = candidate.getMeshGroupRegistry().find(userGroup.name);
+        if (!mapped || mapped->dimension != 2 || mapped->elementIds.empty()) {
+            std::string details;
+            for (const auto& note : notes)
+                if (note.find(userGroup.name) != std::string::npos) details += "\n" + note;
+            reply(e, false, "Mapping CAD→FEM incompleto per il gruppo «" + userGroup.name +
+                "». La mesh non è stata accettata per evitare vincoli parziali." + details);
+            return;
+        }
+        auto nodeIndices = mapped->nodeIndices;
+        std::sort(nodeIndices.begin(), nodeIndices.end());
+        nodeIndices.erase(std::unique(nodeIndices.begin(), nodeIndices.end()), nodeIndices.end());
+        if (nodeIndices.empty()) {
+            reply(e, false, "Il gruppo CAD «" + userGroup.name + "» non contiene nodi FEM di bordo: mesh rifiutata.");
+            return;
+        }
+        const std::string nodeSetName = userGroup.name + "_NODES";
+        if (candidate.getNodeSets().count(nodeSetName)) {
+            reply(e, false, "Il Node Set «" + nodeSetName + "» esiste già: rinomina il gruppo CAD.");
+            return;
+        }
+        candidate.addNodeSet(nodeSetName, nodeIndices);
     }
 
     const auto report = MeshValidator::validate(candidate);
@@ -621,9 +876,19 @@ void generateVolume(webui_event_t* e) {
     updateView();
     std::string noteText;
     for (const auto& note : notes) noteText += "\n" + note;
-    reply(e, true, "Mesh volumetrica generata e validata con " + label + ".\n" + meshSummary() + "\nOrdine: " + std::to_string(order) +
+    std::string cadNodeSetSummary;
+    for (const auto& userGroup : g.cadFaceGroups) {
+        const auto set = g.mesh.getNodeSets().find(userGroup.name + "_NODES");
+        if (set != g.mesh.getNodeSets().end())
+            cadNodeSetSummary += "\nNode Set " + userGroup.name + "_NODES: " +
+                std::to_string(set->second.size()) + " nodi";
+    }
+    reply(e, true, "Mesh volumetrica generata e validata con " + label + ".\n" + meshSummary() + qualityNote(g.mesh) +
+        cadNodeSetSummary + "\nOrdine: " + std::to_string(order) +
         "\nDimensione massima richiesta: " + std::to_string(size) +
-        "\nInterfacce tra solidi: " + (conformal ? "conformi (nodi condivisi)" : "indipendenti") + noteText +
+        "\nInterfacce tra solidi: " + (conformal ? "conformi (nodi condivisi)" : "indipendenti") +
+        (structured ? std::string("\nStruttura richiesta: sweep strutturato (") + (prismShape ? "prismi" : "esaedri") + ")" : std::string()) +
+        (thinFactor > 0.0 ? "\nFattore facce sottili: " + std::to_string(thinFactor) : std::string()) + noteText + logNote +
         (g.viewNote.empty() ? "" : "\n" + g.viewNote));
 }
 
@@ -656,6 +921,8 @@ void loadMesh(webui_event_t* e) {
     }
     g.cad.reset();
     g.surface = SurfaceMesh{};
+    g.cadFaceGroups.clear();
+    g.cadGroupsNote.clear();
     clearResults();
     g.mesh = std::move(loaded);
     g.origin = MeshOrigin::Loaded;
@@ -824,6 +1091,84 @@ void defaultAnalysis(webui_event_t* e) {
     reply(e, true, OpenModel::exampleAnalysisScript());
 }
 
+
+/** Parse and retain the structured analysis model. */
+void analysisLoad(webui_event_t* e) {
+    StateLock lock;
+    if (!lock.ok()) { replyBusy(e); return; }
+    const auto parsed = OpenModel::parseAnalysisScript(getStringArg(e, 0));
+    if (!parsed.success) { reply(e, false, "Script di analisi non valido:" + analysisDiagnosticsText(parsed.diagnostics)); return; }
+    g.analysis = parsed.model;
+    g.hasAnalysis = true;
+    reply(e, true, OpenModel::serializeAnalysisScript(g.analysis));
+}
+
+/** Return the authoritative structured model as a round-trippable script. */
+void analysisGet(webui_event_t* e) {
+    StateLock lock;
+    if (!lock.ok()) { replyBusy(e); return; }
+    if (!g.hasAnalysis) { reply(e, false, "Nessun modello di analisi caricato."); return; }
+    reply(e, true, OpenModel::serializeAnalysisScript(g.analysis));
+}
+
+/** Update exactly one existing condition from a validated candidate script, preserving its stable ID. */
+void analysisUpdate(webui_event_t* e) {
+    StateLock lock;
+    if (!lock.ok()) { replyBusy(e); return; }
+    if (!g.hasAnalysis) { reply(e, false, "Nessun modello di analisi caricato."); return; }
+
+    const std::string id = getStringArg(e, 0);
+    const auto parsed = OpenModel::parseAnalysisScript(getStringArg(e, 1));
+    if (!parsed.success) {
+        reply(e, false, "Modifica rifiutata: script non valido:" + analysisDiagnosticsText(parsed.diagnostics));
+        return;
+    }
+
+    std::string error;
+    bool updated = false;
+    if (!id.empty() && id == g.analysis.material.id) {
+        if (parsed.model.material.id != id) {
+            reply(e, false, "La modifica deve mantenere l'ID del materiale: " + id);
+            return;
+        }
+        updated = OpenModel::updateMaterial(g.analysis, id, parsed.model.material, error);
+    } else if (OpenModel::findSupport(g.analysis, id)) {
+        const auto* replacement = OpenModel::findSupport(parsed.model, id);
+        if (!replacement) { reply(e, false, "Il candidato non contiene il vincolo con ID " + id); return; }
+        updated = OpenModel::updateSupport(g.analysis, id, *replacement, error);
+    } else if (OpenModel::findForce(g.analysis, id)) {
+        const auto* replacement = OpenModel::findForce(parsed.model, id);
+        if (!replacement) { reply(e, false, "Il candidato non contiene la forza con ID " + id); return; }
+        updated = OpenModel::updateForce(g.analysis, id, *replacement, error);
+    } else if (OpenModel::findPressure(g.analysis, id)) {
+        const auto* replacement = OpenModel::findPressure(parsed.model, id);
+        if (!replacement) { reply(e, false, "Il candidato non contiene la pressione con ID " + id); return; }
+        updated = OpenModel::updatePressure(g.analysis, id, *replacement, error);
+    } else {
+        reply(e, false, "Condizione non trovata: " + id);
+        return;
+    }
+
+    if (!updated) {
+        reply(e, false, "Aggiornamento rifiutato: " + error);
+        return;
+    }
+    reply(e, true, OpenModel::serializeAnalysisScript(g.analysis));
+}
+
+/** Delete a support, force or pressure by stable ID. The required material cannot be deleted. */
+void analysisDelete(webui_event_t* e) {
+    StateLock lock;
+    if (!lock.ok()) { replyBusy(e); return; }
+    if (!g.hasAnalysis) { reply(e, false, "Nessun modello di analisi caricato."); return; }
+    const std::string id = getStringArg(e, 0);
+    bool removed = OpenModel::eraseSupport(g.analysis, id) ||
+                   OpenModel::eraseForce(g.analysis, id) ||
+                   OpenModel::erasePressure(g.analysis, id);
+    if (!removed) { reply(e, false, "Condizione non trovata o non eliminabile: " + id); return; }
+    reply(e, true, OpenModel::serializeAnalysisScript(g.analysis));
+}
+
 /** Arguments: script, job path (folder or .inp; empty = ./openmodel_job/job.inp), solver kind ("aster" for code_aster, anything else CalculiX). */
 void writeInput(webui_event_t* e) {
     StateLock lock;
@@ -953,7 +1298,7 @@ void solverStatus(webui_event_t* e) {
     }
     out << "{\"ok\":" << (ok ? "true" : "false") << ",\"state\":\"" << state << "\",\"elapsed\":" << status.elapsedSeconds << ",\"lines\":[";
     for (std::size_t i = 0; i < status.newLines.size(); ++i) out << (i ? "," : "") << "\"" << jsonEscape(status.newLines[i]) << "\"";
-    out << "],\"message\":\"" << jsonEscape(message) << "\",\"view\":" << g.viewVersion << ",\"viewLabel\":\"" << jsonEscape(g.viewLabel) << "\"}";
+    out << "],\"message\":\"" << jsonEscape(message) << "\"," << viewFields() << "}";
     webui_return_string(e, out.str().c_str());
 }
 
@@ -1040,8 +1385,8 @@ std::string groupsJson() {
 void replyGroups(webui_event_t* e, bool ok, const std::string& message, const std::string& selMode = {}, const std::string& selPayload = {},
                  const std::string& created = {}) {
     std::ostringstream out;
-    out << "{\"ok\":" << (ok ? "true" : "false") << ",\"message\":\"" << jsonEscape(message) << "\",\"view\":" << g.viewVersion
-        << ",\"viewLabel\":\"" << jsonEscape(g.viewLabel) << "\",\"groups\":" << groupsJson();
+    out << "{\"ok\":" << (ok ? "true" : "false") << ",\"message\":\"" << jsonEscape(message) << "\","
+        << viewFields() << ",\"groups\":" << groupsJson();
     if (!created.empty()) out << ",\"created\":\"" << jsonEscape(created) << "\"";
     if (!selMode.empty()) out << ",\"selMode\":\"" << selMode << "\",\"selection\":\"" << jsonEscape(selPayload) << "\"";
     out << "}";
@@ -1093,6 +1438,273 @@ void showGroupHandler(webui_event_t* e) {
     replyGroups(e, true, skipped ? std::to_string(skipped) + " elementi di superficie non corrispondono a una faccia e non sono mostrati." : "", selection.mode, selectionPayload(selection));
 }
 
+std::string cadFaceGroupsJson() {
+    std::ostringstream out;
+    out << '[';
+    for (std::size_t i = 0; i < g.cadFaceGroups.size(); ++i) {
+        if (i) out << ',';
+        const auto& group = g.cadFaceGroups[i];
+        const std::string nodeSetName = group.name + "_NODES";
+        const auto nodeSet = g.mesh.getNodeSets().find(nodeSetName);
+        const std::size_t nodeCount = nodeSet == g.mesh.getNodeSets().end() ? 0 : nodeSet->second.size();
+        out << "{\"name\":\"" << jsonEscape(group.name) << "\",\"faceCount\":" << group.faceIds.size()
+            << ",\"nodeSetName\":\"" << jsonEscape(nodeSetName) << "\",\"nodeCount\":" << nodeCount << ",\"faceIds\":[";
+        for (std::size_t j = 0; j < group.faceIds.size(); ++j) {
+            if (j) out << ',';
+            out << group.faceIds[j];
+        }
+        out << "]}";
+    }
+    out << ']';
+    return out.str();
+}
+
+std::string nativeCADGroupsJson() {
+    std::ostringstream out;
+    out << '[';
+    if (g.cad) {
+        const auto& groups = g.cad->getGroups();
+        for (std::size_t i = 0; i < groups.size(); ++i) {
+            if (i) out << ',';
+            const auto& group = groups[i];
+            const char* kind = group.kind == CADGroupKind::Layer ? "layer" : "named-shape";
+            out << "{\"name\":\"" << jsonEscape(group.name) << "\",\"kind\":\"" << kind
+                << "\",\"dimension\":" << group.dimension << ",\"entityCount\":" << group.ids.size() << '}';
+        }
+    }
+    out << ']';
+    return out.str();
+}
+
+std::string genericMeshGroupsJson() {
+    std::ostringstream out;
+    out << '[';
+    const auto& groups = g.mesh.getMeshGroupRegistry().groups();
+    for (std::size_t i = 0; i < groups.size(); ++i) {
+        if (i) out << ',';
+        const auto& group = groups[i];
+        const char* source = group.source == MeshGroupSource::CAD ? "CAD" :
+            group.source == MeshGroupSource::Imported ? "Imported" : "UserDefined";
+        out << "{\"name\":\"" << jsonEscape(group.name) << "\",\"dimension\":" << group.dimension
+            << ",\"source\":\"" << source << "\",\"elementCount\":" << group.elementIds.size()
+            << ",\"nodeCount\":" << group.nodeIndices.size() << '}';
+    }
+    out << ']';
+    return out.str();
+}
+
+void replyCADFaceGroups(webui_event_t* e, bool ok, const std::string& message) {
+    std::ostringstream out;
+    out << "{\"ok\":" << (ok ? "true" : "false") << ",\"message\":\"" << jsonEscape(message)
+        << "\",\"cadGroups\":" << cadFaceGroupsJson()
+        << ",\"nativeCADGroups\":" << nativeCADGroupsJson()
+        << ",\"meshGroups\":" << genericMeshGroupsJson() << '}';
+    webui_return_string(e, out.str().c_str());
+}
+
+/** A changed CAD group invalidates a generated mesh and its derived Node Sets. */
+void invalidateGeneratedMeshForCADGroups() {
+    if (g.origin != MeshOrigin::Generated) return;
+    clearResults();
+    g.mesh = MeshData{};
+    g.origin = MeshOrigin::None;
+    g.meshLabel.clear();
+    updateView();
+}
+
+void listCADFaceGroupsHandler(webui_event_t* e) {
+    StateLock lock;
+    if (!lock.ok()) { replyBusy(e); return; }
+    replyCADFaceGroups(e, true, g.cadGroupsNote);
+}
+
+/**
+ * Add a CAD face group to the mesh already generated, without meshing again: the nodes of the boundary faces
+ * lying on the group's CAD faces become the Node Set `<name>_NODES` and a CAD mesh group.
+ * @return Empty on success, otherwise why the group could not be applied (the mesh is left untouched).
+ */
+std::string applyCADFaceGroupToMesh(const UserCADFaceGroup& group) {
+    if (g.origin != MeshOrigin::Generated || g.mesh.isEmpty() || !g.cad) return "nessuna mesh generata";
+    const std::string nodeSetName = group.name + "_NODES";
+    if (g.mesh.getNodeSets().count(nodeSetName)) return "il Node Set «" + nodeSetName + "» esiste già";
+    std::array<double, 3> low{1e300, 1e300, 1e300}, high{-1e300, -1e300, -1e300};
+    for (NodeIndex n = 0; n < g.mesh.getNumNodes(); ++n) {
+        const auto p = g.mesh.nodeCoordinates(n);
+        for (int k = 0; k < 3; ++k) { low[k] = std::min(low[k], p[k]); high[k] = std::max(high[k], p[k]); }
+    }
+    const double diagonal = std::sqrt((high[0] - low[0]) * (high[0] - low[0]) + (high[1] - low[1]) * (high[1] - low[1]) +
+                                      (high[2] - low[2]) * (high[2] - low[2]));
+    CADFaceMapping mapping;
+    try { mapping = mapCADFacesToMesh(*g.cad, g.mesh, group.faceIds, std::max(1e-6 * diagonal, 1e-9)); }
+    catch (const std::exception& error) { return error.what(); }
+    if (!mapping.faceIdsWithoutMatch.empty()) {
+        std::string ids;
+        for (const int id : mapping.faceIdsWithoutMatch) ids += (ids.empty() ? "" : ", ") + std::to_string(id);
+        return "nessuna faccia della mesh giace sulle facce CAD " + ids;
+    }
+    g.mesh.addNodeSet(nodeSetName, mapping.nodes);
+    g.mesh.addMeshGroup(MeshGroup{group.name, 2, MeshGroupSource::CAD, group.faceIds, {}, mapping.nodes});
+    clearResults();
+    return {};
+}
+
+void createCADFaceGroupHandler(webui_event_t* e) {
+    StateLock lock;
+    if (!lock.ok()) { replyBusy(e); return; }
+    if (!g.cad || g.surface.empty() || g.source.empty()) {
+        replyCADFaceGroups(e, false, "Importa prima un modello CAD e triangolalo.");
+        return;
+    }
+    const std::string name = getStringArg(e, 0);
+    if (!OpenModel::isValidGroupName(name)) {
+        replyCADFaceGroups(e, false, "Nome non valido: usa lettere, cifre, underscore, trattino o punto.");
+        return;
+    }
+    const std::string normalizedNodeSetName = AbaqusInpWriter::sanitizeName(name + "_NODES");
+    const bool sanitizedNameCollision = std::any_of(g.cadFaceGroups.begin(), g.cadFaceGroups.end(),
+        [&](const auto& group) { return AbaqusInpWriter::sanitizeName(group.name + "_NODES") == normalizedNodeSetName; });
+    if (std::any_of(g.cadFaceGroups.begin(), g.cadFaceGroups.end(), [&](const auto& group) { return group.name == name; }) ||
+        sanitizedNameCollision ||
+        std::any_of(g.cad->getGroups().begin(), g.cad->getGroups().end(), [&](const auto& group) { return group.name == name; }) ||
+        std::any_of(g.cad->getComponents().begin(), g.cad->getComponents().end(),
+            [&](const auto& component) { return !component.isAssembly && component.path == name; })) {
+        replyCADFaceGroups(e, false, "Il nome del gruppo CAD è già usato oppure collide con un altro Node Set dopo la conversione del nome per i solutori.");
+        return;
+    }
+    std::set<int> available;
+    for (const auto& part : g.surface.parts) if (part.sourceFaceId >= 0) available.insert(part.sourceFaceId);
+    std::set<int> selected;
+    std::stringstream input(getStringArg(e, 1));
+    std::string token;
+    while (std::getline(input, token, ',')) {
+        if (token.empty()) continue;
+        try {
+            std::size_t used = 0;
+            const long value = std::stol(token, &used);
+            if (used != token.size() || value < 0 || value > std::numeric_limits<int>::max() ||
+                available.count(static_cast<int>(value)) == 0) {
+                replyCADFaceGroups(e, false, "La selezione contiene un ID faccia non valido per il CAD corrente.");
+                return;
+            }
+            selected.insert(static_cast<int>(value));
+        } catch (...) {
+            replyCADFaceGroups(e, false, "La selezione degli ID faccia non è valida.");
+            return;
+        }
+    }
+    if (selected.empty()) {
+        replyCADFaceGroups(e, false, "Seleziona almeno una faccia CAD nel viewer.");
+        return;
+    }
+    UserCADFaceGroup group;
+    group.name = name;
+    group.faceIds.assign(selected.begin(), selected.end());
+    auto candidate = g.cadFaceGroups;
+    candidate.push_back(group);
+    std::string error;
+    if (!saveCADFaceGroups(g.source, candidate, error)) {
+        replyCADFaceGroups(e, false, "Gruppo non salvato: " + error);
+        return;
+    }
+    g.cadFaceGroups = std::move(candidate);
+    g.cadGroupsNote.clear();
+    std::string meshNote;
+    if (g.origin == MeshOrigin::Generated) {
+        // A new group is mapped on the existing mesh (only the picked faces are searched); if that is not
+        // possible the mesh is dropped, as for any other change of the CAD groups.
+        const std::string why = applyCADFaceGroupToMesh(group);
+        if (why.empty()) {
+            const auto* set = g.mesh.getNodeSets().find(name + "_NODES") != g.mesh.getNodeSets().end()
+                ? &g.mesh.getNodeSets().at(name + "_NODES") : nullptr;
+            meshNote = "\nApplicato alla mesh esistente senza rigenerarla: Node Set " + name + "_NODES con " +
+                       std::to_string(set ? set->size() : 0) + " nodi.";
+        } else {
+            invalidateGeneratedMeshForCADGroups();
+            meshNote = "\nImpossibile applicarlo alla mesh esistente (" + why + "): la mesh è stata scartata, rigenerala.";
+        }
+    }
+    replyCADFaceGroups(e, true, "Gruppo CAD «" + name + "» creato e salvato (" +
+        std::to_string(group.faceIds.size()) + " facce). Sidecar: " + cadGroupsPath(g.source).string() + meshNote);
+}
+
+void updateCADFaceGroupHandler(webui_event_t* e) {
+    StateLock lock;
+    if (!lock.ok()) { replyBusy(e); return; }
+    if (!g.cad || g.source.empty()) {
+        replyCADFaceGroups(e, false, "Importa prima il modello CAD.");
+        return;
+    }
+    const std::string name = getStringArg(e, 0);
+    auto candidate = g.cadFaceGroups;
+    auto found = std::find_if(candidate.begin(), candidate.end(),
+        [&](const auto& group) { return group.name == name; });
+    if (found == candidate.end()) {
+        replyCADFaceGroups(e, false, "Gruppo CAD non trovato: " + name);
+        return;
+    }
+    std::set<int> available;
+    for (const auto& part : g.surface.parts) if (part.sourceFaceId >= 0) available.insert(part.sourceFaceId);
+    std::set<int> selected;
+    std::stringstream input(getStringArg(e, 1));
+    std::string token;
+    while (std::getline(input, token, ',')) {
+        if (token.empty()) continue;
+        try {
+            std::size_t used = 0;
+            const long value = std::stol(token, &used);
+            if (used != token.size() || value < 0 || value > std::numeric_limits<int>::max() ||
+                available.count(static_cast<int>(value)) == 0) {
+                replyCADFaceGroups(e, false, "La selezione contiene un ID faccia non valido per il CAD corrente.");
+                return;
+            }
+            selected.insert(static_cast<int>(value));
+        } catch (...) {
+            replyCADFaceGroups(e, false, "La selezione degli ID faccia non è valida.");
+            return;
+        }
+    }
+    if (selected.empty()) {
+        replyCADFaceGroups(e, false, "Seleziona almeno una faccia CAD prima di aggiornare il gruppo.");
+        return;
+    }
+    found->faceIds.assign(selected.begin(), selected.end());
+    std::string error;
+    if (!saveCADFaceGroups(g.source, candidate, error)) {
+        replyCADFaceGroups(e, false, "Aggiornamento non salvato: " + error);
+        return;
+    }
+    g.cadFaceGroups = std::move(candidate);
+    invalidateGeneratedMeshForCADGroups();
+    replyCADFaceGroups(e, true, "Gruppo CAD «" + name + "» aggiornato: " +
+        std::to_string(selected.size()) + " facce.");
+}
+
+void deleteCADFaceGroupHandler(webui_event_t* e) {
+    StateLock lock;
+    if (!lock.ok()) { replyBusy(e); return; }
+    if (!g.cad || g.source.empty()) {
+        replyCADFaceGroups(e, false, "Importa prima il modello CAD.");
+        return;
+    }
+    const std::string name = getStringArg(e, 0);
+    auto candidate = g.cadFaceGroups;
+    const auto oldSize = candidate.size();
+    candidate.erase(std::remove_if(candidate.begin(), candidate.end(),
+        [&](const auto& group) { return group.name == name; }), candidate.end());
+    if (candidate.size() == oldSize) {
+        replyCADFaceGroups(e, false, "Gruppo CAD non trovato: " + name);
+        return;
+    }
+    std::string error;
+    if (!saveCADFaceGroups(g.source, candidate, error)) {
+        replyCADFaceGroups(e, false, "Eliminazione non salvata: " + error);
+        return;
+    }
+    g.cadFaceGroups = std::move(candidate);
+    invalidateGeneratedMeshForCADGroups();
+    replyCADFaceGroups(e, true, "Gruppo CAD «" + name + "» eliminato.");
+}
+
 void clearResultsHandler(webui_event_t* e) {
     StateLock lock;
     if (!lock.ok()) { replyBusy(e); return; }
@@ -1110,6 +1722,8 @@ void getStatus(webui_event_t* e) {
     if (g.surface.empty()) out << "\nSuperficie CAD: non disponibile";
     else out << "\nSuperficie CAD: " << g.surface.parts.size() << " parti, " << g.surface.vertexCount() << " vertici, "
              << g.surface.triangleCount() << " triangoli (deflessioni " << g.linearDeflection << " / " << g.angularDeflection << ")";
+    out << "\nGruppi di facce CAD: " << g.cadFaceGroups.size();
+    if (!g.cadGroupsNote.empty()) out << "\n" << g.cadGroupsNote;
     if (g.mesh.getNumNodes() == 0) {
         out << "\nMesh volumetrica: non disponibile";
     } else {
@@ -1247,9 +1861,17 @@ int main() {
     webui_bind(window, "openmodel_load_results", loadResults);
     webui_bind(window, "openmodel_clear_results", clearResultsHandler);
     webui_bind(window, "openmodel_default_analysis", defaultAnalysis);
+    webui_bind(window, "openmodel_analysis_load", analysisLoad);
+    webui_bind(window, "openmodel_analysis_get", analysisGet);
+    webui_bind(window, "openmodel_analysis_update", analysisUpdate);
+    webui_bind(window, "openmodel_analysis_delete", analysisDelete);
     webui_bind(window, "openmodel_create_group", createGroupHandler);
     webui_bind(window, "openmodel_list_groups", listGroupsHandler);
     webui_bind(window, "openmodel_show_group", showGroupHandler);
+    webui_bind(window, "openmodel_list_cad_face_groups", listCADFaceGroupsHandler);
+    webui_bind(window, "openmodel_create_cad_face_group", createCADFaceGroupHandler);
+    webui_bind(window, "openmodel_update_cad_face_group", updateCADFaceGroupHandler);
+    webui_bind(window, "openmodel_delete_cad_face_group", deleteCADFaceGroupHandler);
     webui_bind(window, "openmodel_write_input", writeInput);
     webui_bind(window, "openmodel_run_solver", runSolver);
     webui_bind(window, "openmodel_solver_status", solverStatus);

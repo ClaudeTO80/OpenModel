@@ -21,6 +21,8 @@
 #include <XCAFDoc_DocumentTool.hxx>
 #include <XCAFDoc_LayerTool.hxx>
 #include <XCAFDoc_ShapeTool.hxx>
+#include <TopAbs_ShapeEnum.hxx>
+#include <TopExp_Explorer.hxx>
 #include <gp_Trsf.hxx>
 
 #include <fstream>
@@ -47,6 +49,18 @@ inline bool writeAssemblyFixture(const std::string& path) {
         // STEP text below, the way exporters that name ADVANCED_FACE entities do.
         const TDF_Label topFace = shapes->AddSubShape(base, baseMaker.TopFace());
         layers->SetLayer(topFace, TCollection_ExtendedString("Interface"));
+
+        // Lower-dimensional named entities exercise edge and vertex group import.
+        TopExp_Explorer edgeExplorer(baseMaker.Shape(), TopAbs_EDGE);
+        FIXTURE_CHECK(edgeExplorer.More());
+        const TDF_Label namedEdge = shapes->AddSubShape(base, edgeExplorer.Current());
+        TDataStd_Name::Set(namedEdge, "BaseEdge");
+        layers->SetLayer(namedEdge, TCollection_ExtendedString("EdgeLayer"));
+        TopExp_Explorer vertexExplorer(edgeExplorer.Current(), TopAbs_VERTEX);
+        FIXTURE_CHECK(vertexExplorer.More());
+        const TDF_Label namedVertex = shapes->AddSubShape(base, vertexExplorer.Current());
+        TDataStd_Name::Set(namedVertex, "BaseVertex");
+        layers->SetLayer(namedVertex, TCollection_ExtendedString("VertexLayer"));
 
         const TDF_Label cover = shapes->AddShape(BRepPrimAPI_MakeBox(gp_Pnt(0, 0, 10), 10, 10, 5).Shape(), Standard_False);
         TDataStd_Name::Set(cover, "Cover");
@@ -85,6 +99,25 @@ inline bool writeAssemblyFixture(const std::string& path) {
         const std::regex faceRegex("(#" + layerMatch[1].str() + " = ADVANCED_FACE\\()'[^']*'");
         FIXTURE_CHECK(std::regex_search(text, faceRegex));
         text = std::regex_replace(text, faceRegex, "$1'TopFace'");
+
+        // STEPCAFControl does not consistently emit XDE names for edges.
+        // Name the EDGE_CURVE referenced by the EdgeLayer assignment so the
+        // OCCModel STEP-entity fallback can be tested deterministically.
+        std::smatch edgeLayerMatch;
+        FIXTURE_CHECK(std::regex_search(text, edgeLayerMatch,
+            std::regex("PRESENTATION_LAYER_ASSIGNMENT\\('EdgeLayer','visible',\\(#(\\d+)\\)\\)")));
+        const std::regex edgeRegex("(#" + edgeLayerMatch[1].str() + " = EDGE_CURVE\\()'[^']*'");
+        FIXTURE_CHECK(std::regex_search(text, edgeRegex));
+        text = std::regex_replace(text, edgeRegex, "$1'BaseEdge'");
+
+        // Likewise name the VERTEX_POINT referenced by VertexLayer.
+        std::smatch vertexLayerMatch;
+        FIXTURE_CHECK(std::regex_search(text, vertexLayerMatch,
+            std::regex("PRESENTATION_LAYER_ASSIGNMENT\\('VertexLayer','visible',\\(#(\\d+)\\)\\)")));
+        const std::regex vertexRegex("(#" + vertexLayerMatch[1].str() + " = VERTEX_POINT\\()'[^']*'");
+        FIXTURE_CHECK(std::regex_search(text, vertexRegex));
+        text = std::regex_replace(text, vertexRegex, "$1'BaseVertex'");
+
         std::ofstream out(path, std::ios::trunc);
         out << text;
     }

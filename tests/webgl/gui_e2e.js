@@ -9,6 +9,11 @@ const path = require('path');
 
 const [, , stepFile, workDir, shotDir] = process.argv;
 if (!stepFile || !workDir) { console.error('usage: gui_e2e.js <model.step> <work-dir> [shots]'); process.exit(2); }
+fs.mkdirSync(workDir, { recursive: true });
+const cadFixture = path.join(workDir, 'cad-face-groups-fixture.step');
+const cadSidecar = cadFixture + '.omgroups';
+fs.copyFileSync(stepFile, cadFixture);
+try { fs.rmSync(cadSidecar, { force: true }); } catch (_) {}
 let failures = 0;
 const check = (ok, text) => { console.log((ok ? 'PASS ' : 'FAIL ') + text); if (!ok) failures++; };
 
@@ -35,11 +40,53 @@ const check = (ok, text) => { console.log((ok ? 'PASS ' : 'FAIL ') + text); if (
   check(options.includes('gmsh') && options.includes('tetgen'), 'mesher selector lists Gmsh and TetGen (' + options.join(', ') + ')');
 
   // 1. Import and triangulate.
-  await page.fill('#cadPath', stepFile);
+  await page.fill('#cadPath', cadFixture);
   await click('Importa e triangola');
   check(/importato/.test(await message()), 'CAD import reports success');
   const surf = await viewerInfo();
   check(surf && surf.tris > 0 && /Triangle3/.test(surf.types), 'viewer shows the CAD surface (' + (surf && surf.tris) + ' triangles)');
+
+  // CAD surface picking must return the original OCC face id, not a generated triangle id.
+  await page.selectOption('#selMode', 'face');
+  await page.fill('#selAngle', '0'); await page.dispatchEvent('#selAngle', 'change');
+  const cadHit = await page.evaluate(() => {
+    const V = document.getElementById('viewer').contentWindow.OpenModelViewer;
+    const m = V.state.model;
+    for (let t = 0; t < m.meta.counts.triangles; ++t) {
+      const xy = [0, 1, 2].map((k) => V.pick.project(m.vertexNodeId[m.triIndices[3 * t + k]]));
+      if (xy.some((p) => !p)) continue;
+      const x = xy.reduce((a, p) => a + p[0], 0) / 3, y = xy.reduce((a, p) => a + p[1], 0) / 3;
+      if (V.pick.at(x, y).tri >= 0) return [x, y];
+    }
+    return null;
+  });
+  if (cadHit) {
+    await page.mouse.click(cadHit[0], cadHit[1]);
+    await page.waitForTimeout(300);
+  }
+  const cadSelection = await page.evaluate(() => document.getElementById('viewer').contentWindow.OpenModelViewer.pick.get());
+  check(cadHit && cadSelection.faces.length > 0 &&
+        cadSelection.faces.every((face) => Number.isInteger(face.cadFaceId) && face.cadFaceId >= 0),
+        'CAD face picking returns sourceFaceId values (' + JSON.stringify(cadSelection.faces.slice(0, 3)) + ')');
+  check(/Facce CAD selezionate:/.test(await page.textContent('#cadFaceInfo')),
+        'the workbench displays the selected CAD face identifiers');
+
+  // Create a named CAD group, then reimport the same STEP to verify sidecar persistence.
+  await page.fill('#cadGrpName', 'BladeRoot');
+  await page.click('#btnCadGrpCreate');
+  await waitIdle();
+  check(/Gruppo CAD/.test(await message()) && fs.existsSync(cadSidecar),
+        'CAD face group is created and persisted beside the STEP file');
+  await page.selectOption('#selMode', 'off');
+  await page.fill('#cadPath', cadFixture);
+  await click('Importa e triangola');
+  await page.waitForFunction(() => document.querySelector('#cadGrpList').textContent.includes('BladeRoot'), null, { timeout: 10000 });
+  check(/Gruppi CAD utente: 1/.test(await message()) || (await page.textContent('#cadGrpList')).includes('BladeRoot'),
+        'CAD face group is restored after reimporting the source STEP');
+  await page.locator('#cadGrpList button[data-cad-show]').first().click();
+  const shownCADFaces = await page.evaluate(() => document.getElementById('viewer').contentWindow.OpenModelViewer.pick.get().faces);
+  check(shownCADFaces.length > 0 && shownCADFaces.every((face) => Number.isInteger(face.cadFaceId)),
+        'showing a CAD group highlights its source B-Rep faces');
   await shot('1_import.png');
 
   // 2. Gmsh volume mesh must change the viewer content to tetrahedra.
@@ -49,6 +96,11 @@ const check = (ok, text) => { console.log((ok ? 'PASS ' : 'FAIL ') + text); if (
   check(/Gmsh/.test(await message()) && /validata/.test(await message()), 'Gmsh generates and validates a volume mesh');
   const gm = await viewerInfo();
   check(gm && /Tetrahedron4/.test(gm.types) && gm.elements > 1000, 'viewer shows the Gmsh tetrahedra (' + (gm && gm.elements) + ' elements)');
+  check(/Node Set BladeRoot_NODES: [1-9][0-9]* nodi/.test(await message()),
+        'Gmsh maps the CAD face group to a non-empty FEM node set');
+  await page.click('#cadGrpList button[data-cad-fix]');
+  check((await page.inputValue('#anScript')).includes('fix group:BladeRoot_NODES dof=1,2,3'),
+        'the CAD group Vincola action inserts a fully fixed support into the analysis script');
   await shot('2_gmsh.png');
 
   // 3. Save / export in every format.
@@ -58,6 +110,14 @@ const check = (ok, text) => { console.log((ok ? 'PASS ' : 'FAIL ') + text); if (
     await click(label);
     check(fs.existsSync(base + ext) && fs.statSync(base + ext).size > 100, label + ' writes ' + path.basename(base + ext));
   }
+  check(/\*NSET, NSET=BLADEROOT_NODES/.test(fs.readFileSync(base + '.inp', 'utf8')),
+        'CalculiX export preserves the CAD-derived FEM node set');
+  const cadGroupDelete = page.locator('#cadGrpList button[data-cad-delete]').first();
+  page.once('dialog', (dialog) => dialog.accept());
+  await cadGroupDelete.click();
+  await waitIdle();
+  check(!(await page.textContent('#cadGrpList')).includes('BladeRoot'),
+        'CAD face group can be deleted and the sidecar is updated');
 
   // 4. TetGen from the same CAD model.
   await page.selectOption('#mesher', 'tetgen');
@@ -94,6 +154,7 @@ const check = (ok, text) => { console.log((ok ? 'PASS ' : 'FAIL ') + text); if (
 
   check(problems.length === 0, 'no page errors' + (problems.length ? ': ' + problems[0] : ''));
   await browser.close().catch(() => {});
+  try { fs.rmSync(cadSidecar, { force: true }); } catch (_) {}
   console.log(failures ? failures + ' check(s) failed' : 'all checks passed');
   process.exit(failures ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });

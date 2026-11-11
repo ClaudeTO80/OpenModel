@@ -71,6 +71,30 @@ struct ElementBlock {
     bool empty() const noexcept ;
 };
 
+// Backend-independent membership for a named mesh group. A group may contain
+// both elements and nodes; memberships are many-to-many (shared nodes are valid).
+// sourceEntityIds retain the originating CAD entity identifiers when available.
+enum class MeshGroupSource { UserDefined, CAD, Imported };
+
+struct MeshGroup {
+    std::string name;
+    int dimension = -1; // Topological dimension represented by the group: 0..3.
+    MeshGroupSource source = MeshGroupSource::UserDefined;
+    std::vector<int> sourceEntityIds;
+    std::vector<ElementId> elementIds;
+    std::vector<NodeIndex> nodeIndices;
+};
+
+class MeshGroupRegistry {
+public:
+    void clear() noexcept;
+    void add(MeshGroup group);
+    const std::vector<MeshGroup>& groups() const noexcept;
+    const MeshGroup* find(const std::string& name) const noexcept;
+private:
+    std::vector<MeshGroup> m_groups;
+};
+
 class MeshBinaryIO;
 
 class MeshData {
@@ -113,6 +137,10 @@ public:
 
     const std::vector<MeshPhysicalGroup>& getPhysicalGroups() const noexcept ;
 
+    // Canonical backend-independent group registry (CAD, imported or user-defined).
+    void addMeshGroup(MeshGroup group);
+    const MeshGroupRegistry& getMeshGroupRegistry() const noexcept;
+
     const std::vector<NodeId>& getNodeIds() const noexcept ;
     const std::vector<double>& getCoordinates() const noexcept ;
     const std::vector<ElementBlock>& getElementBlocks() const noexcept ;
@@ -129,4 +157,5 @@ private:
     std::unordered_map<std::string, std::size_t> m_blockLookup;
     std::unordered_map<std::string, std::vector<NodeIndex>> m_nodeSets;
     std::vector<MeshPhysicalGroup> m_physicalGroups;
+    MeshGroupRegistry m_groupRegistry;
 };

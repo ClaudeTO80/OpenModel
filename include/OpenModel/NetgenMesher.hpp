@@ -48,7 +48,7 @@ private:
 
     class NetgenMeshHandle {
     public:
-        explicit NetgenMeshHandle(Ng_Mesh* value) : m_value(value) ;
+        explicit NetgenMeshHandle(Ng_Mesh* value);
         ~NetgenMeshHandle() noexcept ;
         NetgenMeshHandle(const NetgenMeshHandle&) = delete;
         NetgenMeshHandle& operator=(const NetgenMeshHandle&) = delete;
@@ -58,7 +58,7 @@ private:
 
     class NetgenOccHandle {
     public:
-        explicit NetgenOccHandle(Ng_OCC_Geometry* value) : m_value(value) ;
+        explicit NetgenOccHandle(Ng_OCC_Geometry* value);
         ~NetgenOccHandle() noexcept ;
         NetgenOccHandle(const NetgenOccHandle&) = delete;
         NetgenOccHandle& operator=(const NetgenOccHandle&) = delete;

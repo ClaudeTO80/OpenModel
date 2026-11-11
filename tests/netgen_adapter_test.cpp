@@ -12,9 +12,18 @@ public:
     void tessellate(double = 0.1) override {}
     const std::vector<RenderSubMesh>& getRenderMeshes() const override { return m_meshes; }
     std::string getFilePath() const override { return m_path; }
+    const std::vector<CADGroup>& getGroups() const override { return m_groups; }
+    std::vector<int> facesContainingPoint(const std::array<double, 3>&, double) const override { return {42}; }
+    std::vector<int> edgesContainingPoint(const std::array<double, 3>&, double) const override { return {7}; }
+    std::vector<int> verticesContainingPoint(const std::array<double, 3>&, double) const override { return {8}; }
 private:
     std::string m_path;
     std::vector<RenderSubMesh> m_meshes;
+    std::vector<CADGroup> m_groups{
+        {"Netgen_Face_42", CADGroupKind::NamedShape, 2, {42}},
+        {"Netgen_Edge_7", CADGroupKind::NamedShape, 1, {7}},
+        {"Netgen_Vertex_8", CADGroupKind::NamedShape, 0, {8}}
+    };
 };
 
 int main() {
@@ -50,6 +59,22 @@ int main() {
     }
     if (output.getNumNodes() == 0 || output.getNumElements() == 0) {
         std::cerr << "Netgen returned an empty mesh\n";
+        return EXIT_FAILURE;
+    }
+    const auto* faceGroup = output.getMeshGroupRegistry().find("Netgen_Face_42");
+    if (!faceGroup || faceGroup->elementIds.empty() || faceGroup->nodeIndices.empty()) {
+        std::cerr << "Netgen did not export CAD face boundary membership\n";
+        return EXIT_FAILURE;
+    }
+    const auto* edgeGroup = output.getMeshGroupRegistry().find("Netgen_Edge_7");
+    const auto* vertexGroup = output.getMeshGroupRegistry().find("Netgen_Vertex_8");
+    if (!edgeGroup || edgeGroup->dimension != 1 || !edgeGroup->elementIds.empty() ||
+        !output.getNodeSets().count("Netgen_Edge_7_NODES")) {
+        std::cerr << "Netgen did not export CAD edge node membership\n";
+        return EXIT_FAILURE;
+    }
+    if (!vertexGroup || vertexGroup->dimension != 0 || !output.getNodeSets().count("Netgen_Vertex_8_NODES")) {
+        std::cerr << "Netgen did not export CAD vertex node membership\n";
         return EXIT_FAILURE;
     }
 #endif

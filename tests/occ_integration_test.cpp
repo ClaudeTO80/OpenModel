@@ -33,6 +33,19 @@ int main() {
         std::remove(path.c_str());
         return 3;
     }
+    const auto edgeHits = model.edgesContainingPoint({{5.0, 0.0, 0.0}}, 1e-6);
+    const auto vertexHits = model.verticesContainingPoint({{0.0, 0.0, 0.0}}, 1e-6);
+    if (edgeHits.empty() || vertexHits.empty()) {
+        std::cerr << "CAD edge/vertex geometric queries returned no match\n";
+        std::remove(path.c_str());
+        return 10;
+    }
+    if (!model.edgesContainingPoint({{5.0, 0.0, 1.0}}, 1e-6).empty() ||
+        !model.verticesContainingPoint({{0.0, 0.0, 1.0}}, 1e-6).empty()) {
+        std::cerr << "CAD edge/vertex query accepted a point outside tolerance\n";
+        std::remove(path.c_str());
+        return 11;
+    }
 
     model.tessellate(0.25);
     std::remove(path.c_str());

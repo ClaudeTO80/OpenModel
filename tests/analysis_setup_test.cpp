@@ -5,14 +5,17 @@
 #include <OpenModel/AnalysisSetup.hpp>
 #include <OpenModel/ProcessRunner.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <sstream>
 #include <string>
 #include <thread>
+#include <vector>
 
 using namespace OpenModel;
 namespace fs = std::filesystem;
@@ -37,6 +40,26 @@ std::string slurp(const fs::path& p) {
 }
 
 bool contains(const std::string& text, const std::string& what) { return text.find(what) != std::string::npos; }
+
+bool containsNsetMembers(const std::string& text, const std::string& name,
+                         std::vector<int> expected) {
+    const std::string header = "*NSET, NSET=" + name;
+    const auto headerPos = text.find(header);
+    if (headerPos == std::string::npos) return false;
+    const auto dataStart = text.find('\n', headerPos);
+    if (dataStart == std::string::npos) return false;
+    const auto nextKeyword = text.find("\n*", dataStart + 1);
+    std::string data = text.substr(dataStart + 1,
+        nextKeyword == std::string::npos ? std::string::npos : nextKeyword - dataStart - 1);
+    for (char& c : data) if (c == ',') c = ' ';
+    std::istringstream input(data);
+    std::vector<int> actual;
+    int id = 0;
+    while (input >> id) actual.push_back(id);
+    std::sort(actual.begin(), actual.end());
+    std::sort(expected.begin(), expected.end());
+    return actual == expected;
+}
 
 bool hasCode(const std::vector<ImportDiagnostic>& d, const std::string& code, std::size_t line = 0) {
     for (const auto& x : d)
@@ -91,12 +114,109 @@ fs::path tempDir() {
     return d;
 }
 
+void testStableConditionIds() {
+    const auto parsed = parseAnalysisScript(
+        "material id=steel-main E=210000 nu=0.3 rho=7.85e-9 name=steel\n"
+        "fix id=clamp-west group:CLAMP dof=1,2,3 value=0,0,0\n"
+        "fix group:SECONDARY dof=3 value=0,0,-0.25\n"
+        "force id=tip-load plane:x=10 F=0,0,-100 tol=1e-8\n"
+        "pressure id=top-pressure group:TOP p=2.5\n"
+        "gravity g=0,0,-9.81\n"
+        "step frequency modes=8\n");
+    CHECK(parsed.success);
+    CHECK(parsed.model.material.id == "steel-main");
+    CHECK(parsed.model.supports.size() == 2);
+    CHECK(parsed.model.supports[0].id == "clamp-west");
+    CHECK(parsed.model.supports[1].id == "fix-1");
+    CHECK(parsed.model.forces.size() == 1 && parsed.model.forces[0].id == "tip-load");
+    CHECK(parsed.model.pressures.size() == 1 && parsed.model.pressures[0].id == "top-pressure");
+
+    const std::string serialized = serializeAnalysisScript(parsed.model);
+    const auto roundTrip = parseAnalysisScript(serialized);
+    CHECK(roundTrip.success);
+    CHECK(roundTrip.model.material.id == "steel-main");
+    CHECK(roundTrip.model.supports.size() == 2);
+    CHECK(roundTrip.model.supports[0].id == "clamp-west");
+    CHECK(roundTrip.model.supports[1].id == "fix-1");
+    CHECK(roundTrip.model.supports[1].displacement[2] == -0.25);
+    CHECK(roundTrip.model.forces.size() == 1 && roundTrip.model.forces[0].id == "tip-load");
+    CHECK(roundTrip.model.forces[0].where.tolerance == 1e-8);
+    CHECK(roundTrip.model.pressures.size() == 1 && roundTrip.model.pressures[0].id == "top-pressure");
+    CHECK(roundTrip.model.hasGravity && roundTrip.model.gravity[2] == -9.81);
+    CHECK(roundTrip.model.step == StepType::Frequency && roundTrip.model.modes == 8);
+
+    const auto duplicate = parseAnalysisScript(
+        "material id=shared E=1 nu=0.3\n"
+        "fix id=shared all\n");
+    CHECK(!duplicate.success && hasCode(duplicate.diagnostics, "SCRIPT_DUPLICATE_ID"));
+    const auto invalid = parseAnalysisScript("material id=bad/id E=1 nu=0.3\n");
+    CHECK(!invalid.success && hasCode(invalid.diagnostics, "SCRIPT_BAD_ID"));
+    const auto generatedCollision = parseAnalysisScript(
+        "material E=1 nu=0.3\n"
+        "fix id=fix-1 all\n"
+        "fix all\n");
+    CHECK(generatedCollision.success);
+    CHECK(generatedCollision.model.supports[0].id == "fix-1");
+    CHECK(generatedCollision.model.supports[1].id == "fix-2");
+}
+
+
+void testConditionCrudById() {
+    auto parsed = parseAnalysisScript(
+        "material id=steel E=210000 nu=0.3\n"
+        "fix id=clamp all\n"
+        "force id=load all F=1,2,3\n"
+        "pressure id=pressure group:TOP p=4\n");
+    CHECK(parsed.success);
+    auto& model = parsed.model;
+    CHECK(findSupport(model, "clamp") != nullptr);
+    CHECK(findForce(model, "load") != nullptr);
+    CHECK(findPressure(model, "pressure") != nullptr);
+    CHECK(findSupport(model, "missing") == nullptr);
+
+    std::string error;
+    FixedSupport support;
+    support.where.kind = SelectorKind::Plane;
+    support.where.axis = 2;
+    support.where.position = 5.0;
+    support.id = "attempted-id-change";
+    CHECK(updateSupport(model, "clamp", support, error));
+    CHECK(findSupport(model, "clamp") != nullptr);
+    CHECK(findSupport(model, "clamp")->where.position == 5.0);
+    CHECK(findSupport(model, "attempted-id-change") == nullptr);
+    CHECK(!updateSupport(model, "absent", support, error));
+
+    NodalForce force;
+    force.total = {{10.0, 0.0, -2.0}};
+    CHECK(updateForce(model, "load", force, error));
+    CHECK(findForce(model, "load")->total[0] == 10.0);
+    CHECK(eraseForce(model, "load"));
+    CHECK(!eraseForce(model, "load"));
+
+    SurfacePressure pressure;
+    pressure.group = "TOP";
+    pressure.pressure = 12.0;
+    CHECK(updatePressure(model, "pressure", pressure, error));
+    CHECK(findPressure(model, "pressure")->pressure == 12.0);
+    CHECK(erasePressure(model, "pressure"));
+
+    AnalysisMaterial material;
+    material.name = "ALUMINIUM";
+    material.youngModulus = 70000.0;
+    material.poisson = 0.33;
+    CHECK(updateMaterial(model, "steel", material, error));
+    CHECK(model.material.id == "steel" && model.material.name == "ALUMINIUM");
+    CHECK(!updateMaterial(model, "missing", material, error));
+    CHECK(eraseSupport(model, "clamp"));
+    CHECK(serializeAnalysisScript(model).find("id=steel") != std::string::npos);
+}
+
 void testParser() {
     const auto model = parseOk(
         "# comment\n"
         "material E=210000 nu=0.3 rho=7.85e-9 name=steel   # trailing\n"
         "fix plane:x=0\n"
-        "fix group:Bottom dof=3\n"
+        "fix group:Bottom dof=3 value=0,0,-2.5\n"
         "force plane:x=10 F=0,-100,0\r\n"
         "pressure group:Top p=2.5\n"
         "gravity g=0,0,-9810\n"
@@ -109,6 +229,7 @@ void testParser() {
     CHECK(model.supports[0].dof[0] && model.supports[0].dof[1] && model.supports[0].dof[2]);
     CHECK(model.supports[1].where.kind == SelectorKind::Group && model.supports[1].where.name == "Bottom");
     CHECK(!model.supports[1].dof[0] && !model.supports[1].dof[1] && model.supports[1].dof[2]);
+    CHECK(model.supports[1].displacement[2] == -2.5);
     CHECK(model.forces.size() == 1 && model.forces[0].total[1] == -100.0);
     CHECK(model.pressures.size() == 1 && model.pressures[0].group == "Top" && model.pressures[0].pressure == 2.5);
     CHECK(model.hasGravity && model.gravity[2] == -9810.0);
@@ -170,13 +291,34 @@ void testSelectors() {
     CHECK(n.empty() && contains(err, "Unknown group") && contains(err, "Bottom"));
     NodeSelector all;
     CHECK(selectNodes(hex, all, err).size() == 8);
+
+    MeshData withCadSet = hex;
+    withCadSet.addNodeSet("BladeRoot_NODES", {0, 3, 4, 7, 0, 3});
+    NodeSelector cad;
+    cad.kind = SelectorKind::Group;
+    cad.name = "BladeRoot_NODES";
+    n = selectNodes(withCadSet, cad, err);
+    CHECK(err.empty() && n.size() == 4);
+    CHECK(n[0] == 0 && n[1] == 3 && n[2] == 4 && n[3] == 7);
+
+    MeshData genericGroups = hex;
+    genericGroups.addMeshGroup({"CadRoot", 2, MeshGroupSource::CAD, {17}, {}, {0, 3, 4, 7}});
+    genericGroups.addMeshGroup({"CadFace", 2, MeshGroupSource::CAD, {18}, {101}, {}});
+    cad.name = "cadroot";
+    n = selectNodes(genericGroups, cad, err);
+    CHECK(err.empty() && n == std::vector<NodeIndex>({0, 3, 4, 7}));
+    cad.name = "CadFace";
+    n = selectNodes(genericGroups, cad, err);
+    CHECK(err.empty() && n == std::vector<NodeIndex>({0, 1, 2, 3}));
 }
 
 void testWriterStatic() {
     const fs::path dir = tempDir();
-    const MeshData hex = makeHex();
+    MeshData hex = makeHex();
+    hex.addNodeSet("BladeRoot_NODES", {0, 3, 4, 7});
     auto model = parseOk("material E=210000 nu=0.3 rho=7.85e-9\n"
                          "fix group:Bottom\n"
+                         "fix group:BladeRoot_NODES dof=1,2,3\n"
                          "fix plane:x=0 dof=1\n"
                          "force group:Top F=0,0,-40\n"
                          "pressure group:Right p=2\n"
@@ -197,8 +339,11 @@ void testWriterStatic() {
     CHECK(contains(t, "*DENSITY\n7.85e-09"));
     CHECK(contains(t, "*SOLID SECTION, ELSET=SOLID, MATERIAL=MATERIAL"));
     CHECK(contains(t, "*NSET, NSET=MG_FIX1\n11, 12, 13, 14\n"));
-    CHECK(contains(t, "MG_FIX1, 1, 1, 0.") && contains(t, "MG_FIX1, 3, 3, 0.") && contains(t, "MG_FIX2, 1, 1, 0."));
-    CHECK(!contains(t, "MG_FIX2, 2, 2") && !contains(t, "MG_FIX2, 3, 3"));
+    CHECK(containsNsetMembers(t, "BLADEROOT_NODES", {11, 14, 15, 18}));
+    CHECK(contains(t, "MG_FIX1, 1, 1, 0\n") && contains(t, "MG_FIX1, 3, 3, 0\n") &&
+          contains(t, "MG_FIX2, 1, 1, 0\n") && contains(t, "MG_FIX2, 3, 3, 0\n") &&
+          contains(t, "MG_FIX3, 1, 1, 0\n"));
+    CHECK(!contains(t, "MG_FIX3, 2, 2") && !contains(t, "MG_FIX3, 3, 3"));
     CHECK(contains(t, "*STATIC"));
     CHECK(contains(t, "MG_LOAD1, 3, -10"));              // -40 shared by 4 nodes
     // Independent derivation of the CalculiX face numbers (P1 = nodes 1-2-3-4, P2 = 5-6-7-8, P4 = 2-3-7-6):
@@ -211,6 +356,17 @@ void testWriterStatic() {
     CHECK(t.find("*END STEP") != std::string::npos);
     // Order: the keyword data of the step comes after *STEP.
     CHECK(t.find("*STEP") < t.find("*STATIC") && t.find("*STATIC") < t.find("*NODE FILE"));
+
+    auto prescribed = parseOk("material E=210000 nu=0.3\nfix group:Bottom dof=3 value=0,0,-1.25\nforce all F=0,0,0\n");
+    const auto rp = writeSolverInput(hex, prescribed, dir / "prescribed.inp");
+    CHECK(rp.success);
+    CHECK(contains(slurp(dir / "prescribed.inp"), "MG_FIX1, 3, 3, -1.25"));
+    const auto conflicting = parseOk("material E=210000 nu=0.3\nfix all dof=1 value=0,0,0\nfix plane:x=0 dof=1 value=1,0,0\n");
+    const auto conflictResult = writeSolverInput(hex, conflicting, dir / "conflict.inp");
+    CHECK(!conflictResult.success && contains(conflictResult.error, "conflicting prescribed displacements") &&
+          contains(conflictResult.error, "node 11") && contains(conflictResult.error, "degree of freedom 1"));
+    const auto compatible = parseOk("material E=210000 nu=0.3\nfix all dof=1 value=0,0,0\nfix plane:x=0 dof=1 value=0,0,0\n");
+    CHECK(writeSolverInput(hex, compatible, dir / "compatible.inp").success);
 
     model.elementPrint = 0;
     const auto r2 = writeSolverInput(hex, model, dir / "noprint.inp");
@@ -232,6 +388,13 @@ void testTetFaces() {
     CHECK(contains(t, "1, P3, 3\n"));    // slanted : 2-4-3
     CHECK(contains(t, "1, P4, 4\n"));    // x = 0 : 3-4-1
     CHECK(contains(t, "*ELEMENT, TYPE=C3D4"));
+
+    MeshData genericTet = tet;
+    genericTet.addMeshGroup({"CAD_F1", 2, MeshGroupSource::CAD, {51}, {11}, {0, 1, 2}});
+    const auto genericModel = parseOk("material E=1000 nu=0.25\nfix plane:z=0\npressure group:CAD_F1 p=7\n");
+    const auto genericResult = writeSolverInput(genericTet, genericModel, dir / "generic-face.inp");
+    CHECK(genericResult.success && genericResult.pressureFaces == 1);
+    CHECK(contains(slurp(dir / "generic-face.inp"), "1, P1, 7"));
     fs::remove_all(dir);
 }
 
@@ -316,10 +479,59 @@ void testRunner() {
 #endif
 }
 
+/**
+ * @brief PrescribedDisplacementTracker: equal overlaps pass, conflicts name the first
+ *        constraining support, non-finite values are rejected, and large overlapping
+ *        selections stay linear in the number of nodes.
+ */
+void testPrescribedDisplacementTracker() {
+    MeshData mesh;
+    constexpr std::size_t kNodes = 200000;
+    std::vector<NodeIndex> all;
+    all.reserve(kNodes);
+    for (std::size_t i = 0; i < kNodes; ++i)
+        all.push_back(mesh.addNode(static_cast<NodeId>(i + 1), static_cast<double>(i), 0.0, 0.0));
+
+    FixedSupport a, b, c;
+    a.dof = {{true, false, false}};
+    b.dof = {{true, true, false}};
+    c.dof = {{true, false, false}};
+    c.displacement = {{0.5, 0.0, 0.0}};
+
+    // Equal overlapping prescriptions are accepted; only active DOFs are compared.
+    PrescribedDisplacementTracker ok;
+    CHECK(ok.add(0, a, all, mesh).empty());
+    b.displacement = {{0.0, 7.0, 9.0}};          // DOF 3 is inactive and must be ignored
+    CHECK(ok.add(1, b, all, mesh).empty());
+
+    // A different value on an already constrained DOF names the first support and the node.
+    const auto message = ok.add(2, c, {all[41]}, mesh);
+    CHECK(contains(message, "conflicting prescribed displacements"));
+    CHECK(contains(message, "fix #1 and fix #3"));
+    CHECK(contains(message, "node 42") && contains(message, "degree of freedom 1"));
+
+    FixedSupport bad;
+    bad.displacement = {{std::numeric_limits<double>::quiet_NaN(), 0.0, 0.0}};
+    CHECK(contains(PrescribedDisplacementTracker{}.add(0, bad, all, mesh), "non-finite"));
+
+    // Scaling: four fully overlapping supports over 200k nodes. The former pairwise
+    // scan needed O(nodes^2 * supports) operations here (hours); the tracker is linear.
+    PrescribedDisplacementTracker many;
+    const auto start = std::chrono::steady_clock::now();
+    FixedSupport same;
+    for (std::size_t i = 0; i < 4; ++i) CHECK(many.add(i, same, all, mesh).empty());
+    const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+    std::cout << "PrescribedDisplacementTracker: 4 x " << kNodes << " nodes in " << seconds << " s\n";
+    CHECK(seconds < 5.0);
+}
+
 } // namespace
 
 int main() {
     testParser();
+    testStableConditionIds();
+    testPrescribedDisplacementTracker();
+    testConditionCrudById();
     testSelectors();
     testWriterStatic();
     testTetFaces();

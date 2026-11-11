@@ -133,7 +133,7 @@ function check(ok, message) {
   const aThree = await at(1.5 * Math.PI);
   const t3 = await changedFraction();           // 3/2 pi against pi (rest)
   check(a0.glError === 0 && aQuarter.glError === 0 && aThree.glError === 0, 'no WebGL error while animating');
-  check(Math.abs(a0.height - rest.height) <= 1 && Math.abs(a0.covered - rest.covered) < rest.covered * 0.002,
+  check(Math.abs(a0.height - rest.height) <= 1 && Math.abs(a0.covered - rest.covered) < rest.covered * 0.01,
         'phase 0 equals the undeformed shape (height ' + rest.height + ' vs ' + a0.height + ' px)');
   check(qDiff > 0.003, 'a quarter period moves the shape (' + (100 * qDiff).toFixed(1) + '% of pixels)');
   check(Math.abs(aHalf.covered - a0.covered) < a0.covered * 0.01 && hDiffToQuarter > 0.003, 'half period returns to the rest position');

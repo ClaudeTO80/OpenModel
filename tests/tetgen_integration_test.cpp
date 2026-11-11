@@ -1,6 +1,8 @@
+#include "support/quadratic_order_check.hpp"
 #include <OpenModel/TetGenMesher.hpp>
 #include <OpenModel/MeshValidator.hpp>
 
+#include <array>
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
@@ -17,32 +19,44 @@ void require(bool condition, const std::string& message) {
 class TetrahedronSurface final : public CADModel {
 public:
     TetrahedronSurface() {
-        RenderSubMesh mesh;
-        mesh.name = "ClosedTetrahedron";
-        mesh.vertices = {
-            0.0f, 0.0f, 0.0f,
-            1.0f, 0.0f, 0.0f,
-            0.0f, 1.0f, 0.0f,
-            0.0f, 0.0f, 1.0f
-        };
-        // Four consistently connected triangular faces, indices are zero-based.
-        mesh.indices = {
-            0, 2, 1,
-            0, 1, 3,
-            1, 2, 3,
-            2, 0, 3
-        };
-        meshes_.push_back(std::move(mesh));
+        const std::array<std::array<float, 9>, 4> faces{{
+            {{0.0f,0.0f,0.0f, 0.0f,1.0f,0.0f, 1.0f,0.0f,0.0f}},
+            {{0.0f,0.0f,0.0f, 1.0f,0.0f,0.0f, 0.0f,0.0f,1.0f}},
+            {{1.0f,0.0f,0.0f, 0.0f,1.0f,0.0f, 0.0f,0.0f,1.0f}},
+            {{0.0f,1.0f,0.0f, 0.0f,0.0f,0.0f, 0.0f,0.0f,1.0f}}
+        }};
+        for (std::size_t i = 0; i < faces.size(); ++i) {
+            RenderSubMesh mesh;
+            mesh.name = "Face_" + std::to_string(10 + i);
+            mesh.sourceFaceId = static_cast<int>(10 + i);
+            mesh.vertices.assign(faces[i].begin(), faces[i].end());
+            mesh.indices = {0, 1, 2};
+            meshes_.push_back(std::move(mesh));
+        }
+        groups_.push_back(CADGroup{"Face_10", CADGroupKind::NamedShape, 2, {10}});
+        groups_.push_back(CADGroup{"All_Faces", CADGroupKind::Layer, 2, {10, 11, 12, 13}});
+        groups_.push_back(CADGroup{"Edge_10", CADGroupKind::NamedShape, 1, {20}});
+        groups_.push_back(CADGroup{"Vertex_10", CADGroupKind::NamedShape, 0, {30}});
     }
     bool loadFromFile(const std::string& path) override { path_ = path; return !path.empty(); }
     void tessellate(double = 0.1) override {}
     const std::vector<RenderSubMesh>& getRenderMeshes() const override { return meshes_; }
     std::string getFilePath() const override { return path_; }
+    const std::vector<CADGroup>& getGroups() const override { return groups_; }
+    std::vector<int> edgesContainingPoint(const std::array<double, 3>& p, double tolerance) const override {
+        if (p[0] >= -tolerance && p[0] <= 1.0 + tolerance &&
+            std::sqrt(p[1] * p[1] + p[2] * p[2]) <= tolerance) return {20};
+        return {};
+    }
+    std::vector<int> verticesContainingPoint(const std::array<double, 3>& p, double tolerance) const override {
+        if (std::sqrt(p[0] * p[0] + p[1] * p[1] + p[2] * p[2]) <= tolerance) return {30};
+        return {};
+    }
 private:
     std::string path_ = "in-memory-tetrahedron";
     std::vector<RenderSubMesh> meshes_;
+    std::vector<CADGroup> groups_;
 };
-
 bool hasType(const MeshData& mesh, ElementType type) {
     for (const auto& block : mesh.getElementBlocks())
         if (block.type == type && !block.ids.empty()) return true;
@@ -65,6 +79,21 @@ int main() {
         require(volume.getNumNodes() >= 4, "TetGen returned fewer than four nodes");
         require(volume.getNumElements() > 0, "TetGen returned no elements");
         require(hasType(volume, ElementType::Tetrahedron4), "TetGen returned no linear tetrahedra");
+        require(hasType(volume, ElementType::Triangle3), "TetGen returned no boundary triangles");
+        const auto* oneFace = volume.getMeshGroupRegistry().find("Face_10");
+        const auto* allFaces = volume.getMeshGroupRegistry().find("All_Faces");
+        require(oneFace && !oneFace->elementIds.empty(), "TetGen did not map the single CAD face group");
+        require(allFaces && allFaces->elementIds.size() >= 4, "TetGen did not map all CAD face boundary elements");
+        require(!allFaces->nodeIndices.empty(), "TetGen CAD face group has no nodes");
+        const auto* edgeGroup = volume.getMeshGroupRegistry().find("Edge_10");
+        const auto* vertexGroup = volume.getMeshGroupRegistry().find("Vertex_10");
+        require(edgeGroup && edgeGroup->dimension == 1 && edgeGroup->elementIds.empty() &&
+                !edgeGroup->nodeIndices.empty(), "TetGen did not map the CAD edge node membership");
+        require(vertexGroup && vertexGroup->dimension == 0 && vertexGroup->nodeIndices.size() == 1,
+                "TetGen did not map the CAD vertex node membership");
+        require(volume.getNodeSets().count("Edge_10_NODES") == 1 &&
+                volume.getNodeSets().count("Vertex_10_NODES") == 1,
+                "TetGen did not create solver node sets for CAD edge/vertex groups");
         const auto structuralErrors = volume.validate();
         require(structuralErrors.empty(), "TetGen output failed structural validation: " +
                 (structuralErrors.empty() ? std::string{} : structuralErrors.front()));
@@ -76,6 +105,42 @@ int main() {
             throw std::runtime_error("TetGen output failed geometric validation:" + details);
         }
 
+        auto quadraticOptions = options;
+        quadraticOptions.order = 2;
+        MeshData quadratic;
+        require(mesher.buildMesh(cad, quadraticOptions, quadratic), "TetGen quadratic meshing failed");
+        require(hasType(quadratic, ElementType::Tetrahedron10), "TetGen returned no quadratic tetrahedra");
+        require(hasType(quadratic, ElementType::Triangle6), "TetGen returned no quadratic boundary triangles");
+        const auto* quadraticFace = quadratic.getMeshGroupRegistry().find("All_Faces");
+        require(quadraticFace && !quadraticFace->nodeIndices.empty(),
+                "TetGen quadratic face group has no boundary nodes");
+        require(quadratic.validate().empty(), "TetGen quadratic mesh failed structural validation");
+        {
+            // TetGen orders the mid-edge nodes of a Tetrahedron10 differently from Abaqus/code_aster.
+            std::size_t tets = 0, tris = 0;
+            const double deviation = quadratic_order::maxMidNodeDeviation(quadratic, tets, tris);
+            require(tets > 0 && tris > 0, "No quadratic elements to check");
+            require(deviation < 1e-9, "TetGen quadratic mid-edge nodes are not in the Abaqus order (deviation " +
+                                          std::to_string(deviation) + ")");
+        }
+
+        // An unmappable group is rejected atomically and reported, but must not abort the mesh;
+        // a user group whose name collides with a CAD group is renamed instead of failing.
+        auto withUserGroups = options;
+        withUserGroups.additionalFaceGroups.push_back(CADGroup{"Incomplete", CADGroupKind::NamedShape, 2, {10, 999}});
+        withUserGroups.additionalFaceGroups.push_back(CADGroup{"Face_10", CADGroupKind::NamedShape, 2, {11}});
+        MeshData userMesh;
+        require(mesher.buildMesh(cad, withUserGroups, userMesh), "TetGen aborted on an unmappable or duplicate-named group");
+        require(userMesh.getMeshGroupRegistry().find("Incomplete") == nullptr, "TetGen emitted a partial face group");
+        require(userMesh.getMeshGroupRegistry().find("Face_10") != nullptr &&
+                userMesh.getMeshGroupRegistry().find("Face_10_dim2") != nullptr,
+                "TetGen did not disambiguate a duplicate group name");
+        bool reportedMissing = false;
+        for (const auto& line : mesher.diagnostics())
+            if (line.find("Incomplete") != std::string::npos && line.find("999") != std::string::npos) reportedMissing = true;
+        require(reportedMissing, "TetGen did not report the missing CAD face id");
+        require(userMesh.validate().empty(), "TetGen mesh with user groups failed structural validation");
+
         MeshData unchanged;
         unchanged.addNode(999, 9.0, 9.0, 9.0);
         auto invalid = options;
@@ -83,7 +148,8 @@ int main() {
         require(!mesher.buildMesh(cad, invalid, unchanged), "TetGen accepted an invalid element size");
 
         std::cout << "TetGen integration passed: " << volume.getNumNodes() << " nodes, "
-                  << volume.getNumElements() << " tetrahedra\n";
+                  << volume.getElementBlock("TetGen_Volume").size() << " tetrahedra and "
+                  << volume.getElementBlock("TetGen_Surface").size() << " boundary triangles\n";
         return EXIT_SUCCESS;
     } catch (const std::exception& error) {
         std::cerr << "TetGen integration failed: " << error.what() << '\n';

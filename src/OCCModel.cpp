@@ -1,8 +1,18 @@
+#include <cmath>
 #include <OpenModel/OCCModel.hpp>
 
 #include <BRepBndLib.hxx>
+#include <Bnd_OBB.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
 #include <BRepClass3d_SolidClassifier.hxx>
+#include <BRepClass_FaceClassifier.hxx>
+#include <BRepTopAdaptor_FClass2d.hxx>
+#include <BRepTools.hxx>
+#include <Precision.hxx>
+#include <GeomAdaptor_Surface.hxx>
+#include <ShapeAnalysis_Surface.hxx>
+#include <Geom_Surface.hxx>
+#include <gp_Pnt2d.hxx>
 #include <BRepExtrema_DistShapeShape.hxx>
 #include <BRep_Builder.hxx>
 #include <IGESCAFControl_Reader.hxx>
@@ -10,6 +20,8 @@
 #include <STEPCAFControl_Reader.hxx>
 #include <StepData_StepModel.hxx>
 #include <StepShape_AdvancedFace.hxx>
+#include <StepShape_EdgeCurve.hxx>
+#include <StepShape_VertexPoint.hxx>
 #include <TCollection_AsciiString.hxx>
 #include <TCollection_HAsciiString.hxx>
 #include <TransferBRep.hxx>
@@ -171,8 +183,12 @@ bool OCCModel::loadFromFile(const std::string& filepath)  {
         m_groups.clear();
         m_solidMap.Clear();
         m_faceMap.Clear();
+        m_edgeMap.Clear();
+        m_vertexMap.Clear();
         m_solidBoxes.clear();
-        m_faceBoxes.clear();
+        m_faceBoxes.clear(); m_faceObbCache.reset(); m_faceClassifierCache.reset();
+        m_edgeBoxes.clear();
+        m_vertexBoxes.clear();
 
         const auto ext = lowercaseExtension(filepath);
         TopoDS_Shape loaded;
@@ -232,7 +248,7 @@ bool OCCModel::loadFromFile(const std::string& filepath)  {
             m_solidMap.Clear();
             m_faceMap.Clear();
             m_solidBoxes.clear();
-            m_faceBoxes.clear();
+            m_faceBoxes.clear(); m_faceObbCache.reset(); m_faceClassifierCache.reset();
             return false;
         }
 
@@ -402,11 +418,20 @@ const std::vector<CADGroup>& OCCModel::getGroups() const { return m_groups; }
 void OCCModel::indexShape() {
     m_solidMap.Clear();
     m_faceMap.Clear();
+    m_edgeMap.Clear();
+    m_vertexMap.Clear();
     m_solidBoxes.clear();
     m_faceBoxes.clear();
+    m_faceProjectors.clear();
+    m_faceObbCache = std::make_shared<FaceObbCache>();
+    m_faceClassifierCache = std::make_shared<FaceClassifierCache>();
+    m_edgeBoxes.clear();
+    m_vertexBoxes.clear();
     if (m_rawShape.IsNull()) return;
     TopExp::MapShapes(m_rawShape, TopAbs_SOLID, m_solidMap);
     TopExp::MapShapes(m_rawShape, TopAbs_FACE, m_faceMap);
+    TopExp::MapShapes(m_rawShape, TopAbs_EDGE, m_edgeMap);
+    TopExp::MapShapes(m_rawShape, TopAbs_VERTEX, m_vertexMap);
     // Geometry-based boxes (no triangulation) so they stay conservative supersets of the true extent.
     for (Standard_Integer i = 1; i <= m_solidMap.Extent(); ++i) {
         Bnd_Box box;
@@ -417,6 +442,19 @@ void OCCModel::indexShape() {
         Bnd_Box box;
         BRepBndLib::Add(m_faceMap(i), box, Standard_False);
         m_faceBoxes.push_back(box);
+        const opencascade::handle<Geom_Surface> surface = BRep_Tool::Surface(TopoDS::Face(m_faceMap(i)));
+        m_faceProjectors.push_back(surface.IsNull() ? opencascade::handle<ShapeAnalysis_Surface>()
+                                                    : new ShapeAnalysis_Surface(surface));
+    }
+    for (Standard_Integer i = 1; i <= m_edgeMap.Extent(); ++i) {
+        Bnd_Box box;
+        BRepBndLib::Add(m_edgeMap(i), box, Standard_False);
+        m_edgeBoxes.push_back(box);
+    }
+    for (Standard_Integer i = 1; i <= m_vertexMap.Extent(); ++i) {
+        Bnd_Box box;
+        BRepBndLib::Add(m_vertexMap(i), box, Standard_False);
+        m_vertexBoxes.push_back(box);
     }
 }
 
@@ -433,16 +471,159 @@ std::vector<int> OCCModel::solidsContainingPoint(const std::array<double, 3>& po
     return result;
 }
 
+void OCCModel::prepareFaceQueryCaches() const {
+    FaceObbCache* obbs = m_faceObbCache.get();
+    if (obbs) {
+        std::call_once(obbs->once, [&] {
+            Bnd_Box all;
+            for (const auto& box : m_faceBoxes) all.Add(box);
+            double x0 = 0, y0 = 0, z0 = 0, x1 = 0, y1 = 0, z1 = 0;
+            if (!all.IsVoid()) all.Get(x0, y0, z0, x1, y1, z1);
+            obbs->slack = 1e-5 * std::sqrt((x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0) + (z1 - z0) * (z1 - z0));
+            obbs->boxes.resize(static_cast<std::size_t>(m_faceMap.Extent()));
+            for (Standard_Integer k = 1; k <= m_faceMap.Extent(); ++k) {
+                Bnd_OBB obb;
+                BRepBndLib::AddOBB(m_faceMap(k), obb, Standard_False, Standard_False, Standard_False);
+                obb.Enlarge(obbs->slack);
+                obbs->boxes[static_cast<std::size_t>(k - 1)] = obb;
+            }
+        });
+    }
+    FaceClassifierCache* fast = m_faceClassifierCache.get();
+    if (fast) {
+        std::call_once(fast->once, [&] {
+            const std::size_t n = static_cast<std::size_t>(m_faceMap.Extent());
+            fast->classifiers.assign(n, nullptr);
+            fast->maxTolerance.assign(n, 0.0);
+            fast->farDistance.assign(n, 0.0);
+            for (std::size_t k = 0; k < n; ++k) {
+                const auto& projector = m_faceProjectors[k];
+                if (projector.IsNull()) continue;
+                const TopoDS_Face face = TopoDS::Face(m_faceMap(static_cast<Standard_Integer>(k) + 1));
+                double x0, y0, z0, x1, y1, z1;
+                if (m_faceBoxes[k].IsVoid()) continue;
+                m_faceBoxes[k].Get(x0, y0, z0, x1, y1, z1);
+                const double diagonal = std::sqrt((x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0) + (z1 - z0) * (z1 - z0));
+                fast->farDistance[k] = 1e-3 * diagonal;
+                // A point is trusted only when it is at least 1e-3 of the face size (converted to u and v) away
+                // from the trim polygon, which is meant to exceed the deviation of the polygon from a curved trim.
+                const double reach = 1e-3 * diagonal;
+                double umin, umax, vmin, vmax;
+                BRepTools::UVBounds(face, umin, umax, vmin, vmax);
+                if (!(reach > 0.0) || !std::isfinite(umax - umin) || !std::isfinite(vmax - vmin)) continue;
+                const double mu = std::min(projector->Adaptor3d()->UResolution(reach), 0.25 * (umax - umin));
+                const double mv = std::min(projector->Adaptor3d()->VResolution(reach), 0.25 * (vmax - vmin));
+                if (!std::isfinite(mu) || !std::isfinite(mv) || !(mu > 0.0) || !(mv > 0.0)) continue;
+                // A point closer than this to the trim polygon is reported ON, i.e. not trusted.
+                fast->classifiers[k] = std::make_shared<BRepTopAdaptor_FClass2d>(face, std::max(mu, mv));
+                fast->maxTolerance[k] = 0.1 * reach;
+            }
+        });
+    }
+}
+
+bool OCCModel::faceMatchesPoint(Standard_Integer i, const gp_Pnt& p, double tolerance, const gp_Pnt2d* surfaceUv) const {
+    const FaceClassifierCache* fast = m_faceClassifierCache.get();
+    // Fast path: project onto the underlying surface (cached projector). A point clearly farther than
+    // `tolerance` from the whole surface cannot be within `tolerance` of the face, and a point within
+    // `tolerance` whose UV lies inside the face is on it. Everything else (near a boundary, no surface,
+    // projection not converged, distance close to the tolerance) takes the exact distance query.
+    const auto& projector = m_faceProjectors[static_cast<std::size_t>(i - 1)];
+    if (!projector.IsNull()) {
+        gp_Pnt2d uv;
+        double surfaceDistance = 0.0;
+        bool known = false;
+        if (surfaceUv) {
+            // A caller-supplied (u, v) is trusted only if it really lands within tolerance of the point.
+            surfaceDistance = projector->Value(*surfaceUv).Distance(p);
+            if (surfaceDistance <= tolerance) { uv = *surfaceUv; known = true; }
+        }
+        if (!known) {
+            uv = projector->ValueOfUV(p, tolerance);
+            surfaceDistance = projector->Value(uv).Distance(p);
+        }
+        // ValueOfUV is not an exact minimiser: on B-spline faces it can stop at 2.5 times the tolerance
+        // from a point lying exactly on the boundary of the surface. So a point is discarded here only if
+        // it is clearly far: more than two tolerances and more than 1e-3 of the face size. Anything closer
+        // goes to the exact distance query.
+        const std::size_t kFace = static_cast<std::size_t>(i - 1);
+        const double clearlyFar = std::max(2.0 * tolerance, (fast && kFace < fast->farDistance.size()) ? fast->farDistance[kFace] : 0.0);
+        if (surfaceDistance > clearlyFar) return false;
+        if (surfaceDistance <= tolerance) {
+            // Cheap test first: IN well inside the trim cannot be wrong. Anything else, including every
+            // point near an edge (reported ON), is decided by the exact classifier below.
+            const std::size_t k = static_cast<std::size_t>(i - 1);
+            if (fast && k < fast->classifiers.size() && fast->classifiers[k] && tolerance <= fast->maxTolerance[k] &&
+                fast->classifiers[k]->Perform(uv) == TopAbs_IN)
+                return true;
+            BRepClass_FaceClassifier classifier(TopoDS::Face(m_faceMap(i)), uv, tolerance);
+            if (classifier.State() == TopAbs_IN) return true;
+        }
+    }
+    BRepExtrema_DistShapeShape distance(BRepBuilderAPI_MakeVertex(p), m_faceMap(i));
+    return distance.IsDone() && distance.Value() <= tolerance;
+}
+
 std::vector<int> OCCModel::facesContainingPoint(const std::array<double, 3>& point, double tolerance) const {
     std::vector<int> result;
     const gp_Pnt p(point[0], point[1], point[2]);
-    const TopoDS_Vertex vertex = BRepBuilderAPI_MakeVertex(p);
+    prepareFaceQueryCaches();
+    const FaceObbCache* obbs = m_faceObbCache.get();
+    const bool useObb = obbs && obbs->boxes.size() == m_faceBoxes.size() && tolerance <= obbs->slack;
     for (Standard_Integer i = 1; i <= m_faceMap.Extent(); ++i) {
         Bnd_Box box = m_faceBoxes[static_cast<std::size_t>(i - 1)];
         box.Enlarge(tolerance);
         if (box.IsOut(p)) continue;
-        BRepExtrema_DistShapeShape distance(vertex, m_faceMap(i));
+        if (useObb && obbs->boxes[static_cast<std::size_t>(i - 1)].IsOut(p)) continue;
+        if (faceMatchesPoint(i, p, tolerance, nullptr)) result.push_back(i - 1);
+    }
+    return result;
+}
+
+bool OCCModel::faceContainsPoint(int faceId, const std::array<double, 3>& point, double tolerance,
+                                 const std::array<double, 2>* surfaceUv) const {
+    if (faceId < 0 || faceId >= m_faceMap.Extent()) return false;
+    const gp_Pnt p(point[0], point[1], point[2]);
+    prepareFaceQueryCaches();
+    const Standard_Integer i = faceId + 1;
+    Bnd_Box box = m_faceBoxes[static_cast<std::size_t>(faceId)];
+    box.Enlarge(tolerance);
+    if (box.IsOut(p)) return false;
+    const FaceObbCache* obbs = m_faceObbCache.get();
+    if (obbs && obbs->boxes.size() == m_faceBoxes.size() && tolerance <= obbs->slack &&
+        obbs->boxes[static_cast<std::size_t>(faceId)].IsOut(p)) return false;
+    if (surfaceUv) {
+        const gp_Pnt2d uv((*surfaceUv)[0], (*surfaceUv)[1]);
+        return faceMatchesPoint(i, p, tolerance, &uv);
+    }
+    return faceMatchesPoint(i, p, tolerance, nullptr);
+}
+
+std::vector<int> OCCModel::edgesContainingPoint(const std::array<double, 3>& point, double tolerance) const {
+    std::vector<int> result;
+    if (!std::isfinite(tolerance) || tolerance < 0.0) return result;
+    const gp_Pnt p(point[0], point[1], point[2]);
+    const TopoDS_Vertex query = BRepBuilderAPI_MakeVertex(p);
+    for (Standard_Integer i = 1; i <= m_edgeMap.Extent(); ++i) {
+        Bnd_Box box = m_edgeBoxes[static_cast<std::size_t>(i - 1)];
+        box.Enlarge(tolerance);
+        if (box.IsOut(p)) continue;
+        BRepExtrema_DistShapeShape distance(query, m_edgeMap(i));
         if (distance.IsDone() && distance.Value() <= tolerance) result.push_back(i - 1);
+    }
+    return result;
+}
+
+std::vector<int> OCCModel::verticesContainingPoint(const std::array<double, 3>& point, double tolerance) const {
+    std::vector<int> result;
+    if (!std::isfinite(tolerance) || tolerance < 0.0) return result;
+    const gp_Pnt p(point[0], point[1], point[2]);
+    for (Standard_Integer i = 1; i <= m_vertexMap.Extent(); ++i) {
+        Bnd_Box box = m_vertexBoxes[static_cast<std::size_t>(i - 1)];
+        box.Enlarge(tolerance);
+        if (box.IsOut(p)) continue;
+        const gp_Pnt vertexPoint = BRep_Tool::Pnt(TopoDS::Vertex(m_vertexMap(i)));
+        if (vertexPoint.Distance(p) <= tolerance) result.push_back(i - 1);
     }
     return result;
 }
@@ -458,6 +639,8 @@ bool OCCModel::loadWithStructure(const std::string& path, bool iges, TopoDS_Shap
     } closer{app, doc};
 
     std::vector<std::pair<std::string, TopoDS_Shape>> stepFaceNames;
+    std::vector<std::pair<std::string, TopoDS_Shape>> stepEdgeNames;
+    std::vector<std::pair<std::string, TopoDS_Shape>> stepVertexNames;
     if (iges) {
         IGESCAFControl_Reader reader;
         reader.SetColorMode(Standard_True);
@@ -477,10 +660,23 @@ bool OCCModel::loadWithStructure(const std::string& path, bool iges, TopoDS_Shap
         if (!stepModel.IsNull() && !process.IsNull()) {
             for (Standard_Integer i = 1; i <= stepModel->NbEntities(); ++i) {
                 const Handle(StepShape_AdvancedFace) face = Handle(StepShape_AdvancedFace)::DownCast(stepModel->Entity(i));
-                if (face.IsNull() || face->Name().IsNull() || face->Name()->Length() == 0) continue;
-                const TopoDS_Shape bound = TransferBRep::ShapeResult(process, face);
-                if (!bound.IsNull() && bound.ShapeType() == TopAbs_FACE)
-                    stepFaceNames.emplace_back(std::string(face->Name()->ToCString()), bound);
+                if (!face.IsNull() && !face->Name().IsNull() && face->Name()->Length() > 0) {
+                    const TopoDS_Shape bound = TransferBRep::ShapeResult(process, face);
+                    if (!bound.IsNull() && bound.ShapeType() == TopAbs_FACE)
+                        stepFaceNames.emplace_back(std::string(face->Name()->ToCString()), bound);
+                }
+                const Handle(StepShape_EdgeCurve) edge = Handle(StepShape_EdgeCurve)::DownCast(stepModel->Entity(i));
+                if (!edge.IsNull() && !edge->Name().IsNull() && edge->Name()->Length() > 0) {
+                    const TopoDS_Shape bound = TransferBRep::ShapeResult(process, edge);
+                    if (!bound.IsNull() && bound.ShapeType() == TopAbs_EDGE)
+                        stepEdgeNames.emplace_back(std::string(edge->Name()->ToCString()), bound);
+                }
+                const Handle(StepShape_VertexPoint) vertex = Handle(StepShape_VertexPoint)::DownCast(stepModel->Entity(i));
+                if (!vertex.IsNull() && !vertex->Name().IsNull() && vertex->Name()->Length() > 0) {
+                    const TopoDS_Shape bound = TransferBRep::ShapeResult(process, vertex);
+                    if (!bound.IsNull() && bound.ShapeType() == TopAbs_VERTEX)
+                        stepVertexNames.emplace_back(std::string(vertex->Name()->ToCString()), bound);
+                }
             }
         }
     }
@@ -533,33 +729,50 @@ bool OCCModel::loadWithStructure(const std::string& path, bool iges, TopoDS_Shap
         for (const auto& location : found->second.locations) located.push_back(local.Moved(location));
         return located;
     };
-    // Solids if the shape contains any, faces otherwise.
-    auto classify = [&](const TopoDS_Shape& shapeIn, std::set<int>& solidIds, std::set<int>& faceIds) {
-        bool hasSolid = false;
+
+    struct EntityIds {
+        std::set<int> solids, faces, edges, vertices;
+    };
+    // Keep the highest-dimensional entities in a named shape. A solid layer
+    // remains a solid group; a wire becomes an edge group; a point becomes a
+    // vertex group. This avoids expanding every solid layer into all its edges.
+    auto classify = [&](const TopoDS_Shape& shapeIn, EntityIds& ids) {
         for (TopExp_Explorer x(shapeIn, TopAbs_SOLID); x.More(); x.Next()) {
             const Standard_Integer index = m_solidMap.FindIndex(x.Current());
-            if (index > 0) { solidIds.insert(index - 1); hasSolid = true; }
+            if (index > 0) ids.solids.insert(index - 1);
         }
-        if (hasSolid) return;
+        if (!ids.solids.empty()) return;
         for (TopExp_Explorer x(shapeIn, TopAbs_FACE); x.More(); x.Next()) {
             const Standard_Integer index = m_faceMap.FindIndex(x.Current());
-            if (index > 0) faceIds.insert(index - 1);
+            if (index > 0) ids.faces.insert(index - 1);
+        }
+        if (!ids.faces.empty()) return;
+        for (TopExp_Explorer x(shapeIn, TopAbs_EDGE); x.More(); x.Next()) {
+            const Standard_Integer index = m_edgeMap.FindIndex(x.Current());
+            if (index > 0) ids.edges.insert(index - 1);
+        }
+        if (!ids.edges.empty()) return;
+        for (TopExp_Explorer x(shapeIn, TopAbs_VERTEX); x.More(); x.Next()) {
+            const Standard_Integer index = m_vertexMap.FindIndex(x.Current());
+            if (index > 0) ids.vertices.insert(index - 1);
         }
     };
-    auto pushGroup = [&](const std::string& name, CADGroupKind kind, const std::set<int>& solidIds, const std::set<int>& faceIds) {
-        if (!solidIds.empty()) {
-            CADGroup g;
-            g.name = name; g.kind = kind; g.dimension = 3;
-            g.ids.assign(solidIds.begin(), solidIds.end());
-            m_groups.push_back(std::move(g));
-        }
-        if (!faceIds.empty()) {
-            CADGroup g;
-            g.name = solidIds.empty() ? name : name + " (faces)";
-            g.kind = kind; g.dimension = 2;
-            g.ids.assign(faceIds.begin(), faceIds.end());
-            m_groups.push_back(std::move(g));
-        }
+    auto pushGroup = [&](const std::string& name, CADGroupKind kind, const EntityIds& ids) {
+        bool primaryNameUsed = false;
+        auto add = [&](int dimension, const std::set<int>& values, const char* suffix) {
+            if (values.empty()) return;
+            CADGroup group;
+            group.name = primaryNameUsed ? name + suffix : name;
+            primaryNameUsed = true;
+            group.kind = kind;
+            group.dimension = dimension;
+            group.ids.assign(values.begin(), values.end());
+            m_groups.push_back(std::move(group));
+        };
+        add(3, ids.solids, " (solids)");
+        add(2, ids.faces, " (faces)");
+        add(1, ids.edges, " (edges)");
+        add(0, ids.vertices, " (vertices)");
     };
 
     TDF_LabelSequence layerLabels;
@@ -571,14 +784,15 @@ bool OCCModel::loadWithStructure(const std::string& path, bool iges, TopoDS_Shap
         if (name.empty()) name = "Layer_" + std::to_string(i);
         TDF_LabelSequence members;
         layers->GetShapesOfLayer(layerLabels.Value(i), members);
-        std::set<int> solidIds, faceIds;
+        EntityIds ids;
         for (Standard_Integer m = 1; m <= members.Length(); ++m)
-            for (const auto& located : locatedShapes(members.Value(m))) classify(located, solidIds, faceIds);
-        pushGroup(name, CADGroupKind::Layer, solidIds, faceIds);
+            for (const auto& located : locatedShapes(members.Value(m))) classify(located, ids);
+        pushGroup(name, CADGroupKind::Layer, ids);
     }
 
-    // Named sub-shapes (for example a named face of a part). Same name in several places merges.
-    std::map<std::string, std::pair<std::set<int>, std::set<int>>> named;
+    // Named sub-shapes: faces, wires/edges and vertices are retained at their
+    // own topological dimension. Repeated names across instances are merged.
+    std::map<std::string, EntityIds> named;
     for (const auto& entry : walker.parts) {
         TDF_LabelSequence subLabels;
         walker.shapes->GetSubShapes(entry.second.label, subLabels);
@@ -586,7 +800,7 @@ bool OCCModel::loadWithStructure(const std::string& path, bool iges, TopoDS_Shap
             const std::string name = labelName(subLabels.Value(i));
             if (name.empty()) continue;
             auto& target = named[name];
-            for (const auto& located : locatedShapes(subLabels.Value(i))) classify(located, target.first, target.second);
+            for (const auto& located : locatedShapes(subLabels.Value(i))) classify(located, target);
         }
     }
     // Faces named on the ADVANCED_FACE entity: find them inside each non-assembly part and place every instance.
@@ -599,11 +813,46 @@ bool OCCModel::loadWithStructure(const std::string& path, bool iges, TopoDS_Shap
                 for (const auto& [faceName, bound] : stepFaceNames) {
                     if (!x.Current().IsPartner(bound)) continue;
                     auto& target = named[faceName];
-                    for (const auto& location : entry.second.locations) classify(x.Current().Moved(location), target.first, target.second);
+                    for (const auto& location : entry.second.locations)
+                        classify(x.Current().Moved(location), target);
                 }
             }
         }
     }
-    for (const auto& item : named) pushGroup(item.first, CADGroupKind::NamedShape, item.second.first, item.second.second);
+    // Some STEP writers place names directly on EDGE_CURVE entities rather
+    // than emitting XDE SHAPE_ASPECT sub-shape labels. Bind those names to the
+    // transferred B-Rep edges just as we do for ADVANCED_FACE entities.
+    if (!stepEdgeNames.empty()) {
+        for (const auto& entry : walker.parts) {
+            if (walker.shapes->IsAssembly(entry.second.label)) continue;
+            const TopoDS_Shape local = XCAFDoc_ShapeTool::GetShape(entry.second.label);
+            if (local.IsNull()) continue;
+            for (TopExp_Explorer x(local, TopAbs_EDGE); x.More(); x.Next()) {
+                for (const auto& [edgeName, bound] : stepEdgeNames) {
+                    if (!x.Current().IsPartner(bound)) continue;
+                    auto& target = named[edgeName];
+                    for (const auto& location : entry.second.locations)
+                        classify(x.Current().Moved(location), target);
+                }
+            }
+        }
+    }
+    // Preserve direct names on STEP VERTEX_POINT entities as well.
+    if (!stepVertexNames.empty()) {
+        for (const auto& entry : walker.parts) {
+            if (walker.shapes->IsAssembly(entry.second.label)) continue;
+            const TopoDS_Shape local = XCAFDoc_ShapeTool::GetShape(entry.second.label);
+            if (local.IsNull()) continue;
+            for (TopExp_Explorer x(local, TopAbs_VERTEX); x.More(); x.Next()) {
+                for (const auto& [vertexName, bound] : stepVertexNames) {
+                    if (!x.Current().IsPartner(bound)) continue;
+                    auto& target = named[vertexName];
+                    for (const auto& location : entry.second.locations)
+                        classify(x.Current().Moved(location), target);
+                }
+            }
+        }
+    }
+    for (const auto& item : named) pushGroup(item.first, CADGroupKind::NamedShape, item.second);
     return true;
 }

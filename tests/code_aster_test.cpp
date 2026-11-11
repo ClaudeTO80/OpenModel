@@ -90,6 +90,44 @@ bool sameMesh(const MeshData& a, const MeshData& b) {
     return true;
 }
 
+/** Two surface groups whose names differ only in case: a pressure on "top" must use the group named "top". */
+void testPressureGroupCaseResolution() {
+    auto mesh = makeHex();
+    mesh.addPhysicalGroup("top", 2, 5, {103});   // sanitised to TOP_2 (TOP is taken by "Top")
+    const auto model = parseOk("material E=210000 nu=0.3\nfix group:Bottom\npressure group:top p=2.5\n");
+    const auto dir = tempDir();
+    CodeAsterOptions options;
+    options.jobName = "case";
+    const auto r = writeCodeAsterCase(mesh, model, dir, options);
+    CHECK(r.success);
+    if (!r.success) { std::cerr << r.error << "\n"; return; }
+    const std::string mail = slurp(r.meshFile), comm = slurp(r.commFile);
+    CHECK(contains(mail, "GROUP_MA NOM = TOP\n M102\nFINSF"));
+    CHECK(contains(mail, "GROUP_MA NOM = TOP_2\n M103\nFINSF"));
+    CHECK(contains(comm, "GROUP_MA='TOP_2', PRES=2.5"));   // not 'TOP', which is the group "Top"
+    CHECK(!contains(comm, "GROUP_MA='TOP', PRES"));
+    fs::remove_all(dir);
+}
+
+/** A directory name with a blank is reported: the .export fields are split on blanks. */
+void testBlankInPathWarning() {
+    const auto mesh = makeHex();
+    const auto model = parseOk("material E=210000 nu=0.3\nfix group:Bottom\n");
+    const auto base = tempDir();
+    const auto spaced = base / "my case";
+    CodeAsterOptions options;
+    options.jobName = "case";
+    auto r = writeCodeAsterCase(mesh, model, spaced, options);
+    CHECK(r.success);
+    bool warned = false;
+    for (const auto& d : r.diagnostics) warned = warned || d.code == "ASTER_PATH_WITH_BLANK";
+    CHECK(warned);
+    r = writeCodeAsterCase(mesh, model, base / "plain", options);
+    CHECK(r.success);
+    for (const auto& d : r.diagnostics) CHECK(d.code != "ASTER_PATH_WITH_BLANK");
+    fs::remove_all(base);
+}
+
 void testStaticExport() {
     const auto mesh = makeHex();
     const auto model = parseOk(
@@ -128,6 +166,9 @@ void testStaticExport() {
     CHECK(contains(comm, "MODELISATION='3D'"));
     CHECK(contains(comm, "E=210000.0, NU=0.3, RHO=7.85e-09"));
     CHECK(contains(comm, "_F(GROUP_NO='OM_FIX1', DX=0.0, DY=0.0, DZ=0.0)"));
+    const auto prescribedModel = parseOk("material E=210000 nu=0.3\nfix group:Bottom dof=3 value=0,0,-1.75\n");
+    const auto prescribedCase = writeCodeAsterCase(mesh, prescribedModel, dir, options);
+    CHECK(prescribedCase.success && contains(slurp(prescribedCase.commFile), "DZ=-1.75"));
     CHECK(contains(comm, "_F(GROUP_NO='OM_FIX2', DX=0.0)"));
     CHECK(contains(comm, "FY=-25.0"));                                          // 100 N shared by 4 nodes
     CHECK(!contains(comm, "FX="));
@@ -175,6 +216,8 @@ void testExportErrors() {
     };
     fails("material E=1 nu=0.3\nforce all F=1,0,0\n", "needs at least one support");
     fails("material E=1 nu=0.3\nfix group:Nope\n", "Unknown group");
+    fails("material E=1 nu=0.3\nfix all dof=1 value=0,0,0\nfix plane:x=0 dof=1 value=1,0,0\n",
+          "conflicting prescribed displacements");
     fails("material E=1 nu=0.3\nfix all\npressure group:Body p=1\n", "not a surface group");
     fails("material E=1 nu=0.3\nfix all\npressure group:Missing p=1\n", "unknown surface group");
     fails("material E=1 nu=0.3\nfix all\ngravity g=0,0,-1\n", "density");
@@ -210,6 +253,47 @@ void testExportErrors() {
     surface.addElement("s", ElementType::Triangle3, 1, {0, 1, 2});
     const auto rs = writeCodeAsterCase(surface, p2.model, dir);
     CHECK(!rs.success && contains(rs.error, "no volume elements"));
+    fs::remove_all(dir);
+}
+
+void testGenericSurfacePressure() {
+    MeshData mesh = makeHex();
+    mesh.addMeshGroup({"CAD_TOP", 2, MeshGroupSource::CAD, {44}, {102}, {4, 5, 6, 7}});
+    const auto model = parseOk("material E=210000 nu=0.3\nfix all\npressure group:CAD_TOP p=1.5\n");
+    const auto dir = tempDir();
+    const auto r = writeCodeAsterCase(mesh, model, dir, {});
+    CHECK(r.success);
+    if (r.success) {
+        const auto mail = slurp(r.meshFile);
+        const auto comm = slurp(r.commFile);
+        CHECK(contains(mail, "GROUP_MA NOM = CAD_TOP\n M102\nFINSF"));
+        CHECK(contains(comm, "_F(GROUP_MA='CAD_TOP', PRES=1.5)"));
+        CHECK(r.pressureFaces == 1);
+    } else {
+        std::cerr << r.error << "\n";
+    }
+    fs::remove_all(dir);
+}
+
+void testGenericMeshGroupExport() {
+    MeshData mesh;
+    const auto n1 = mesh.addNode(1, 0, 0, 0);
+    const auto n2 = mesh.addNode(2, 1, 0, 0);
+    const auto n3 = mesh.addNode(3, 1, 1, 0);
+    mesh.addElement("cad_edges", ElementType::Line2, 101, {n1, n2});
+    mesh.addElement("cad_vertices", ElementType::Point1, 102, {n3});
+    mesh.addMeshGroup({"CAD_EDGE", 1, MeshGroupSource::CAD, {4}, {101}, {n1, n2}});
+    mesh.addMeshGroup({"CAD_VERTEX", 0, MeshGroupSource::CAD, {8}, {}, {n3}});
+
+    const auto dir = tempDir();
+    const auto error = writeCodeAsterMesh(dir / "groups.mail", mesh);
+    CHECK(error.empty());
+    if (error.empty()) {
+        const auto mail = slurp(dir / "groups.mail");
+        CHECK(contains(mail, "GROUP_MA NOM = CAD_EDGE\n M101\nFINSF"));
+        CHECK(contains(mail, "GROUP_NO NOM = CAD_EDGE_NODES\n N1 N2\nFINSF"));
+        CHECK(contains(mail, "GROUP_NO NOM = CAD_VERTEX_NODES\n N3\nFINSF"));
+    }
     fs::remove_all(dir);
 }
 
@@ -423,8 +507,12 @@ void testBindToMesh() {
 } // namespace
 
 int main() {
+    testPressureGroupCaseResolution();
+    testBlankInPathWarning();
     testStaticExport();
     testFrequencyExport();
+    testGenericMeshGroupExport();
+    testGenericSurfacePressure();
     testExportErrors();
     testMeshRoundTrip();
     testTables();

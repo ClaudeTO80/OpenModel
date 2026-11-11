@@ -19,6 +19,7 @@ set(GMSH_LIBRARY_RELEASE "" CACHE FILEPATH "Gmsh release import/static library (
 set(GMSH_LIBRARY "" CACHE FILEPATH "Legacy/single-configuration Gmsh library path; used as a fallback")
 set(GMSH_RUNTIME_LIBRARY_DEBUG "" CACHE FILEPATH "Gmsh debug runtime DLL on Windows, if applicable")
 set(GMSH_RUNTIME_LIBRARY_RELEASE "" CACHE FILEPATH "Gmsh release runtime DLL on Windows, if applicable")
+set(OPENMODEL_GMSH_TEST_STEP "" CACHE FILEPATH "Optional real STEP file for the Gmsh/OCC end-face mapping regression test")
 option(OPENMODEL_BUILD_OCC_BACKEND "Build the optional Open CASCADE CAD adapter and integration test" OFF)
 option(OPENMODEL_BUILD_NETGEN_BACKEND "Build the optional Netgen meshing adapter" OFF)
 option(OPENMODEL_BUILD_MFEM_BACKEND "Build the optional MFEM adapter and integration test" OFF)
@@ -30,6 +31,7 @@ set(OPENMODEL_NETGEN_TEST_STEP "" CACHE FILEPATH "Optional STEP/IGES/BREP fixtur
 set(OPENMODEL_CORE_SOURCES
     src/MeshData.cpp
     src/MeshBinaryIO.cpp
+    src/OpenModelProject.cpp
     src/MeshImporter.cpp
     src/AbaqusInpImporter.cpp
     src/CalculixInpImporter.cpp
@@ -41,6 +43,8 @@ set(OPENMODEL_CORE_SOURCES
     src/SurfaceMesh.cpp
     src/MeshTopology.cpp
     src/MeshValidator.cpp
+    src/MeshQuality.cpp
+    src/CADFaceMapper.cpp
     src/SurfaceRefiner.cpp
     src/GltfWriter.cpp
     src/WebViewWriter.cpp
@@ -141,6 +145,10 @@ ${_bytes}0x00};
     add_executable(openmodel-webui src/webui/main.cpp)
     target_include_directories(openmodel-webui PRIVATE "${OPENMODEL_WEBUI_INCLUDE_DIR}" "${_openmodel_gen_dir}")
     target_compile_definitions(openmodel-webui PRIVATE OPENMODEL_VERSION="${PROJECT_VERSION}")
+    if(WIN32)
+        # webui.h pulls in <windows.h>, whose min/max macros break std::numeric_limits<T>::max().
+        target_compile_definitions(openmodel-webui PRIVATE NOMINMAX)
+    endif()
     target_link_libraries(openmodel-webui PRIVATE OpenModel::Core "${OPENMODEL_WEBUI_LIBRARY}")
     target_compile_features(openmodel-webui PRIVATE cxx_std_17)
     set_target_properties(openmodel-webui PROPERTIES OUTPUT_NAME openmodel-webui)
@@ -177,6 +185,7 @@ if(OPENMODEL_BUILD_TESTS)
     endfunction()
     openmodel_add_test(core_smoke_test tests/core_smoke_test.cpp)
     openmodel_add_test(mesh_binary_io_test tests/mesh_binary_io_test.cpp)
+    openmodel_add_test(openmodel_project_test tests/openmodel_project_test.cpp)
     openmodel_add_test(mesh_importer_test tests/mesh_importer_test.cpp)
     openmodel_add_test(mesh_validation_test tests/mesh_validation_test.cpp)
     openmodel_add_test(abaqus_writer_test tests/abaqus_writer_test.cpp)
@@ -211,9 +220,11 @@ if(OPENMODEL_BUILD_TESTS)
     openmodel_add_test(analysis_setup_test tests/analysis_setup_test.cpp)
     openmodel_add_test(mesh_selection_test tests/mesh_selection_test.cpp)
     openmodel_add_test(code_aster_test tests/code_aster_test.cpp)
+    openmodel_add_test(mesh_quality_test tests/mesh_quality_test.cpp)
+    openmodel_add_test(cad_face_mapper_test tests/cad_face_mapper_test.cpp)
     set(_openmodel_core_test_names core_smoke_test mesh_validation_test abaqus_writer_test physical_groups_test
         mesh_topology_test surface_mesher_test gltf_writer_test surface_refiner_test
-        web_view_writer_test mesh_binary_io_test mesh_importer_test fem_results_test fatigue_result_source_test fatigue_tensor_normalizer_test fatigue_sample_preparer_test fatigue_stress_history_test fatigue_cycle_counting_test fatigue_multiaxial_cycle_contract_test fatigue_material_test fatigue_mean_stress_correction_test fatigue_damage_model_test fatigue_strain_life_damage_model_test fatigue_wang_brown_damage_model_test fatigue_analysis_test fatigue_report_test fatigue_report_writer_test fatigue_spectrum_report_test fatigue_damage_map_test fatigue_damage_map_writer_test fatigue_damage_map_webview_adapter_test analysis_setup_test mesh_selection_test code_aster_test)
+        web_view_writer_test mesh_binary_io_test openmodel_project_test mesh_importer_test fem_results_test fatigue_result_source_test fatigue_tensor_normalizer_test fatigue_sample_preparer_test fatigue_stress_history_test fatigue_cycle_counting_test fatigue_multiaxial_cycle_contract_test fatigue_material_test fatigue_mean_stress_correction_test fatigue_damage_model_test fatigue_strain_life_damage_model_test fatigue_wang_brown_damage_model_test fatigue_analysis_test fatigue_report_test fatigue_report_writer_test fatigue_spectrum_report_test fatigue_damage_map_test fatigue_damage_map_writer_test fatigue_damage_map_webview_adapter_test analysis_setup_test mesh_selection_test code_aster_test mesh_quality_test cad_face_mapper_test)
     if(OPENMODEL_BUILD_CLI)
         list(APPEND _openmodel_core_test_names openmodel_cli_info openmodel_cli_validate_demo)
     endif()
@@ -360,20 +371,86 @@ endif()
 
 if(OPENMODEL_BUILD_ASSIMP_BACKEND)
     find_package(assimp CONFIG REQUIRED)
-    add_library(openmodel_assimp STATIC src/AssimpModel.cpp)
-    target_link_libraries(openmodel_assimp PUBLIC OpenModel::Core)
     if(TARGET assimp::assimp)
-        target_link_libraries(openmodel_assimp PUBLIC assimp::assimp)
+        set(_openmodel_assimp_dependency assimp::assimp)
     elseif(TARGET assimp)
-        target_link_libraries(openmodel_assimp PUBLIC assimp)
+        set(_openmodel_assimp_dependency assimp)
     else()
-        message(FATAL_ERROR "Assimp package found, but no assimp::assimp or assimp target is available")
+        message(FATAL_ERROR "The Assimp package did not export an assimp target.")
     endif()
+
+    include(CheckCXXSourceCompiles)
+    set(_openmodel_saved_required_libraries "${CMAKE_REQUIRED_LIBRARIES}")
+    set(CMAKE_REQUIRED_LIBRARIES "${_openmodel_assimp_dependency}")
+    # The check only needs the headers, so do not link: building a static library avoids failures that have
+    # nothing to do with the Assimp version (import library with a single configuration, missing runtime
+    # dependencies of a static Assimp, Debug/Release mismatch with multi-config generators).
+    set(_openmodel_saved_try_type "${CMAKE_TRY_COMPILE_TARGET_TYPE}")
+    set(_openmodel_saved_try_config "${CMAKE_TRY_COMPILE_CONFIGURATION}")
+    set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
+    # Assimp 6 headers need C++17, while a try-compile uses the compiler default (C++14 with MSVC): the
+    # project's own targets request cxx_std_17, so the check must too. CMAKE_CXX_STANDARD is honoured by
+    # try_compile (policy CMP0067, NEW from cmake_minimum_required 3.8).
+    set(_openmodel_saved_cxx_standard "${CMAKE_CXX_STANDARD}")
+    set(CMAKE_CXX_STANDARD 17)
+    get_target_property(_openmodel_assimp_configs ${_openmodel_assimp_dependency} IMPORTED_CONFIGURATIONS)
+    if(_openmodel_assimp_configs AND NOT "DEBUG" IN_LIST _openmodel_assimp_configs)
+        set(CMAKE_TRY_COMPILE_CONFIGURATION Release)
+    endif()
+    unset(OPENMODEL_ASSIMP_HAS_PBR_TEXTURE_API CACHE)
+    check_cxx_source_compiles("
+        #include <assimp/material.h>
+        int main() {
+            aiTextureType baseColor = aiTextureType_BASE_COLOR;
+            aiTextureType emissive = aiTextureType_EMISSION_COLOR;
+            aiTextureType metalness = aiTextureType_METALNESS;
+            aiTextureType roughness = aiTextureType_DIFFUSE_ROUGHNESS;
+            (void)baseColor; (void)emissive; (void)metalness; (void)roughness;
+            return 0;
+        }"
+        OPENMODEL_ASSIMP_HAS_PBR_TEXTURE_API)
+    set(CMAKE_REQUIRED_LIBRARIES "${_openmodel_saved_required_libraries}")
+    set(CMAKE_TRY_COMPILE_TARGET_TYPE "${_openmodel_saved_try_type}")
+    set(CMAKE_TRY_COMPILE_CONFIGURATION "${_openmodel_saved_try_config}")
+    if(_openmodel_saved_cxx_standard)
+        set(CMAKE_CXX_STANDARD "${_openmodel_saved_cxx_standard}")
+    else()
+        unset(CMAKE_CXX_STANDARD)
+    endif()
+    unset(_openmodel_saved_cxx_standard)
+    unset(_openmodel_saved_required_libraries)
+    unset(_openmodel_saved_try_type)
+    unset(_openmodel_saved_try_config)
+    unset(_openmodel_assimp_configs)
+    if(NOT OPENMODEL_ASSIMP_HAS_PBR_TEXTURE_API)
+        message(FATAL_ERROR
+            "The Assimp PBR texture check failed. Assimp 5.0 or newer is required (aiTextureType_BASE_COLOR, "
+            "aiTextureType_EMISSION_COLOR, aiTextureType_METALNESS and aiTextureType_DIFFUSE_ROUGHNESS), but the "
+            "test program may also have failed for another reason, for example the include directory of the "
+            "assimp target. The compiler output is in CMakeFiles/CMakeConfigureLog.yaml (CMakeError.log on "
+            "CMake < 3.26) of the build directory.")
+    endif()
+
+    add_library(openmodel_assimp STATIC
+        src/AssimpModel.cpp
+        src/AssimpSurfaceMesher.cpp
+        src/AssimpSurfacePatchAnalyzer.cpp
+        src/AssimpPatchGroupBuilder.cpp
+        src/AssimpSurfaceGeometryFitter.cpp)
+    add_library(OpenModel::Assimp ALIAS openmodel_assimp)
+    set_target_properties(openmodel_assimp PROPERTIES EXPORT_NAME Assimp)
+    target_link_libraries(openmodel_assimp PUBLIC OpenModel::Core)
+    target_link_libraries(openmodel_assimp PUBLIC ${_openmodel_assimp_dependency})
+    unset(_openmodel_assimp_dependency)
     if(OPENMODEL_BUILD_TESTS)
         add_executable(assimp_model_test tests/assimp_model_test.cpp)
         target_link_libraries(assimp_model_test PRIVATE openmodel_assimp)
         add_test(NAME assimp_model_test COMMAND assimp_model_test)
-        set_tests_properties(assimp_model_test PROPERTIES LABELS "integration;assimp")
+        add_executable(assimp_surface_mesher_test tests/assimp_surface_mesher_test.cpp)
+        target_link_libraries(assimp_surface_mesher_test PRIVATE openmodel_assimp)
+        add_test(NAME assimp_surface_mesher_test COMMAND assimp_surface_mesher_test)
+        set_tests_properties(assimp_model_test assimp_surface_mesher_test
+            PROPERTIES LABELS "integration;assimp")
     endif()
 endif()
 
@@ -381,8 +458,8 @@ if(OPENMODEL_BUILD_GMSH_BACKEND)
     # Explicit SDK paths take precedence over package discovery. This is useful
     # with the official precompiled Windows SDK, which may not ship a CMake config.
     set(_openmodel_gmsh_target "")
-    if(NOT GMSH_ROOT AND NOT GMSH_INCLUDE_DIR AND NOT GMSH_LIBRARY_DEBUG
-       AND NOT GMSH_LIBRARY_RELEASE AND NOT GMSH_LIBRARY)
+    if(NOT GMSH_ROOT AND NOT GMSH_ROOT_DEBUG AND NOT GMSH_ROOT_RELEASE AND NOT GMSH_INCLUDE_DIR
+       AND NOT GMSH_LIBRARY_DEBUG AND NOT GMSH_LIBRARY_RELEASE AND NOT GMSH_LIBRARY)
         find_package(Gmsh CONFIG QUIET)
         find_package(gmsh CONFIG QUIET)
         foreach(_candidate Gmsh::gmsh gmsh::gmsh gmsh)
@@ -394,99 +471,177 @@ if(OPENMODEL_BUILD_GMSH_BACKEND)
     endif()
 
     if(NOT _openmodel_gmsh_target)
-        # Accept both a conventional SDK root and the directory explicitly
-        # supplied by the user. Keep GMSH_INCLUDE_DIR as a cache PATH so it is
-        # visible/editable in CMake GUIs (including Visual Studio generators).
-        if(NOT GMSH_INCLUDE_DIR)
-            find_path(_OPENMODEL_GMSH_INCLUDE_DIR gmsh.h
-                HINTS "${GMSH_ROOT}" "$ENV{GMSH_ROOT}"
-                PATH_SUFFIXES include include/gmsh)
-            if(_OPENMODEL_GMSH_INCLUDE_DIR)
-                set(GMSH_INCLUDE_DIR "${_OPENMODEL_GMSH_INCLUDE_DIR}" CACHE PATH
-                    "Directory containing gmsh.h" FORCE)
-            endif()
-        endif()
+        # Gmsh does not install a CMake package, so it is located from an install prefix:
+        #   GMSH_ROOT          prefix used for every configuration (include/, lib/, bin/)
+        #   GMSH_ROOT_DEBUG    optional prefix of a separate Debug build/install
+        #   GMSH_ROOT_RELEASE  optional prefix of a separate Release build/install
+        # GMSH_INCLUDE_DIR, GMSH_LIBRARY_DEBUG/RELEASE and GMSH_RUNTIME_LIBRARY_DEBUG/RELEASE override the
+        # search. Nothing found by the search is written back to the cache, so changing a root and
+        # re-configuring always searches again.
+        set(GMSH_ROOT "" CACHE PATH "Gmsh install prefix (contains include/gmsh.h, lib/, bin/)")
+        set(GMSH_ROOT_DEBUG "" CACHE PATH "Gmsh install prefix used for Debug (defaults to GMSH_ROOT)")
+        set(GMSH_ROOT_RELEASE "" CACHE PATH "Gmsh install prefix used for Release (defaults to GMSH_ROOT)")
+        option(OPENMODEL_GMSH_LINK_CHECK "Try to link a tiny program against the located Gmsh at configure time" ON)
 
-        # Preserve the old single GMSH_LIBRARY setting, but prefer per-config
-        # paths when available. The official Windows SDK typically provides
-        # gmsh.h, gmsh.lib and gmsh.dll, without an accompanying package config.
         if(GMSH_LIBRARY AND NOT GMSH_LIBRARY_RELEASE)
-            set(GMSH_LIBRARY_RELEASE "${GMSH_LIBRARY}" CACHE FILEPATH
-                "Gmsh release import/static library (for example gmsh.lib)" FORCE)
-        endif()
-        if(NOT GMSH_LIBRARY_RELEASE)
-            find_library(_OPENMODEL_GMSH_LIBRARY_RELEASE NAMES gmsh libgmsh gmsh.lib
-                HINTS "${GMSH_ROOT}" "$ENV{GMSH_ROOT}"
-                PATH_SUFFIXES lib/Release Release lib/RelWithDebInfo lib lib64)
-            if(_OPENMODEL_GMSH_LIBRARY_RELEASE)
-                set(GMSH_LIBRARY_RELEASE "${_OPENMODEL_GMSH_LIBRARY_RELEASE}" CACHE FILEPATH
-                    "Gmsh release import/static library (for example gmsh.lib)" FORCE)
-            endif()
-        endif()
-        if(NOT GMSH_LIBRARY_DEBUG)
-            find_library(_OPENMODEL_GMSH_LIBRARY_DEBUG NAMES gmshd libgmshd gmsh-debug gmsh_d gmsh
-                HINTS "${GMSH_ROOT}" "$ENV{GMSH_ROOT}"
-                PATH_SUFFIXES lib/Debug Debug lib lib64)
-            if(_OPENMODEL_GMSH_LIBRARY_DEBUG)
-                set(GMSH_LIBRARY_DEBUG "${_OPENMODEL_GMSH_LIBRARY_DEBUG}" CACHE FILEPATH
-                    "Gmsh debug import/static library (for example gmshd.lib)" FORCE)
-            endif()
+            set(GMSH_LIBRARY_RELEASE "${GMSH_LIBRARY}" CACHE FILEPATH "Gmsh release import/static library" FORCE)
         endif()
 
-        if(NOT GMSH_INCLUDE_DIR OR (NOT GMSH_LIBRARY_RELEASE AND NOT GMSH_LIBRARY_DEBUG))
+        # Import libraries are tried before static ones: Gmsh's own MSVC build produces gmsh.dll.lib
+        # (import library of the DLL) next to gmsh.lib (static library).
+        set(_gmsh_names_RELEASE gmsh.dll gmsh libgmsh)
+        set(_gmsh_names_DEBUG gmshd.dll gmshd libgmshd gmsh_d gmsh.dll gmsh libgmsh)
+        set(_gmsh_libdirs_RELEASE lib/Release Release lib/RelWithDebInfo lib lib64 bin)
+        set(_gmsh_libdirs_DEBUG lib/Debug Debug lib lib64 bin)
+        if(CMAKE_LIBRARY_ARCHITECTURE) # Debian-style multiarch prefixes, e.g. /usr/lib/x86_64-linux-gnu
+            list(APPEND _gmsh_libdirs_RELEASE lib/${CMAKE_LIBRARY_ARCHITECTURE})
+            list(APPEND _gmsh_libdirs_DEBUG lib/${CMAKE_LIBRARY_ARCHITECTURE})
+        endif()
+        set(_gmsh_bindirs_RELEASE bin/Release Release bin lib/Release lib)
+        set(_gmsh_bindirs_DEBUG bin/Debug Debug bin lib/Debug lib)
+
+        foreach(_cfg DEBUG RELEASE)
+            set(_gmsh_root_${_cfg} "${GMSH_ROOT_${_cfg}}")
+            if(NOT _gmsh_root_${_cfg})
+                set(_gmsh_root_${_cfg} "${GMSH_ROOT}")
+            endif()
+            if(NOT _gmsh_root_${_cfg} AND DEFINED ENV{GMSH_ROOT})
+                set(_gmsh_root_${_cfg} "$ENV{GMSH_ROOT}")
+            endif()
+            set(_gmsh_search_${_cfg} "")
+            if(_gmsh_root_${_cfg})
+                set(_gmsh_search_${_cfg} NO_DEFAULT_PATH) # never mix in a Gmsh found elsewhere on the system
+            endif()
+
+            set(_gmsh_lib_${_cfg} "${GMSH_LIBRARY_${_cfg}}")
+            if(NOT _gmsh_lib_${_cfg})
+                unset(_OPENMODEL_GMSH_LIBRARY_${_cfg} CACHE)
+                find_library(_OPENMODEL_GMSH_LIBRARY_${_cfg} NAMES ${_gmsh_names_${_cfg}}
+                    HINTS "${_gmsh_root_${_cfg}}" PATH_SUFFIXES ${_gmsh_libdirs_${_cfg}} ${_gmsh_search_${_cfg}})
+                set(_gmsh_lib_${_cfg} "${_OPENMODEL_GMSH_LIBRARY_${_cfg}}")
+            endif()
+
+            set(_gmsh_dll_${_cfg} "${GMSH_RUNTIME_LIBRARY_${_cfg}}")
+            if(WIN32 AND NOT _gmsh_dll_${_cfg} AND _gmsh_root_${_cfg})
+                # The DLL carries the version in its name (for example gmsh-4.15.dll).
+                foreach(_dir ${_gmsh_bindirs_${_cfg}})
+                    file(GLOB _gmsh_dll_candidates "${_gmsh_root_${_cfg}}/${_dir}/gmsh*.dll")
+                    if(_gmsh_dll_candidates)
+                        list(GET _gmsh_dll_candidates 0 _gmsh_dll_${_cfg})
+                        break()
+                    endif()
+                endforeach()
+            endif()
+        endforeach()
+
+        if(NOT GMSH_INCLUDE_DIR)
+            set(_gmsh_inc_roots "${_gmsh_root_RELEASE}" "${_gmsh_root_DEBUG}")
+            list(REMOVE_DUPLICATES _gmsh_inc_roots)
+            unset(_OPENMODEL_GMSH_INCLUDE_DIR CACHE)
+            find_path(_OPENMODEL_GMSH_INCLUDE_DIR gmsh.h
+                HINTS ${_gmsh_inc_roots} PATH_SUFFIXES include include/gmsh ${_gmsh_search_RELEASE})
+            set(_gmsh_include "${_OPENMODEL_GMSH_INCLUDE_DIR}")
+        else()
+            set(_gmsh_include "${GMSH_INCLUDE_DIR}")
+        endif()
+
+        foreach(_v _gmsh_include _gmsh_lib_RELEASE _gmsh_lib_DEBUG)
+            if(NOT ${_v})
+                set(${_v} "")  # drop the "...-NOTFOUND" marker so messages stay readable
+            endif()
+        endforeach()
+        if(NOT _gmsh_include OR (NOT _gmsh_lib_RELEASE AND NOT _gmsh_lib_DEBUG))
             message(FATAL_ERROR
-                "OPENMODEL_BUILD_GMSH_BACKEND=ON, but Gmsh was not fully located. "
-                "Set GMSH_ROOT, GMSH_INCLUDE_DIR (directory containing gmsh.h), "
-                "and GMSH_LIBRARY_RELEASE/GMSH_LIBRARY_DEBUG. For a precompiled "
-                "Windows SDK, point them to its include directory and matching .lib files.")
+                "OPENMODEL_BUILD_GMSH_BACKEND=ON, but Gmsh was not fully located "
+                "(include: '${_gmsh_include}', Release lib: '${_gmsh_lib_RELEASE}', Debug lib: '${_gmsh_lib_DEBUG}'). "
+                "Set GMSH_ROOT to the Gmsh install prefix (containing include/gmsh.h and lib/), or "
+                "GMSH_ROOT_DEBUG / GMSH_ROOT_RELEASE for separate builds, or give GMSH_INCLUDE_DIR and "
+                "GMSH_LIBRARY_DEBUG/GMSH_LIBRARY_RELEASE explicitly.")
         endif()
 
         # If only one variant is available, use it for every configuration.
-        if(NOT GMSH_LIBRARY_DEBUG)
-            set(GMSH_LIBRARY_DEBUG "${GMSH_LIBRARY_RELEASE}")
+        if(NOT _gmsh_lib_DEBUG)
+            set(_gmsh_lib_DEBUG "${_gmsh_lib_RELEASE}")
+            set(_gmsh_dll_DEBUG "${_gmsh_dll_RELEASE}")
         endif()
-        if(NOT GMSH_LIBRARY_RELEASE)
-            set(GMSH_LIBRARY_RELEASE "${GMSH_LIBRARY_DEBUG}")
+        if(NOT _gmsh_lib_RELEASE)
+            set(_gmsh_lib_RELEASE "${_gmsh_lib_DEBUG}")
+            set(_gmsh_dll_RELEASE "${_gmsh_dll_DEBUG}")
+        endif()
+        if(NOT _gmsh_dll_DEBUG)
+            set(_gmsh_dll_DEBUG "${_gmsh_dll_RELEASE}")
+        endif()
+        if(NOT _gmsh_dll_RELEASE)
+            set(_gmsh_dll_RELEASE "${_gmsh_dll_DEBUG}")
+        endif()
+        message(STATUS "Gmsh include: ${_gmsh_include}")
+        message(STATUS "Gmsh Release library: ${_gmsh_lib_RELEASE}")
+        message(STATUS "Gmsh Debug library:   ${_gmsh_lib_DEBUG}")
+        if(WIN32)
+            message(STATUS "Gmsh Release DLL: ${_gmsh_dll_RELEASE}")
+            message(STATUS "Gmsh Debug DLL:   ${_gmsh_dll_DEBUG}")
+        endif()
+
+        # A static Gmsh (gmsh.lib containing GamePad.obj, ...) needs the Windows system libraries it uses:
+        # joyGetPosEx/joyGetDevCapsA are in winmm, sockets in ws2_32/wsock32, process queries in psapi.
+        # They are part of the Windows SDK, so adding them is harmless for an import library (DLL build).
+        # OPENMODEL_GMSH_EXTRA_LIBRARIES appends further libraries (other dependencies of a static Gmsh).
+        set(_openmodel_gmsh_extra_libs ${OPENMODEL_GMSH_EXTRA_LIBRARIES})
+        if(WIN32)
+            list(APPEND _openmodel_gmsh_extra_libs winmm ws2_32 wsock32 psapi ole32)
+        endif()
+
+        # Catch a Gmsh build that cannot be used with this compiler before the long build starts, for
+        # example a MinGW build of the C++ API with MSVC (unresolved gmsh:: symbols at link time). A static
+        # Gmsh needs its own dependencies too, so a failure here is a warning, not an error.
+        if(OPENMODEL_GMSH_LINK_CHECK AND NOT CMAKE_CROSSCOMPILING)
+            file(WRITE "${CMAKE_BINARY_DIR}/gmsh_link_check.cpp"
+                "#include <gmsh.h>\nint main() { gmsh::initialize(); gmsh::model::add(\"check\"); gmsh::finalize(); return 0; }\n")
+            foreach(_cfg RELEASE DEBUG)
+                if(_gmsh_lib_${_cfg})
+                    if(_cfg STREQUAL "DEBUG")
+                        set(CMAKE_TRY_COMPILE_CONFIGURATION Debug)
+                    else()
+                        set(CMAKE_TRY_COMPILE_CONFIGURATION Release)
+                    endif()
+                    try_compile(_gmsh_link_ok
+                        "${CMAKE_BINARY_DIR}/gmsh_link_check_${_cfg}"
+                        "${CMAKE_BINARY_DIR}/gmsh_link_check.cpp"
+                        CMAKE_FLAGS "-DINCLUDE_DIRECTORIES=${_gmsh_include}"
+                        LINK_LIBRARIES "${_gmsh_lib_${_cfg}}" ${_openmodel_gmsh_extra_libs}
+                        CXX_STANDARD 17
+                        OUTPUT_VARIABLE _gmsh_link_log)
+                    if(NOT _gmsh_link_ok)
+                        message(WARNING
+                            "A test program using the Gmsh C++ API did not link against ${_gmsh_lib_${_cfg}}. "
+                            "With MSVC this typically means the library was built by another compiler (for "
+                            "example the official MinGW SDK, whose C++ symbols are not MSVC-decorated), or it is "
+                            "a static library whose dependencies are not on the link line. Configure with "
+                            "-DOPENMODEL_GMSH_LINK_CHECK=OFF to skip this check. Details: "
+                            "${CMAKE_BINARY_DIR}/gmsh_link_check_${_cfg}")
+                        file(WRITE "${CMAKE_BINARY_DIR}/gmsh_link_check_${_cfg}.log" "${_gmsh_link_log}")
+                    endif()
+                endif()
+            endforeach()
         endif()
 
         add_library(openmodel_gmsh_external UNKNOWN IMPORTED GLOBAL)
         set_target_properties(openmodel_gmsh_external PROPERTIES
-            INTERFACE_INCLUDE_DIRECTORIES "${GMSH_INCLUDE_DIR}"
+            INTERFACE_INCLUDE_DIRECTORIES "${_gmsh_include}"
             IMPORTED_CONFIGURATIONS "DEBUG;RELEASE"
-            IMPORTED_LOCATION_DEBUG "${GMSH_LIBRARY_DEBUG}"
-            IMPORTED_LOCATION_RELEASE "${GMSH_LIBRARY_RELEASE}"
+            IMPORTED_LOCATION_DEBUG "${_gmsh_lib_DEBUG}"
+            IMPORTED_LOCATION_RELEASE "${_gmsh_lib_RELEASE}"
             MAP_IMPORTED_CONFIG_RELWITHDEBINFO Release
             MAP_IMPORTED_CONFIG_MINSIZEREL Release)
-        # The target is intentionally configuration-aware: Debug uses the
-        # debug library when supplied; Release/RelWithDebInfo/MinSizeRel use release.
-        set(_openmodel_gmsh_target openmodel_gmsh_external)
-
-        if(WIN32)
-            if(NOT GMSH_RUNTIME_LIBRARY_DEBUG)
-                find_file(_OPENMODEL_GMSH_RUNTIME_LIBRARY_DEBUG NAMES gmsh.dll libgmsh.dll gmshd.dll
-                    HINTS "${GMSH_ROOT}" "$ENV{GMSH_ROOT}"
-                    PATH_SUFFIXES bin/Debug Debug bin)
-                if(_OPENMODEL_GMSH_RUNTIME_LIBRARY_DEBUG)
-                    set(GMSH_RUNTIME_LIBRARY_DEBUG "${_OPENMODEL_GMSH_RUNTIME_LIBRARY_DEBUG}" CACHE FILEPATH
-                        "Gmsh debug runtime DLL on Windows, if applicable" FORCE)
-                endif()
-            endif()
-            if(NOT GMSH_RUNTIME_LIBRARY_RELEASE)
-                find_file(_OPENMODEL_GMSH_RUNTIME_LIBRARY_RELEASE NAMES gmsh.dll libgmsh.dll
-                    HINTS "${GMSH_ROOT}" "$ENV{GMSH_ROOT}"
-                    PATH_SUFFIXES bin/Release Release bin)
-                if(_OPENMODEL_GMSH_RUNTIME_LIBRARY_RELEASE)
-                    set(GMSH_RUNTIME_LIBRARY_RELEASE "${_OPENMODEL_GMSH_RUNTIME_LIBRARY_RELEASE}" CACHE FILEPATH
-                        "Gmsh release runtime DLL on Windows, if applicable" FORCE)
-                endif()
-            endif()
-            if(NOT GMSH_RUNTIME_LIBRARY_DEBUG)
-                set(GMSH_RUNTIME_LIBRARY_DEBUG "${GMSH_RUNTIME_LIBRARY_RELEASE}")
-            endif()
-            if(NOT GMSH_RUNTIME_LIBRARY_RELEASE)
-                set(GMSH_RUNTIME_LIBRARY_RELEASE "${GMSH_RUNTIME_LIBRARY_DEBUG}")
-            endif()
+        if(_openmodel_gmsh_extra_libs)
+            set_property(TARGET openmodel_gmsh_external PROPERTY INTERFACE_LINK_LIBRARIES "${_openmodel_gmsh_extra_libs}")
         endif()
+        # The target is configuration-aware: Debug uses the debug library, Release/RelWithDebInfo/MinSizeRel
+        # use the release one (a single variant is used for every configuration).
+        set(_openmodel_gmsh_target openmodel_gmsh_external)
+        set(GMSH_INCLUDE_DIR "${_gmsh_include}")
+        set(GMSH_RUNTIME_LIBRARY_DEBUG "${_gmsh_dll_DEBUG}")
+        set(GMSH_RUNTIME_LIBRARY_RELEASE "${_gmsh_dll_RELEASE}")
     endif()
 
     add_library(openmodel_gmsh STATIC src/GmshMesher.cpp)
@@ -508,6 +663,10 @@ if(OPENMODEL_BUILD_GMSH_BACKEND)
         endif()
         add_test(NAME gmsh_integration_test COMMAND gmsh_integration_test)
         set_tests_properties(gmsh_integration_test PROPERTIES LABELS "integration;gmsh" TIMEOUT 180)
+        add_executable(gmsh_structured_test tests/gmsh_structured_test.cpp)
+        target_link_libraries(gmsh_structured_test PRIVATE openmodel_gmsh)
+        add_test(NAME gmsh_structured_test COMMAND gmsh_structured_test)
+        set_tests_properties(gmsh_structured_test PROPERTIES LABELS "integration;gmsh" TIMEOUT 180)
     endif()
 
     # Windows DLLs are not copied automatically when linking to a .lib import
@@ -522,6 +681,7 @@ if(OPENMODEL_BUILD_GMSH_BACKEND)
         endfunction()
         if(TARGET gmsh_integration_test)
             openmodel_copy_gmsh_runtime(gmsh_integration_test)
+            openmodel_copy_gmsh_runtime(gmsh_structured_test)
         endif()
         if(TARGET openmodel-cli)
             openmodel_copy_gmsh_runtime(openmodel-cli)
@@ -533,7 +693,36 @@ if(OPENMODEL_BUILD_GMSH_BACKEND)
 endif()
 
 if(OPENMODEL_BUILD_OCC_BACKEND)
-    find_package(OpenCASCADE REQUIRED)
+    # Open CASCADE ships a CMake package (OpenCASCADEConfig.cmake). Any of these selects the installation:
+    #   -DOpenCASCADE_DIR=<folder containing OpenCASCADEConfig.cmake>   (standard CMake variable)
+    #   -DOPENCASCADE_ROOT=<install prefix>   (or the OPENCASCADE_ROOT / CASROOT environment variable)
+    # The prefix is searched with the layouts of the official Windows package (<prefix>/cmake), of vcpkg and of
+    # Linux distributions (<prefix>/lib/cmake/opencascade). It is also what Gmsh calls CASROOT: use the same
+    # installation for both so that a single Open CASCADE runtime is loaded.
+    set(OPENCASCADE_ROOT "" CACHE PATH "Open CASCADE install prefix (contains cmake/ or lib/cmake/opencascade)")
+    set(_openmodel_occ_root "${OPENCASCADE_ROOT}")
+    if(NOT _openmodel_occ_root AND DEFINED ENV{OPENCASCADE_ROOT})
+        set(_openmodel_occ_root "$ENV{OPENCASCADE_ROOT}")
+    endif()
+    if(NOT _openmodel_occ_root AND DEFINED ENV{CASROOT})
+        set(_openmodel_occ_root "$ENV{CASROOT}")
+    endif()
+    if(_openmodel_occ_root AND NOT OpenCASCADE_DIR)
+        find_package(OpenCASCADE CONFIG QUIET
+            HINTS "${_openmodel_occ_root}" "${_openmodel_occ_root}/cmake"
+                  "${_openmodel_occ_root}/lib/cmake/opencascade" "${_openmodel_occ_root}/lib64/cmake/opencascade"
+                  "${_openmodel_occ_root}/share/opencascade" "${_openmodel_occ_root}/share/cmake/opencascade"
+            NO_DEFAULT_PATH)
+        if(NOT OpenCASCADE_FOUND)
+            message(FATAL_ERROR
+                "OPENMODEL_BUILD_OCC_BACKEND=ON, but no OpenCASCADEConfig.cmake was found under "
+                "OPENCASCADE_ROOT='${_openmodel_occ_root}'. Point OpenCASCADE_DIR to the folder that contains it "
+                "(for the official Windows package: <prefix>/cmake).")
+        endif()
+    else()
+        find_package(OpenCASCADE REQUIRED)
+    endif()
+    message(STATUS "Open CASCADE ${OpenCASCADE_VERSION}: ${OpenCASCADE_DIR}")
     add_library(openmodel_occ STATIC src/OCCModel.cpp)
     target_link_libraries(openmodel_occ PUBLIC OpenModel::Core)
     if(DEFINED OpenCASCADE_INCLUDE_DIR)
@@ -544,8 +733,36 @@ if(OPENMODEL_BUILD_OCC_BACKEND)
     # Link only the toolkits that OCCModel actually uses. OpenCASCADE_LIBRARIES
     # may list every toolkit, including optional Draw/Test libraries that
     # distribution packages split into separate -dev packages.
-    set(_openmodel_occ_toolkits TKernel TKMath TKBRep TKGeomBase TKG3d TKTopAlgo
-        TKGeomAlgo TKMesh TKXSBase TKSTEP TKIGES TKSTEPBase TKSTEPAttr TKSTEP209 TKXCAF TKLCAF TKCDF TKXDESTEP TKXDEIGES TKBO)
+    # TKShHealing provides ShapeAnalysis_Surface (cached surface projectors of OCCModel::facesContainingPoint)
+    # and TKPrim the BRepPrim* builders used by the tests. Windows import libraries do not pull in the
+    # toolkits they depend on, so every toolkit that is used directly must be listed.
+    set(_openmodel_occ_toolkits TKernel TKMath TKG2d TKBRep TKGeomBase TKG3d TKTopAlgo
+        TKGeomAlgo TKMesh TKShHealing TKPrim TKXSBase TKXCAF TKLCAF TKCDF TKBO)
+    # A static Gmsh (gmsh.lib) built with Open CASCADE references the modelling toolkits for offsets,
+    # fillets, features and booleans (BRepOffsetAPI_*, BRepFilletAPI_*, ChFi2d_*, BRepAlgoAPI_*,
+    # BRepAlgoAPI_Defeaturing): the same list Gmsh itself links. They exist in every supported release.
+    list(APPEND _openmodel_occ_toolkits TKOffset TKFillet TKFeat TKBool TKHLR)
+    # The package may or may not define imported targets, so probe for the legacy toolkit both ways.
+    set(_openmodel_occ_legacy_exchange FALSE)
+    if(TARGET OpenCASCADE::TKXDESTEP OR TARGET TKXDESTEP)
+        set(_openmodel_occ_legacy_exchange TRUE)
+    else()
+        unset(_openmodel_occ_probe_xdestep CACHE)
+        find_library(_openmodel_occ_probe_xdestep NAMES TKXDESTEP
+            HINTS "${OpenCASCADE_LIBRARY_DIR}" "${OpenCASCADE_DIR}/../.." PATH_SUFFIXES lib lib64)
+        if(_openmodel_occ_probe_xdestep)
+            set(_openmodel_occ_legacy_exchange TRUE)
+        endif()
+    endif()
+    if(_openmodel_occ_legacy_exchange)
+        # Open CASCADE up to 7.8: STEP and IGES are split over several toolkits. Release 7.8 also ships the
+        # new TKDE* toolkits, but the STEPCAF/IGESCAF readers stay in these ones.
+        list(APPEND _openmodel_occ_toolkits TKSTEP TKIGES TKSTEPBase TKSTEPAttr TKSTEP209 TKXDESTEP TKXDEIGES)
+    else()
+        # Releases with the merged data-exchange toolkits: the STEP and IGES readers, XDE/CAF ones included,
+        # live in TKDESTEP and TKDEIGES (TKSTEP, TKXDESTEP, ... no longer exist).
+        list(APPEND _openmodel_occ_toolkits TKDE TKDESTEP TKDEIGES)
+    endif()
     foreach(_occ_lib IN LISTS _openmodel_occ_toolkits)
         if(TARGET OpenCASCADE::${_occ_lib})
             target_link_libraries(openmodel_occ PUBLIC OpenCASCADE::${_occ_lib})
@@ -658,6 +875,25 @@ if(OPENMODEL_BUILD_TESTS AND OPENMODEL_BUILD_GMSH_BACKEND AND OPENMODEL_BUILD_OC
     set_tests_properties(gmsh_assembly_test PROPERTIES LABELS "integration;gmsh;occ" TIMEOUT 180)
 endif()
 
+if(OPENMODEL_BUILD_TESTS AND OPENMODEL_BUILD_GMSH_BACKEND AND OPENMODEL_BUILD_OCC_BACKEND
+   AND OPENMODEL_GMSH_TEST_STEP)
+    if(NOT EXISTS "${OPENMODEL_GMSH_TEST_STEP}")
+        message(FATAL_ERROR "OPENMODEL_GMSH_TEST_STEP does not exist: ${OPENMODEL_GMSH_TEST_STEP}")
+    endif()
+    add_executable(gmsh_step_face_mapping_test tests/gmsh_step_face_mapping_test.cpp)
+    target_link_libraries(gmsh_step_face_mapping_test PRIVATE openmodel_gmsh openmodel_occ)
+    add_test(NAME gmsh_step_face_mapping_test
+        COMMAND gmsh_step_face_mapping_test "${OPENMODEL_GMSH_TEST_STEP}")
+    set_tests_properties(gmsh_step_face_mapping_test PROPERTIES
+        LABELS "integration;gmsh;occ;cad-face-mapping" TIMEOUT 300)
+    add_executable(gmsh_posthoc_face_mapping_test tests/gmsh_posthoc_face_mapping_test.cpp)
+    target_link_libraries(gmsh_posthoc_face_mapping_test PRIVATE openmodel_gmsh openmodel_occ)
+    add_test(NAME gmsh_posthoc_face_mapping_test
+        COMMAND gmsh_posthoc_face_mapping_test "${OPENMODEL_GMSH_TEST_STEP}")
+    set_tests_properties(gmsh_posthoc_face_mapping_test PROPERTIES
+        LABELS "integration;gmsh;occ;cad-face-mapping" TIMEOUT 300)
+endif()
+
 if(OPENMODEL_BUILD_TETGEN_BACKEND)
     find_path(TETGEN_INCLUDE_DIR tetgen.h HINTS ENV TETGEN_ROOT PATH_SUFFIXES include)
     find_library(TETGEN_LIBRARY NAMES tet tetgen HINTS ENV TETGEN_ROOT PATH_SUFFIXES lib lib64)
@@ -718,6 +954,9 @@ include(CMakePackageConfigHelpers)
 set(OPENMODEL_INSTALL_CMAKEDIR "${CMAKE_INSTALL_LIBDIR}/cmake/OpenModel")
 
 set(OPENMODEL_INSTALL_TARGETS openmodel_core)
+if(OPENMODEL_BUILD_ASSIMP_BACKEND)
+    list(APPEND OPENMODEL_INSTALL_TARGETS openmodel_assimp)
+endif()
 if(OPENMODEL_BUILD_SHARED)
     list(APPEND OPENMODEL_INSTALL_TARGETS openmodel_shared)
 endif()

@@ -83,7 +83,6 @@ iframe{display:block;width:100%;height:100%;border:0;background:#10141b}
 
   <div class="panel" data-panel="file" role="tabpanel">
     <div class="group"><div class="items">
-      <button class="rb" data-act="demo" title="Carica il modello dimostrativo"><span class="ic">🧩</span>Modello demo</button>
       <button class="rb" data-act="cad" title="Scegli un file CAD (STEP, IGES, BREP, OBJ, STL…) e triangolalo"><span class="ic">📐</span>Importa CAD…</button>
       <button class="rb" data-act="mesh" title="Scegli una mesh .mgmb, .inp o .mail (code_aster)"><span class="ic">📂</span>Apri mesh…</button>
       <button class="rb" data-act="res" data-need="mesh" title="Scegli un file di risultati (.frd, .dat, .csv, .tab)"><span class="ic">📈</span>Apri risultati…</button>
@@ -227,7 +226,6 @@ iframe{display:block;width:100%;height:100%;border:0;background:#10141b}
     <label for="cadPath">File (STEP, IGES, BREP, oppure OBJ/STL/… via Assimp)</label>
     <div class="row"><input id="cadPath" placeholder="/percorso/parte.step"><button onclick="browse('cadPath','cad')">Sfoglia…</button></div>
     <button class="primary full" id="btnImport" onclick="importModel()">Importa e triangola</button>
-    <button class="full" onclick="act('openmodel_create_demo')">Carica modello dimostrativo</button>
   </section>
 
   <section id="secTess">
@@ -249,12 +247,26 @@ iframe{display:block;width:100%;height:100%;border:0;background:#10141b}
     <div data-f="min"><label for="minSize">Dimensione minima (0 = automatica)</label><input id="minSize" type="number" min="0" step="any" value="0"></div>
     <div data-f="order"><label for="order">Ordine degli elementi</label>
       <select id="order"><option value="1">Lineare (1° ordine)</option><option value="2">Quadratico (2° ordine)</option></select></div>
+    <div data-f="struct"><label for="struct">Tipo di mesh</label>
+      <select id="struct" onchange="structChanged()">
+        <option value="unstructured">Non strutturata (tetraedri)</option>
+        <option value="structured">Strutturata (sweep di solidi prismatici)</option>
+      </select></div>
+    <div data-f="struct" id="shapeBox" hidden><label for="shape">Elementi della mesh strutturata</label>
+      <select id="shape">
+        <option value="hex">Esaedri (hex, prismi dove serve)</option>
+        <option value="prism">Prismi (triangolo + estrusione)</option>
+      </select>
+      <p class="hint">Solo solidi estrusi in linea retta (travi, piastre, profilati). Gli altri solidi ricadono sui tetraedri.</p></div>
+    <div data-f="thin"><label for="thin">Adatta alle facce sottili (0 = disattivo, 1 = consigliato)</label>
+      <input id="thin" type="number" min="0" step="any" value="0"></div>
     <label class="check" data-f="curv"><input type="checkbox" id="curv" checked> Adatta alla curvatura</label>
     <div data-f="iface"><label for="iface">Solidi a contatto</label>
       <select id="iface">
         <option value="independent">Mesh indipendenti (nodi distinti)</option>
         <option value="conformal">Mesh conforme (nodi condivisi sull'interfaccia)</option>
       </select></div>
+    <label class="check" data-f="log"><input type="checkbox" id="verbose"> Log Gmsh verboso (file <code>_gmsh.log</code> accanto al CAD)</label>
     <button class="primary full" id="btnMesh" onclick="generate()">Genera mesh volumetrica</button>
     <p class="hint" id="mesherHint"></p>
   </section>
@@ -288,6 +300,9 @@ iframe{display:block;width:100%;height:100%;border:0;background:#10141b}
     <h2>6 · Analisi e solver</h2>
     <label for="anScript">Script di analisi (materiale, vincoli, carichi, passo)</label>
     <textarea id="anScript" rows="9" spellcheck="false" style="width:100%;font-family:monospace;font-size:12px"></textarea>
+    <label>Condizioni presenti nello script</label>
+    <ul id="analysisConditions" style="list-style:none;margin:0 0 8px;padding:0;font-size:12px"></ul>
+    <p class="hint">Modifica o rimuovi singolarmente materiale, vincoli, carichi e passi. Le modifiche aggiornano direttamente lo script utilizzato dal solver.</p>
     <label for="anJob">File di lavoro (cartella o .inp; vuoto = ./openmodel_job/job.inp; per code_aster conta la cartella e il nome del file)</label>
     <input id="anJob" placeholder="/percorso/lavoro/job.inp">
     <label for="anSolverKind">Solutore</label>
@@ -300,6 +315,14 @@ iframe{display:block;width:100%;height:100%;border:0;background:#10141b}
     <p class="hint">Comandi: <code>material E= nu= rho=</code>, <code>fix plane:x=0 [dof=1,2,3]</code>, <code>force plane:x=10 F=fx,fy,fz</code>, <code>pressure group:NOME p=</code>, <code>gravity g=gx,gy,gz</code>, <code>step static</code> o <code>step frequency modes=N</code>. Selettori: <code>all</code>, <code>group:NOME</code>, <code>plane:x|y|z=VALORE</code>. Unità coerenti a scelta dell'utente. Al termine i risultati si caricano da soli.</p>
   </section>
 
+  <dialog id="analysisEditDialog" style="max-width:520px;width:calc(100% - 32px);border:1px solid var(--border,#888);border-radius:8px;background:var(--panel,#fff);color:var(--text,inherit)">
+    <form id="analysisEditForm">
+      <h3 id="analysisEditTitle">Modifica condizione</h3>
+      <div id="analysisEditFields" class="stack"></div>
+      <div class="grid2" style="margin-top:12px"><button type="button" id="analysisEditCancel">Annulla</button><button type="submit" class="primary">Applica</button></div>
+    </form>
+  </dialog>
+
   <section id="secSel">
     <h2>7 · Selezione e gruppi</h2>
     <label for="selMode">Seleziona nel viewer</label>
@@ -309,12 +332,24 @@ iframe{display:block;width:100%;height:100%;border:0;background:#10141b}
     <div class="grid2"><div><label for="selAngle">Angolo facce (°)</label><input id="selAngle" type="number" min="0" max="180" step="1" value="0" onchange="setPickAngle(this.value)"></div>
       <div><label for="selBoxOn">Riquadro</label><input id="selBoxOn" type="checkbox" onchange="setPickBox(this.checked)"></div></div>
     <p class="hint" id="selInfo">Selezione: nessuna.</p>
-    <label for="grpName">Nome del gruppo (vuoto = automatico; lettere, cifre, _ - .)</label>
+    <p class="hint" id="cadFaceInfo">Facce CAD: nessuna selezionata.</p>
+    <label>Gruppi nominati importati dal CAD</label>
+    <ul id="nativeCadGrpList" style="list-style:none;margin:0 0 8px;padding:0;font-size:12px"></ul>
+    <p class="hint">Sola lettura: nomi/layer provenienti dal file CAD. La dimensione identifica vertice (0), spigolo (1), faccia (2) o solido (3).</p>
+    <label for="cadGrpName">Nuovo gruppo CAD di facce (indipendente dalla mesh)</label>
+    <div class="row"><input id="cadGrpName" placeholder="BladeRoot"><button id="btnCadGrpCreate" onclick="createCADFaceGroup()">Crea</button></div>
+    <p class="hint">Il gruppo memorizza gli ID delle facce B-Rep selezionate e viene salvato accanto al file CAD nel sidecar <code>.omgroups</code>. Gmsh, TetGen e Netgen possono trasferirlo alla mesh FEM: verrà creato il Node Set <code>NOME_NODES</code>. TetGen richiede gli ID delle facce nella tassellazione CAD; Netgen usa il mapping geometrico. Dopo la meshatura, il pulsante «Vincola» inserisce nello script il vincolo a spostamento nullo. Le modifiche ai gruppi invalidano la mesh volumetrica generata, che dovrà essere rigenerata.</p>
+    <ul id="cadGrpList" style="list-style:none;margin:4px 0 10px;padding:0;font-size:12px"></ul>
+    <label>Gruppi FEM generici (MeshGroupRegistry)</label>
+    <ul id="genericMeshGrpList" style="list-style:none;margin:0 0 8px;padding:0;font-size:12px"></ul>
+    <label for="grpName">Nome del gruppo FEM (vuoto = automatico; lettere, cifre, _ - .)</label>
     <input id="grpName" placeholder="Appoggio">
     <div class="grid2"><button id="btnGrpNode" onclick="makeGroup('node')">Gruppo nodi</button><button id="btnGrpElem" onclick="makeGroup('element')">Gruppo elementi</button></div>
     <button id="btnGrpFace" onclick="makeGroup('face')" style="margin-top:6px">Gruppo facce</button>
     <label for="asDof">Vincolo: gradi di libertà (1,2,3 = x,y,z)</label>
     <input id="asDof" value="1,2,3">
+    <label for="asValue">Spostamento prescritto ux,uy,uz (unità del modello)</label>
+    <input id="asValue" value="0,0,0">
     <label for="asForce">Forza totale Fx,Fy,Fz</label>
     <input id="asForce" value="0,0,-100">
     <label for="asPress">Pressione (positiva = verso il corpo)</label>
@@ -349,8 +384,9 @@ iframe{display:block;width:100%;height:100%;border:0;background:#10141b}
 <script>
 "use strict";
 const $ = (id) => document.getElementById(id);
-let meshers = [], viewVersion = -1, pendingView = false, defaults = {cwd: ""};
+let meshers = [], viewVersion = -1, viewAvailable = false, pendingView = false, defaults = {cwd: ""};
 let busy = false, noMesher = false;
+let selectedCadFaceIds = [];
 
 function show(text, kind) {
   const el = $("result"); el.textContent = text; el.className = kind || "";
@@ -379,6 +415,14 @@ function setBusy(on) {
   if (!on && noMesher) $("btnMesh").disabled = true;
   if (!on) syncRibbon();
 }
+// Records the view version and loads model.mgwv only when the server has an image to serve; before a model is
+// loaded (or when the preview could not be built) the request would answer HTTP 404 and hide the real message.
+function applyView(r) {
+  if (r.view === undefined || r.view === viewVersion) return;
+  viewVersion = r.view;
+  viewAvailable = r.hasView !== false;
+  if (viewAvailable) loadView(r.viewLabel || "");
+}
 async function act(name, ...args) {
   if (busy) return null;
   setBusy(true);
@@ -386,31 +430,54 @@ async function act(name, ...args) {
   const r = await call(name, ...args);
   setBusy(false);
   show(r.message || "", r.ok ? "good" : "bad");
-  if (r.view !== undefined && r.view !== viewVersion) { viewVersion = r.view; loadView(r.viewLabel || ""); }
+  applyView(r);
   if (r.groups) renderGroups(r.groups);
-  else if (r.ok && ["openmodel_load_mesh", "openmodel_create_demo", "openmodel_generate_volume"].includes(name)) refreshGroups();
+  if (r.cadGroups) renderCADFaceGroups(r.cadGroups);
+  if (r.nativeCADGroups) renderNativeCADGroups(r.nativeCADGroups);
+  if (r.meshGroups) renderGenericMeshGroups(r.meshGroups);
+  else if (r.ok && ["openmodel_import_model", "openmodel_load_mesh", "openmodel_generate_volume"].includes(name)) await refreshCADFaceGroups();
+  if (!r.groups && r.ok && ["openmodel_load_mesh", "openmodel_generate_volume"].includes(name)) refreshGroups();
   return r;
 }
 function loadView(label) {
   const w = $("viewer").contentWindow;
   if (!w || !w.OpenModelViewer) { pendingView = true; return; }
   pendingView = false;
-  if (viewVersion < 0) return;
+  if (viewVersion < 0 || !viewAvailable) return;
+  selectedCadFaceIds = [];
+  $("cadFaceInfo").textContent = "Facce CAD: nessuna selezionata.";
+  // The viewer reports the selected B-Rep face ids when the displayed model is the CAD surface.
+  // FEM selections remain unchanged; they simply have no cadFaceId field.
+  w.OpenModelViewer.onSelect = (selection) => {
+    const ids = [...new Set((selection.faces || [])
+      .map((face) => face.cadFaceId)
+      .filter((id) => Number.isInteger(id) && id >= 0))].sort((a, b) => a - b);
+    selectedCadFaceIds = ids;
+    $("cadFaceInfo").textContent = ids.length
+      ? "Facce CAD selezionate: " + ids.join(", ")
+      : "Facce CAD: nessuna selezionata.";
+  };
   w.OpenModelViewer.loadUrl("model.mgwv?v=" + viewVersion, label);
 }
 $("viewer").addEventListener("load", () => { if (pendingView || viewVersion >= 0) loadView(); });
 
 const importModel = () => act("openmodel_import_model", $("cadPath").value.trim(), $("linear").value, $("angular").value);
 const retessellate = () => act("openmodel_retessellate", $("linear").value, $("angular").value);
-const generate = () => act("openmodel_generate_volume", $("mesher").value, $("size").value, $("minSize").value, $("order").value, $("curv").checked ? "1" : "0", $("iface").value);
+const generate = () => act("openmodel_generate_volume", $("mesher").value, $("size").value, $("minSize").value, $("order").value, $("curv").checked ? "1" : "0", $("iface").value, $("verbose").checked ? "1" : "0", $("struct").value, $("shape").value, $("thin").value);
 const loadMesh = () => act("openmodel_load_mesh", $("loadPath").value.trim());
 const loadResults = () => act("openmodel_load_results", $("resPath").value.trim(), $("resStep").value.trim());
 const save = (fn, ext) => act(fn, $("outBase").value.trim(), ext);
+
+function structChanged() {
+  const m = meshers.find((x) => x.id === $("mesher").value);
+  $("shapeBox").hidden = !(m && m.fields.includes("struct")) || $("struct").value !== "structured";
+}
 
 function mesherChanged() {
   const m = meshers.find((x) => x.id === $("mesher").value);
   if (!m) return;
   document.querySelectorAll("[data-f]").forEach((el) => { el.hidden = !m.fields.includes(el.dataset.f); });
+  structChanged();
   $("mesherHint").textContent = m.hint;
 }
 
@@ -473,7 +540,6 @@ RIBBON_EXTRA["as-fix"] = () => assign("fix");
 RIBBON_EXTRA["as-force"] = () => assign("force");
 RIBBON_EXTRA["as-press"] = () => assign("press");
 const RIBBON_ACTIONS = {
-  demo: () => act("openmodel_create_demo"),
   cad: () => browse("cadPath", "cad", importModel),
   mesh: () => browse("loadPath", "mesh", loadMesh),
   res: () => browse("resPath", "results", loadResults),
@@ -519,9 +585,14 @@ function logLines(lines, reset) {
 }
 async function analysisExample() {
   const r = await call("openmodel_default_analysis");
-  if (r.ok) $("anScript").value = r.message;
+  if (r.ok) { $("anScript").value = r.message; renderAnalysisConditions(); }
 }
-const analysisWrite = () => act("openmodel_write_input", $("anScript").value, $("anJob").value.trim(), $("anSolverKind").value);
+const analysisWrite = async () => {
+  const synced = await act("openmodel_analysis_load", $("anScript").value);
+  if (!synced || !synced.ok) return;
+  $("anScript").value = synced.message;
+  await act("openmodel_write_input", $("anScript").value, $("anJob").value.trim(), $("anSolverKind").value);
+};
 async function analysisRun() {
   if (busy || solverRunning) return;
   const r = await act("openmodel_run_solver", $("anScript").value, $("anJob").value.trim(), $("anSolver").value.trim(), $("anSolverKind").value);
@@ -538,7 +609,7 @@ async function pollSolver() {
   clearInterval(solverTimer); solverTimer = null; solverRunning = false;
   logLines(["— " + (r.state === "done" ? "terminato" : r.state === "cancelled" ? "annullato" : "errore") + " —"]);
   show(r.message || "", r.ok ? "good" : "bad");
-  if (r.view !== undefined && r.view !== viewVersion) { viewVersion = r.view; loadView(r.viewLabel || ""); }
+  applyView(r);
   syncRibbon();
 }
 async function analysisCancel() {
@@ -585,6 +656,98 @@ function renderGroups(groups) {
   $("grpList").querySelectorAll("button[data-group]").forEach((b) => b.addEventListener("click", () => showGroup(groups[+b.dataset.group].name)));
 }
 async function refreshGroups() { const r = await call("openmodel_list_groups"); if (r.groups) renderGroups(r.groups); }
+
+function renderNativeCADGroups(groups) {
+  const dimension = ["Vertici", "Spigoli", "Facce", "Solidi"];
+  $("nativeCadGrpList").innerHTML = groups.length ? groups.map(g =>
+    `<li style="margin:2px 0"><b>${esc2(g.name)}</b> · ${dimension[g.dimension] || "Dimensione " + g.dimension} · ${g.entityCount} entità · ${esc2(g.kind)}</li>`).join("")
+    : '<li style="color:var(--muted)">Nessun gruppo nominato nel file CAD o backend senza supporto.</li>';
+}
+function renderGenericMeshGroups(groups) {
+  const dimension = ["Vertice", "Spigolo", "Faccia", "Volume"];
+  $("genericMeshGrpList").innerHTML = groups.length ? groups.map(g =>
+    `<li style="margin:2px 0"><b>${esc2(g.name)}</b> · ${dimension[g.dimension] || "Dim. " + g.dimension} · ${g.elementCount} elementi · ${g.nodeCount} nodi · ${esc2(g.source)}</li>`).join("")
+    : '<li style="color:var(--muted)">Nessun gruppo generico nella mesh corrente.</li>';
+}
+
+function renderCADFaceGroups(groups) {
+  $("cadGrpList").innerHTML = groups.length ? groups.map((g, i) =>
+    `<li style="display:flex;gap:6px;align-items:center;margin:3px 0"><span style="flex:1"><b>${esc2(g.name)}</b> · ${g.faceCount} facce${g.nodeCount ? " · " + g.nodeCount + " nodi FEM" : ""}</span><button data-cad-show="${i}" style="padding:2px 7px">Mostra</button><button data-cad-update="${i}" style="padding:2px 7px">Aggiorna</button><button data-cad-fix="${i}" style="padding:2px 7px" ${g.nodeCount ? "" : "disabled"}>Vincola</button><button data-cad-delete="${i}" style="padding:2px 7px">Elimina</button></li>`).join("")
+    : '<li style="color:var(--muted)">Nessun gruppo CAD.</li>';
+  $("cadGrpList").querySelectorAll("button[data-cad-show]").forEach((b) => b.addEventListener("click", () => showCADFaceGroup(groups[+b.dataset.cadShow])));
+  $("cadGrpList").querySelectorAll("button[data-cad-update]").forEach((b) => b.addEventListener("click", () => updateCADFaceGroup(groups[+b.dataset.cadUpdate].name)));
+  $("cadGrpList").querySelectorAll("button[data-cad-fix]").forEach((b) => b.addEventListener("click", () => addCADGroupFixedSupport(groups[+b.dataset.cadFix].nodeSetName)));
+  $("cadGrpList").querySelectorAll("button[data-cad-delete]").forEach((b) => b.addEventListener("click", () => deleteCADFaceGroup(groups[+b.dataset.cadDelete].name)));
+}
+async function refreshCADFaceGroups() {
+  const r = await call("openmodel_list_cad_face_groups");
+  if (r.cadGroups) renderCADFaceGroups(r.cadGroups);
+  if (r.nativeCADGroups) renderNativeCADGroups(r.nativeCADGroups);
+  if (r.meshGroups) renderGenericMeshGroups(r.meshGroups);
+  if (r.message) show(r.message, r.ok ? "good" : "bad");
+}
+async function createCADFaceGroup() {
+  const name = $("cadGrpName").value.trim();
+  if (!selectedCadFaceIds.length) { show("Seleziona prima una o più facce CAD nel viewer.", "bad"); return; }
+  const r = await act("openmodel_create_cad_face_group", name, selectedCadFaceIds.join(","));
+  if (r && r.ok) { $("cadGrpName").value = ""; await refreshGroups(); }
+}
+function buildFixedSupportLine(selector) {
+  const dofs = $("asDof").value.split(",").map((x) => x.trim()).filter(Boolean);
+  if (!dofs.length || !dofs.every((d) => ["1", "2", "3"].includes(d)) || new Set(dofs).size !== dofs.length) {
+    show("Gradi di libertà non validi: usa 1, 2, 3 senza duplicati.", "bad"); return null;
+  }
+  const value = numList($("asValue").value, 3);
+  if (!value) { show("Lo spostamento prescritto richiede tre numeri ux,uy,uz.", "bad"); return null; }
+  const dofText = dofs.length === 3 ? "" : " dof=" + dofs.join(",");
+  return "fix " + selector + dofText + " value=" + value.join(",");
+}
+function addCADGroupFixedSupport(nodeSetName) {
+  const line = buildFixedSupportLine("group:" + nodeSetName);
+  if (!line) return;
+  const editor = $("anScript");
+  const lines = editor.value.split(/\r?\n/);
+  if (lines.some((existing) => existing.trim().toLowerCase() === line.toLowerCase())) {
+    show("Il vincolo per " + nodeSetName + " è già presente nello script.", "good");
+    return;
+  }
+  editor.value = editor.value.trimEnd() + (editor.value.trim() ? "\n" : "") + line + "\n";
+  renderAnalysisConditions();
+  editor.focus();
+  show("Aggiunto vincolo a spostamento nullo su " + nodeSetName + ". Verifica materiale e carichi prima di avviare l'analisi.", "good");
+}
+async function updateCADFaceGroup(name) {
+  if (!selectedCadFaceIds.length) { show("Seleziona prima le facce CAD che devono sostituire i membri del gruppo.", "bad"); return; }
+  if (!confirm("Sostituire tutte le facce del gruppo «" + name + "» con la selezione corrente?")) return;
+  await act("openmodel_update_cad_face_group", name, selectedCadFaceIds.join(","));
+}
+async function deleteCADFaceGroup(name) {
+  if (!confirm("Eliminare il gruppo CAD «" + name + "»?")) return;
+  await act("openmodel_delete_cad_face_group", name);
+}
+function showCADFaceGroup(group) {
+  const V = viewerApi() && viewerApi().OpenModelViewer;
+  const m = V && V.state && V.state.model;
+  if (!m || !m.triRegion || !m.meta.groups) {
+    show("Il gruppo CAD è memorizzato, ma la vista corrente non espone la tessellazione delle facce CAD. Torna alla superficie CAD per visualizzarlo.", "bad");
+    return;
+  }
+  const wanted = new Set(group.faceIds);
+  const faces = [];
+  for (let t = 0; t < m.triRegion.length; ++t) {
+    const region = m.triRegion[t], pg = region > 0 ? m.meta.groups[region - 1] : null;
+    const match = pg && /^__openmodel_cad_face_(\d+)$/.exec(pg.name);
+    if (!match || !wanted.has(Number(match[1]))) continue;
+    faces.push({element: m.triElementId[t], nodes: [0,1,2].map((k) => m.vertexNodeId[m.triIndices[3*t+k]])});
+  }
+  if (!faces.length) { show("Nessuna faccia del gruppo è presente nella vista corrente.", "bad"); return; }
+  const pk = pickApi();
+  if (!pk) { show("Il viewer non offre il picking delle facce.", "bad"); return; }
+  pk.set({mode:"face", nodes:[], elements:[], faces});
+  $("selMode").value = "face";
+  syncRibbon();
+  show("Gruppo CAD «" + group.name + "»: " + faces.length + " triangoli evidenziati.", "good");
+}
 async function showGroup(name) {
   const r = await act("openmodel_show_group", name);
   if (!r || !r.ok || !r.selMode) return;
@@ -601,10 +764,177 @@ async function makeGroup(kind, name, prefix) {
   if (r && r.ok) { $("grpName").value = ""; }
   return r;
 }
+const ANALYSIS_COMMANDS = new Set(["material", "fix", "force", "pressure", "gravity", "step", "output"]);
+function analysisCommand(line) {
+  const text = line.trim();
+  if (!text || text.startsWith("#")) return null;
+  const command = text.split(/\s+/, 1)[0].toLowerCase();
+  return ANALYSIS_COMMANDS.has(command) ? command : null;
+}
+function analysisTokens(line, command) {
+  const out = {};
+  const tokens = line.trim().split(/\s+/);
+  if (["fix", "force", "pressure"].includes(command)) out._selector = tokens[1] || "";
+  for (let i = 1; i < tokens.length; ++i) {
+    const eq = tokens[i].indexOf("=");
+    if (eq > 0) out[tokens[i].slice(0, eq).toLowerCase()] = tokens[i].slice(eq + 1);
+    else if (!out._selector) out._selector = tokens[i];
+  }
+  return out;
+}
+function analysisField(parent, labelText, name, value, hint) {
+  const wrap = document.createElement("label");
+  wrap.textContent = labelText;
+  const input = document.createElement("input");
+  input.name = name; input.value = value || ""; input.required = true;
+  input.style.width = "100%";
+  if (hint) input.placeholder = hint;
+  wrap.append(input); parent.append(wrap);
+}
+async function applyAnalysisEdit(replacement, id, originalLines, index) {
+  const candidate = originalLines.slice();
+  candidate[index] = replacement;
+  const script = candidate.join("\n");
+  if (id) {
+    const updated = await act("openmodel_analysis_update", id, script);
+    if (!updated || !updated.ok) return false;
+    $("anScript").value = updated.message;
+  } else {
+    const synced = await act("openmodel_analysis_load", script);
+    if (!synced || !synced.ok) return false;
+    $("anScript").value = synced.message;
+  }
+  renderAnalysisConditions();
+  return true;
+}
+async function editAnalysisCondition(command, line, id, lines, index) {
+  if (!["material", "fix", "force", "pressure"].includes(command)) return null;
+  const values = analysisTokens(line, command);
+  const dialog = $("analysisEditDialog"), fields = $("analysisEditFields");
+  fields.replaceChildren();
+  $("analysisEditTitle").textContent = "Modifica " + ({material:"materiale",fix:"vincolo",force:"forza",pressure:"pressione"}[command]);
+  const positional = values._selector || "";
+  if (command === "material") {
+    analysisField(fields, "Modulo elastico E", "E", values.e);
+    analysisField(fields, "Coefficiente di Poisson nu", "nu", values.nu);
+    analysisField(fields, "Densità rho", "rho", values.rho || "0");
+    analysisField(fields, "Nome materiale", "name", values.name || "MATERIAL");
+  } else if (command === "fix") {
+    analysisField(fields, "Selettore (all, group:NAME, plane:x=VALUE)", "selector", positional);
+    analysisField(fields, "Gradi di libertà (1,2,3 oppure all)", "dof", values.dof || "1,2,3");
+    analysisField(fields, "Spostamento prescritto ux,uy,uz", "value", values.value || "0,0,0");
+    analysisField(fields, "Tolleranza (opzionale)", "tol", values.tol || "");
+  } else if (command === "force") {
+    analysisField(fields, "Selettore (all, group:NAME, plane:x=VALUE)", "selector", positional);
+    analysisField(fields, "Forza totale Fx,Fy,Fz", "F", values.f || "0,0,0");
+    analysisField(fields, "Tolleranza (opzionale)", "tol", values.tol || "");
+  } else {
+    analysisField(fields, "Gruppo di superficie", "selector", positional);
+    analysisField(fields, "Pressione", "p", values.p || "0");
+  }
+  return new Promise(resolve => {
+    let finished = false;
+    const close = value => {
+      if (finished) return;
+      finished = true;
+      dialog.close();
+      $("analysisEditForm").removeEventListener("submit", submit);
+      $("analysisEditCancel").removeEventListener("click", cancel);
+      resolve(value);
+    };
+    const cancel = () => close(false);
+    const submit = async event => {
+      event.preventDefault();
+      const data = new FormData($("analysisEditForm"));
+      const get = name => String(data.get(name) || "").trim();
+      const parts = [];
+      if (command === "material") {
+        parts.push("E=" + get("E"), "nu=" + get("nu"), "rho=" + get("rho"), "name=" + get("name"));
+      } else if (command === "fix") {
+        parts.push(get("selector"), "dof=" + get("dof"), "value=" + get("value"));
+        if (get("tol")) parts.push("tol=" + get("tol"));
+      } else if (command === "force") {
+        parts.push(get("selector"), "F=" + get("F"));
+        if (get("tol")) parts.push("tol=" + get("tol"));
+      } else {
+        parts.push(get("selector"), "p=" + get("p"));
+      }
+      if (id) parts.push("id=" + id);
+      const replacement = command + " " + parts.join(" ");
+      if (!await applyAnalysisEdit(replacement, id, lines, index)) {
+        close(false);
+        return;
+      }
+      close(true);
+    };
+    $("analysisEditForm").addEventListener("submit", submit);
+    $("analysisEditCancel").addEventListener("click", cancel);
+    dialog.showModal();
+  }).then(value => value === true ? false : value === false ? false : null);
+}
+function renderAnalysisConditions() {
+  const list = $("analysisConditions");
+  if (!list) return;
+  list.replaceChildren();
+  const lines = $("anScript").value.split(/\r?\n/);
+  let count = 0;
+  lines.forEach((line, index) => {
+    const command = analysisCommand(line);
+    if (!command) return;
+    ++count;
+    const item = document.createElement("li");
+    item.style.cssText = "display:flex;gap:6px;align-items:center;margin:4px 0;padding:5px;border:1px solid var(--border,#bbb);border-radius:4px";
+    const content = document.createElement("code");
+    const idMatch = /(?:^|\\s)id=([A-Za-z0-9_.-]+)/.exec(line.trim());
+    content.textContent = (idMatch ? "[" + idMatch[1] + "] " : "") + line.trim();
+    content.style.cssText = "flex:1;overflow-wrap:anywhere;white-space:pre-wrap";
+    const edit = document.createElement("button");
+    edit.type = "button"; edit.textContent = "Modifica";
+    edit.addEventListener("click", async () => {
+      const structured = await editAnalysisCondition(command, line.trim(), idMatch && idMatch[1], lines, index);
+      if (structured !== null) return;
+      {
+        const replacement = prompt("Modifica la condizione (comando " + command + "):", line.trim());
+        if (replacement === null) return;
+        if (analysisCommand(replacement) !== command) {
+          show("La riga modificata deve mantenere il comando " + command + ".", "bad"); return;
+        }
+        await applyAnalysisEdit(replacement, idMatch && idMatch[1], lines, index);
+      }
+    });
+    const remove = document.createElement("button");
+    remove.type = "button"; remove.textContent = "Rimuovi";
+    remove.addEventListener("click", async () => {
+      if (!confirm("Rimuovere questa condizione?")) return;
+      const id = idMatch && idMatch[1];
+      if (id) {
+        const r = await act("openmodel_analysis_delete", id);
+        if (!r || !r.ok) return;
+        $("anScript").value = r.message;
+      } else {
+        lines.splice(index, 1);
+        $("anScript").value = lines.join("\n");
+        const synced = await act("openmodel_analysis_load", $("anScript").value);
+        if (!synced || !synced.ok) return;
+      }
+      renderAnalysisConditions();
+    });
+    item.append(content, edit, remove);
+    list.append(item);
+  });
+  if (!count) {
+    const empty = document.createElement("li");
+    empty.textContent = "Nessuna condizione riconosciuta.";
+    empty.className = "hint";
+    list.append(empty);
+  }
+}
+$("anScript").addEventListener("input", renderAnalysisConditions);
 function appendScript(line) {
   const box = $("anScript");
   box.value = box.value.replace(/\s*$/, "") + "\n" + line + "\n";
   box.scrollTop = box.scrollHeight;
+  renderAnalysisConditions();
 }
 const numList = (t, n) => { const p = t.split(",").map((x) => x.trim()); return p.length === n && p.every((x) => x !== "" && Number.isFinite(Number(x))) ? p.map(Number) : null; };
 async function assign(type) {
@@ -612,9 +942,8 @@ async function assign(type) {
   if (!sel) { show("Seleziona prima nodi, elementi o facce nel viewer.", "bad"); return; }
   let line, kind = "node";
   if (type === "fix") {
-    const dofs = $("asDof").value.split(",").map((x) => x.trim()).filter(Boolean);
-    if (!dofs.length || !dofs.every((d) => ["1", "2", "3"].includes(d))) { show("Gradi di libertà non validi: usa 1, 2, 3 separati da virgole.", "bad"); return; }
-    line = (g) => "fix group:" + g + (dofs.length === 3 && new Set(dofs).size === 3 ? "" : " dof=" + [...new Set(dofs)].join(","));
+    line = (g) => buildFixedSupportLine("group:" + g);
+    if (!line("VALIDATION_ONLY")) return;
   } else if (type === "force") {
     const f = numList($("asForce").value, 3);
     if (!f) { show("La forza richiede tre numeri Fx,Fy,Fz separati da virgole.", "bad"); return; }

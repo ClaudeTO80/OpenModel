@@ -1,3 +1,4 @@
+#include "support/quadratic_order_check.hpp"
 #include <OpenModel/GmshMesher.hpp>
 #include <OpenModel/AbaqusInpWriter.hpp>
 #include <OpenModel/MeshValidator.hpp>
@@ -10,6 +11,7 @@
 #include <iterator>
 #include <memory>
 #include <stdexcept>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -74,6 +76,45 @@ int main() {
         auto cad = std::make_shared<StepCADModel>(stepPath.string());
         GmshMesher mesher;
 
+        // Verbose log: off by default; when requested it holds Gmsh's own messages plus the OpenModel phase
+        // traces, and it is also written to the requested file.
+        {
+            MeshingOptions quiet;
+            quiet.dimension = MeshDimension::Volume;
+            quiet.elementSize = 0.5;
+            quiet.maxElementSize = 0.5;
+            MeshData quietMesh;
+            require(mesher.buildMesh(cad, quiet, quietMesh), "Quiet meshing failed: " + mesher.lastError());
+            require(mesher.log().empty(), "The log must stay empty unless verboseLog is set");
+
+            const auto logPath = temp / "openmodel_gmsh_fixture.log";
+            std::filesystem::remove(logPath, ec);
+            MeshingOptions verbose = quiet;
+            verbose.verboseLog = true;
+            verbose.logFile = logPath.string();
+            MeshData verboseMesh;
+            require(mesher.buildMesh(cad, verbose, verboseMesh), "Verbose meshing failed: " + mesher.lastError());
+            const auto hasLine = [&](const std::string& text) {
+                for (const auto& line : mesher.log()) if (line.find(text) != std::string::npos) return true;
+                return false;
+            };
+            require(mesher.log().size() > 10, "The verbose log is too short: " + std::to_string(mesher.log().size()));
+            require(hasLine("[OpenModel] Start"), "The verbose log has no OpenModel start trace");
+            require(hasLine("Gmsh meshing finished"), "The verbose log has no meshing trace");
+            require(hasLine("CAD group mapping finished"), "The verbose log has no mapping trace");
+            require(hasLine("Meshing 3D") || hasLine("Meshing volume") || hasLine("Tetrahedrization"),
+                    "The verbose log has no Gmsh meshing messages");
+            require(std::filesystem::is_regular_file(logPath) && std::filesystem::file_size(logPath) > 0,
+                    "The verbose log file was not written");
+            std::filesystem::remove(logPath, ec);
+
+            // A failed run keeps its log too.
+            MeshingOptions broken = verbose;
+            broken.elementSize = -1.0;
+            MeshData none;
+            require(!mesher.buildMesh(cad, broken, none), "A negative element size must be rejected");
+        }
+
         // Linear tetrahedra: generate -> validate -> export INP -> inspect output.
         MeshingOptions linear;
         linear.dimension = MeshDimension::Volume;
@@ -105,6 +146,24 @@ int main() {
         require(inp.find("*NODE") != std::string::npos, "INP output is missing *NODE");
         require(inp.find("*ELEMENT, TYPE=C3D4") != std::string::npos, "INP output is missing C3D4 elements");
 
+        {
+            // Volume -> solid assignment: the solids found at most sample points win. A coarse element
+            // spanning a bore has its centroid in the solid that fills the bore (a nut around a rod).
+            bool agree = true;
+            using Set = std::set<int>;
+            require(GmshMesher::solidsByMajority({{10}, {10}, {8}, {10}, {10}}, agree) == Set{10} && !agree,
+                    "An outlier sample outvoted the solid of the volume");
+            require(GmshMesher::solidsByMajority({{8}, {10}, {10}, {10}}, agree) == Set{10},
+                    "The first sample decided the solid of the volume");
+            require(GmshMesher::solidsByMajority({{9, 11}, {9, 11}, {11}}, agree) == Set{11},
+                    "A solid overlapping part of the volume was kept");
+            require(GmshMesher::solidsByMajority({{3, 4}, {3, 4}}, agree) == Set{3, 4} && agree,
+                    "Coincident solids were not both kept");
+            require(GmshMesher::solidsByMajority({{}, {}}, agree).empty(), "A volume outside every solid was matched");
+            require(GmshMesher::solidsByMajority({{}, {5}}, agree) == Set{5},
+                    "A sample outside every solid hid the matching solid");
+        }
+
         // Quadratic tetrahedra: verify high-order connectivity survives extraction
         // and the Abaqus writer maps it to C3D10.
         MeshingOptions quadratic = linear;
@@ -116,6 +175,14 @@ int main() {
                 "Quadratic mesh contains no Tetrahedron10 block");
         const auto quadraticReport = MeshValidator::validate(quadraticVolume);
         require(!quadraticReport.hasErrors(), "Quadratic volume mesh failed MeshValidator");
+        {
+            // Gmsh orders the last two mid-edge nodes of a Tetrahedron10 differently from Abaqus.
+            std::size_t tets = 0, tris = 0;
+            const double deviation = quadratic_order::maxMidNodeDeviation(quadraticVolume, tets, tris);
+            require(tets > 0, "No Tetrahedron10 elements to check");
+            require(deviation < 1e-9, "Quadratic mid-edge nodes are not in the Abaqus order (deviation " +
+                                          std::to_string(deviation) + ")");
+        }
         const auto writeQuadratic = AbaqusInpWriter::writeFile(inpQuadraticPath.string(), quadraticVolume);
         require(writeQuadratic.success, "Quadratic INP export failed");
         require(readFile(inpQuadraticPath).find("*ELEMENT, TYPE=C3D10") != std::string::npos,

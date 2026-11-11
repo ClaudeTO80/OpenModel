@@ -173,6 +173,7 @@ struct MeshNames {
     std::vector<std::string> physical;                                  ///< per physical group of the mesh
     std::vector<std::pair<std::string, std::string>> nodeSets;          ///< (mesh name, aster name)
     std::vector<std::string> analysisNodeGroups;                        ///< aster names, in the order given
+    std::vector<std::pair<std::string, std::string>> genericElementGroups; ///< (mesh name, aster name)
 };
 
 /** Node group added by the analysis (support or load selection). */
@@ -269,6 +270,43 @@ std::string writeMeshText(std::ostream& out, const MeshData& mesh, const std::ve
             diagnostics.push_back({ImportDiagnosticLevel::Warning, "ASTER_GROUP_MISSING_ELEMENTS",
                                    "Group '" + g.name + "' refers to " + std::to_string(missing) + " element id(s) that are not in the mesh; they were left out", 0});
         writeGroup("GROUP_MA", aster, members);
+    }
+
+    // Export the backend-independent registry as native code_aster groups too.
+    // Physical groups and node sets are already emitted above; avoid duplicating
+    // identical memberships while retaining distinct generic memberships.
+    for (const auto& g : mesh.getMeshGroupRegistry().groups()) {
+        bool representedByPhysical = false;
+        for (const auto& p : mesh.getPhysicalGroups())
+            if (p.name == g.name && p.dimension == g.dimension && p.elementIds == g.elementIds) {
+                representedByPhysical = true;
+                break;
+            }
+        if (!g.elementIds.empty() && !representedByPhysical) {
+            std::vector<std::string> members;
+            std::size_t missing = 0;
+            for (const ElementId id : g.elementIds) {
+                if (present.count(id)) members.push_back(elementName(id)); else ++missing;
+            }
+            if (missing)
+                diagnostics.push_back({ImportDiagnosticLevel::Warning, "ASTER_MESH_GROUP_MISSING_ELEMENTS",
+                    "Mesh group '" + g.name + "' refers to " + std::to_string(missing) +
+                    " element id(s) that are not in the mesh; they were left out", 0});
+            const std::string aster = namer.make(g.name);
+            names.genericElementGroups.emplace_back(g.name, aster);
+            writeGroup("GROUP_MA", aster, members);
+        }
+
+        bool representedByNodeSet = false;
+        const auto nodeSet = mesh.getNodeSets().find(g.name + "_NODES");
+        if (nodeSet != mesh.getNodeSets().end() && nodeSet->second == g.nodeIndices)
+            representedByNodeSet = true;
+        if (!g.nodeIndices.empty() && !representedByNodeSet) {
+            std::vector<std::string> members;
+            members.reserve(g.nodeIndices.size());
+            for (const NodeIndex n : g.nodeIndices) members.push_back(nodeName(mesh.nodeId(n)));
+            writeGroup("GROUP_NO", namer.make(g.name + "_NODES"), members);
+        }
     }
     out << "FIN\n";
     return {};
@@ -387,6 +425,7 @@ CodeAsterExportResult writeCodeAsterCase(const MeshData& mesh, const AnalysisMod
                  what + ": " + std::to_string(before - nodes.size()) + " selected node(s) belong to no volume element and were left out");
         return nodes;
     };
+    PrescribedDisplacementTracker displacementTracker;
     for (std::size_t i = 0; i < model.supports.size(); ++i) {
         const auto& s = model.supports[i];
         if (!s.dof[0] && !s.dof[1] && !s.dof[2]) return fail(r, "fix #" + std::to_string(i + 1) + " constrains no direction");
@@ -394,6 +433,8 @@ CodeAsterExportResult writeCodeAsterCase(const MeshData& mesh, const AnalysisMod
         if (!error.empty()) return fail(r, "fix #" + std::to_string(i + 1) + ": " + error);
         nodes = restrict(std::move(nodes), "fix #" + std::to_string(i + 1));
         if (nodes.empty()) return fail(r, "fix #" + std::to_string(i + 1) + ": the selection contains no node of a volume element");
+        const auto conflict = displacementTracker.add(i, s, nodes, mesh);
+        if (!conflict.empty()) return fail(r, conflict);
         for (const NodeIndex n : nodes) constrained[n] = 1;
         supportGroup.push_back(extra.size());
         extra.push_back({"OM_FIX" + std::to_string(i + 1), std::move(nodes)});
@@ -416,18 +457,29 @@ CodeAsterExportResult writeCodeAsterCase(const MeshData& mesh, const AnalysisMod
              "A force shared equally by all nodes of a quadratic mesh is not the consistent load; use 'pressure' on a surface group for accurate results");
 
     // Pressure: every surface element of the group must be a boundary face of exactly one volume element.
-    std::vector<const MeshPhysicalGroup*> pressureGroups;
+    std::vector<std::string> pressureGroups;
     {
         std::unordered_map<ElementId, std::pair<const ElementBlock*, std::size_t>> location;
         if (!model.pressures.empty())
             for (const auto& block : mesh.getElementBlocks())
                 for (std::size_t e = 0; e < block.size(); ++e) location.emplace(block.ids[e], std::make_pair(&block, e));
         for (const auto& p : model.pressures) {
-            const MeshPhysicalGroup* group = findGroup(mesh, p.group);
-            if (!group) return fail(r, "pressure: unknown surface group '" + p.group + "'");
-            if (group->dimension != 2) return fail(r, "pressure: group '" + p.group + "' is not a surface group (dimension " + std::to_string(group->dimension) + ")");
+            const std::vector<ElementId>* groupElements = nullptr;
+            int groupDimension = -1;
+            const MeshPhysicalGroup* physical = findGroup(mesh, p.group);
+            if (physical) { groupElements = &physical->elementIds; groupDimension = physical->dimension; }
+            else {
+                const MeshGroup* generic = mesh.getMeshGroupRegistry().find(p.group);
+                if (!generic)
+                    for (const auto& g : mesh.getMeshGroupRegistry().groups())
+                        if (lowered(g.name) == lowered(p.group)) { generic = &g; break; }
+                if (generic) { groupElements = &generic->elementIds; groupDimension = generic->dimension; }
+            }
+            if (!groupElements) return fail(r, "pressure: unknown surface group '" + p.group + "'");
+            if (groupDimension != 2) return fail(r, "pressure: group '" + p.group + "' is not a surface group (dimension " + std::to_string(groupDimension) + ")");
+            if (groupElements->empty()) return fail(r, "pressure: surface group '" + p.group + "' has no surface elements");
             std::size_t unmatched = 0, shared = 0;
-            for (const ElementId id : group->elementIds) {
+            for (const ElementId id : *groupElements) {
                 const auto at = location.find(id);
                 const int corners = at == location.end() ? 0 : surfaceCornerCount(at->second.first->type);
                 if (corners == 0) { ++unmatched; continue; }
@@ -439,7 +491,7 @@ CodeAsterExportResult writeCodeAsterCase(const MeshData& mesh, const AnalysisMod
             }
             if (unmatched) return fail(r, "pressure: " + std::to_string(unmatched) + " surface element(s) of '" + p.group + "' are not faces of a volume element");
             if (shared) return fail(r, "pressure: " + std::to_string(shared) + " surface element(s) of '" + p.group + "' lie between two volume elements; a pressure needs a boundary surface");
-            pressureGroups.push_back(group);
+            pressureGroups.push_back(p.group);
         }
     }
 
@@ -452,6 +504,16 @@ CodeAsterExportResult writeCodeAsterCase(const MeshData& mesh, const AnalysisMod
     r.meshFile = absolute / (job + ".mail");
     r.commFile = absolute / (job + ".comm");
     r.exportFile = absolute / (job + ".export");
+
+    // The .export file is read as whitespace-separated fields (F comm <path> D 1), so a blank in a path
+    // splits it. Warn instead of failing: the run itself is still possible with a quoting launcher.
+    for (const fs::path* path : {&r.meshFile, &r.commFile, &r.exportFile})
+        if (path->string().find_first_of(" \t") != std::string::npos) {
+            note(r, ImportDiagnosticLevel::Warning, "ASTER_PATH_WITH_BLANK",
+                 "The case path '" + path->string() + "' contains a blank; code_aster export files are split on blanks, so the run "
+                 "will probably fail. Use a directory without spaces.");
+            break;
+        }
 
     MeshNames names;
     {
@@ -472,9 +534,30 @@ CodeAsterExportResult writeCodeAsterCase(const MeshData& mesh, const AnalysisMod
 
     // Group names of the pressure surfaces, in the order of model.pressures.
     std::vector<std::string> pressureNames;
-    for (const MeshPhysicalGroup* g : pressureGroups) {
-        const auto& groups = mesh.getPhysicalGroups();
-        pressureNames.push_back(names.physical.at(static_cast<std::size_t>(g - groups.data())));
+    for (const auto& rawName : pressureGroups) {
+        bool found = false;
+        const auto& physical = mesh.getPhysicalGroups();
+        // Same precedence as the lookup that validated the group: exact name before case-insensitive
+        // match, physical groups before generic ones. A single pass over "exact || case-insensitive"
+        // returns the first of two groups such as "Top" and "top" whichever one was asked for.
+        for (const bool exact : {true, false}) {
+            for (std::size_t i = 0; i < physical.size() && !found; ++i)
+                if (exact ? physical[i].name == rawName : lowered(physical[i].name) == lowered(rawName)) {
+                    pressureNames.push_back(names.physical.at(i));
+                    found = true;
+                }
+            if (found) break;
+        }
+        for (const bool exact : {true, false}) {
+            if (found) break;
+            for (const auto& entry : names.genericElementGroups)
+                if (exact ? entry.first == rawName : lowered(entry.first) == lowered(rawName)) {
+                    pressureNames.push_back(entry.second);
+                    found = true;
+                    break;
+                }
+        }
+        if (!found) return fail(r, "pressure: no exported element group for surface '" + rawName + "'");
     }
 
     std::ostringstream c;
@@ -494,7 +577,8 @@ CodeAsterExportResult writeCodeAsterCase(const MeshData& mesh, const AnalysisMod
     for (std::size_t i = 0; i < model.supports.size(); ++i) {
         c << "    _F(GROUP_NO='" << extra[supportGroup[i]].name << "'";
         const char* dof[3] = {"DX", "DY", "DZ"};
-        for (int d = 0; d < 3; ++d) if (model.supports[i].dof[static_cast<std::size_t>(d)]) c << ", " << dof[d] << "=0.0";
+        for (int d = 0; d < 3; ++d) if (model.supports[i].dof[static_cast<std::size_t>(d)])
+            c << ", " << dof[d] << "=" << pyReal(model.supports[i].displacement[static_cast<std::size_t>(d)]);
         c << "),\n";
     }
     c << "))\n\n";

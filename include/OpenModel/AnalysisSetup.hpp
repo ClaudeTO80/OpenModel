@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <filesystem>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 /**
@@ -21,13 +22,14 @@
  * Script syntax (one command per line, `#` starts a comment, names must not contain blanks):
  * @code
  * material E=210000 nu=0.3 rho=7.85e-9 [name=STEEL]
- * fix plane:x=0 [dof=1,2,3] [tol=1e-6]          # default: all three translations
+ * fix plane:x=0 [dof=1,2,3] [value=0,0,0] [tol=1e-6] # prescribed ux,uy,uz; defaults to zero
+ * fix group:BladeRoot_NODES dof=1,2,3           # Node Set generated from a CAD face group
  * force plane:x=10 F=0,-100,0                   # total force, shared equally by the selected nodes
- * pressure group:Top p=2.5                      # on a surface group; positive = pushing into the body
+ * pressure group:Top p=2.5                      # on a dimension-2 surface group; positive = pushing into the body
  * gravity g=0,0,-9810                           # acceleration vector (needs rho)
  * step static                                   # or: step frequency modes=6
  * @endcode
- * Node selectors: `all`, `group:NAME` (node set, or the nodes of a physical group of any dimension) and
+ * Node selectors: `all`, `group:NAME` (node set, generic mesh group, or the nodes of a physical group of any dimension) and
  * `plane:x=VALUE` (also y, z): nodes whose coordinate lies within `tol` of VALUE (default 1e-6 times the model diagonal).
  * Units are the user's: use a consistent set (for example mm, N, tonne, s as in the examples).
  */
@@ -46,6 +48,7 @@ struct NodeSelector {
 };
 
 struct AnalysisMaterial {
+    std::string id;             ///< Stable condition identifier; generated when omitted from the script.
     std::string name = "MATERIAL";
     double youngModulus = 0.0;
     double poisson = 0.0;
@@ -53,16 +56,21 @@ struct AnalysisMaterial {
 };
 
 struct FixedSupport {
+    std::string id;             ///< Stable condition identifier.
     NodeSelector where;
     std::array<bool, 3> dof{{true, true, true}};
+    /** Prescribed translations in model length units; zero preserves fixed-support behaviour. */
+    std::array<double, 3> displacement{{0.0, 0.0, 0.0}};
 };
 
 struct NodalForce {
+    std::string id;             ///< Stable condition identifier.
     NodeSelector where;
     std::array<double, 3> total{{0.0, 0.0, 0.0}};   ///< Whole force; each selected node gets total / count.
 };
 
 struct SurfacePressure {
+    std::string id;             ///< Stable condition identifier.
     std::string group;         ///< Physical group of surface elements (dimension 2).
     double pressure = 0.0;     ///< Positive acts into the body (compressive), as in Abaqus and CalculiX.
 };
@@ -88,8 +96,31 @@ struct AnalysisParseResult {
     std::vector<ImportDiagnostic> diagnostics;
 };
 
+
+/** ID-based condition access. Returned pointers remain valid only until the corresponding container is modified. */
+FixedSupport* findSupport(AnalysisModel& model, const std::string& id);
+NodalForce* findForce(AnalysisModel& model, const std::string& id);
+SurfacePressure* findPressure(AnalysisModel& model, const std::string& id);
+const FixedSupport* findSupport(const AnalysisModel& model, const std::string& id);
+const NodalForce* findForce(const AnalysisModel& model, const std::string& id);
+const SurfacePressure* findPressure(const AnalysisModel& model, const std::string& id);
+
+/** Replace a condition while preserving its ID. Returns false and sets error if the ID is absent or invalid. */
+bool updateMaterial(AnalysisModel& model, const std::string& id, const AnalysisMaterial& replacement, std::string& error);
+bool updateSupport(AnalysisModel& model, const std::string& id, const FixedSupport& replacement, std::string& error);
+bool updateForce(AnalysisModel& model, const std::string& id, const NodalForce& replacement, std::string& error);
+bool updatePressure(AnalysisModel& model, const std::string& id, const SurfacePressure& replacement, std::string& error);
+
+/** Remove a support, force or pressure by ID. Material is required and cannot be erased. */
+bool eraseSupport(AnalysisModel& model, const std::string& id);
+bool eraseForce(AnalysisModel& model, const std::string& id);
+bool erasePressure(AnalysisModel& model, const std::string& id);
+
 /** @brief Read a script (see the file comment). Errors carry the line number; all of them are collected. */
 AnalysisParseResult parseAnalysisScript(const std::string& text);
+
+/** @brief Serialize an analysis model to a round-trippable script, including stable condition IDs. */
+std::string serializeAnalysisScript(const AnalysisModel& model);
 
 /** @brief A small example script for a static analysis, for the user interfaces. */
 std::string exampleAnalysisScript();
@@ -115,6 +146,34 @@ struct SolverInputResult {
  * Not checked: whether the model is physically sensible, units, mesh quality.
  */
 SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& model, const std::filesystem::path& path);
+
+/**
+ * @brief Detects conflicting prescribed translations of overlapping supports.
+ *
+ * Each (node, DOF) remembers the first support that constrained it and its value, so
+ * registering a support costs O(selected nodes) instead of a scan of all previous
+ * supports per node. Equal overlapping prescriptions are accepted.
+ */
+class PrescribedDisplacementTracker {
+public:
+    /**
+     * @brief Register one support (call in script order).
+     * @param supportIndex Zero-based index of the support, used in diagnostics as `fix #index+1`.
+     * @param support      The support; its active DOFs are checked.
+     * @param nodes        Nodes selected by the support.
+     * @param mesh         Mesh, used to report the node ID.
+     * @return Empty string on success, otherwise a diagnostic (non-finite value or conflict).
+     */
+    std::string add(std::size_t supportIndex, const FixedSupport& support,
+                    const std::vector<NodeIndex>& nodes, const MeshData& mesh);
+
+private:
+    struct Entry {
+        std::size_t support = static_cast<std::size_t>(-1); ///< First support constraining this DOF.
+        double value = 0.0;
+    };
+    std::unordered_map<NodeIndex, std::array<Entry, 3>> m_entries;
+};
 
 /** @brief Resolve a selector to node indices (sorted, unique). Empty result + `error` when nothing matches or the name is unknown. */
 std::vector<NodeIndex> selectNodes(const MeshData& mesh, const NodeSelector& selector, std::string& error);

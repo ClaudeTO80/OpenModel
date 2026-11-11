@@ -58,5 +58,58 @@ int main() {
     assert(stored.size() == 300000);
     assert(stored.front() == 42 && stored[1] == 1 && stored.back() == 300000);
     assert(seconds < 2.0);
+    // Backend-independent registry: memberships are many-to-many, so the
+    // shared edge nodes can legitimately belong to both CAD face groups.
+    MeshData grouped;
+    const auto g0 = grouped.addNode(1, 0.0, 0.0, 0.0);
+    const auto g1 = grouped.addNode(2, 1.0, 0.0, 0.0);
+    const auto g2 = grouped.addNode(3, 0.0, 1.0, 0.0);
+    const auto g3 = grouped.addNode(4, 1.0, 1.0, 0.0);
+    grouped.addElement("Boundary", ElementType::Triangle3, 501, {g0, g1, g2});
+    grouped.addElement("Boundary", ElementType::Triangle3, 502, {g1, g3, g2});
+    grouped.addMeshGroup(MeshGroup{"CAD_Face_A", 2, MeshGroupSource::CAD,
+                                   {12, 12}, {501, 501}, {g0, g1, g2, g1}});
+    grouped.addMeshGroup(MeshGroup{"CAD_Face_B", 2, MeshGroupSource::CAD,
+                                   {13}, {502}, {g1, g2, g3}});
+    assert(grouped.validate().empty());
+    const auto* faceA = grouped.getMeshGroupRegistry().find("CAD_Face_A");
+    const auto* faceB = grouped.getMeshGroupRegistry().find("CAD_Face_B");
+    assert(faceA && faceB);
+    assert(faceA->sourceEntityIds.size() == 1 && faceA->sourceEntityIds.front() == 12);
+    assert(faceA->elementIds.size() == 1 && faceA->elementIds.front() == 501);
+    assert(faceA->nodeIndices.size() == 3);
+    assert(faceB->nodeIndices.size() == 3);
+    assert(faceA->nodeIndices[1] == faceB->nodeIndices[0]); // shared node is retained in both groups
+
+    // Lower-dimensional groups may be node-only when a backend cannot export
+    // explicit CAD curve/point elements.
+    grouped.addMeshGroup(MeshGroup{"CAD_Edge_1", 1, MeshGroupSource::CAD,
+                                   {21}, {}, {g0, g1}});
+    grouped.addMeshGroup(MeshGroup{"CAD_Vertex_1", 0, MeshGroupSource::CAD,
+                                   {31}, {}, {g0}});
+    const auto* edgeGroup = grouped.getMeshGroupRegistry().find("CAD_Edge_1");
+    const auto* vertexGroup = grouped.getMeshGroupRegistry().find("CAD_Vertex_1");
+    assert(edgeGroup && edgeGroup->dimension == 1 && edgeGroup->elementIds.empty());
+    assert(vertexGroup && vertexGroup->dimension == 0 && vertexGroup->nodeIndices.size() == 1);
+    assert(grouped.validate().empty());
+
+    bool duplicateGroupRejected = false;
+    try { grouped.addMeshGroup(MeshGroup{"CAD_Face_A", 2, MeshGroupSource::CAD, {}, {}, {}}); }
+    catch (const std::invalid_argument&) { duplicateGroupRejected = true; }
+    assert(duplicateGroupRejected);
+
+    bool invalidGroupNodeRejected = false;
+    try { grouped.addMeshGroup(MeshGroup{"InvalidNode", 2, MeshGroupSource::CAD, {}, {}, {999}}); }
+    catch (const std::out_of_range&) { invalidGroupNodeRejected = true; }
+    assert(invalidGroupNodeRejected);
+
+    MeshData invalidGroupElement;
+    const auto i0 = invalidGroupElement.addNode(0.0, 0.0, 0.0);
+    const auto i1 = invalidGroupElement.addNode(1.0, 0.0, 0.0);
+    const auto i2 = invalidGroupElement.addNode(0.0, 1.0, 0.0);
+    invalidGroupElement.addElement("Surface", ElementType::Triangle3, 700, {i0, i1, i2});
+    invalidGroupElement.addMeshGroup(MeshGroup{"WrongDimension", 3, MeshGroupSource::CAD, {}, {700}, {i0}});
+    assert(!invalidGroupElement.validate().empty());
+
     return 0;
 }

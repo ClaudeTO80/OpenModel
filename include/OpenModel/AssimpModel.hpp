@@ -17,6 +17,15 @@
 #include <string>
 #include <vector>
 
+// Assimp import behaviour. coordinateScale converts source coordinates into
+// the application's working units (for example, metres to millimetres).
+struct AssimpImportOptions {
+    double coordinateScale = 1.0;
+    bool generateNormals = true;
+    bool joinIdenticalVertices = true;
+    bool flipUVs = false;
+};
+
 // Imports polygonal CAD/exchange formats supported by Assimp. Material support
 // intentionally targets glTF's metallic-roughness workflow and diffuse/base color.
 class AssimpModel : public CADModel {
@@ -24,6 +33,7 @@ private:
     std::string m_filepath;
     std::string m_lastError;
     std::vector<RenderSubMesh> m_renderMeshes;
+    AssimpImportOptions m_importOptions;
 
     static std::string lower(std::string s) ;
     static std::string mimeFromHint(std::string hint) ;
@@ -41,6 +51,8 @@ public:
     ~AssimpModel() override = default;
 
     bool loadFromFile(const std::string& filepath) override ;
+    bool setImportOptions(const AssimpImportOptions& options, std::string* error = nullptr);
+    const AssimpImportOptions& getImportOptions() const noexcept { return m_importOptions; }
 
     void tessellate(double) override ;
     const std::vector<RenderSubMesh>& getRenderMeshes() const override ;

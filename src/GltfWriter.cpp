@@ -62,7 +62,7 @@ static const char t[]="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz01234
 }
 
 bool GltfWriter::decode64(const std::string& s, std::vector<unsigned char>& out) {
-int val=0,bits=-8;for(unsigned char c:s){if(c=='=')break;const std::string tab="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";auto p=tab.find(char(c));if(p==std::string::npos)return false;val=(val<<6)|int(p);bits+=6;if(bits>=0){out.push_back((val>>bits)&255);bits-=8;}}return true;
+std::uint32_t val=0;int bits=-8;for(unsigned char c:s){if(c=='=')break;const std::string tab="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";auto p=tab.find(char(c));if(p==std::string::npos)return false;val=(val<<6)|std::uint32_t(p);bits+=6;if(bits>=0){out.push_back((val>>bits)&255);bits-=8;}}return true;
 }
 
 void GltfWriter::u32(std::ofstream& o, std::uint32_t v) {

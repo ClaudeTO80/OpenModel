@@ -36,6 +36,27 @@ int main() {
     assert(text.find("*ELEMENT, TYPE=S3, ELSET=OUTER_SURFACE") != std::string::npos);
     std::remove(path.c_str());
 
+    // Generic CAD groups are exported independently of mesher-specific physical groups.
+    MeshData grouped;
+    // The edge set and node membership must survive as *ELSET and *NSET.
+    const auto ga = grouped.addNode(11, 0, 0, 0);
+    const auto gb = grouped.addNode(12, 1, 0, 0);
+    grouped.addElement("cad edge elements", ElementType::Line2, 701, {ga, gb});
+    grouped.addMeshGroup({"Edge_A", 1, MeshGroupSource::CAD, {4}, {701}, {ga, gb}});
+    grouped.addMeshGroup({"Vertex_A", 0, MeshGroupSource::CAD, {9}, {}, {gb}});
+    result = AbaqusInpWriter::writeFile(path, grouped);
+    assert(result.success);
+    assert(result.elementSetsWritten == 2); // element block + generic CAD edge group
+    assert(result.nodeSetsWritten == 2);    // edge and vertex CAD node memberships
+    {
+        std::ifstream groupsIn(path, std::ios::binary);
+        const std::string groupsText((std::istreambuf_iterator<char>(groupsIn)), std::istreambuf_iterator<char>());
+        assert(groupsText.find("*ELSET, ELSET=EDGE_A") != std::string::npos);
+        assert(groupsText.find("*NSET, NSET=EDGE_A_NODES") != std::string::npos);
+        assert(groupsText.find("*NSET, NSET=VERTEX_A_NODES") != std::string::npos);
+    }
+    std::remove(path.c_str());
+
     MeshData bad;
     n0 = bad.addNode(1, 0, 0, 0); n1 = bad.addNode(2, 1, 0, 0);
     n2 = bad.addNode(3, 0, 1, 0); n3 = bad.addNode(4, 0, 0, 1);
