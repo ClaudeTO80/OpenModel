@@ -1,8 +1,21 @@
 cmake_minimum_required(VERSION 3.20)
-project(OpenModel VERSION 0.1.0.0 LANGUAGES CXX)
+
+# The single place where the OpenModel version is set. It feeds project(), the installed CMake package,
+# the CPack file names and the generated <OpenModel/Version.hpp> (macros and OpenModel::version()).
+# Override it with -DOPENMODEL_VERSION=x.y.z (for example from a release script).
+set(OPENMODEL_VERSION "0.1.0" CACHE STRING "OpenModel version, MAJOR.MINOR.PATCH (minor and patch 0-99)")
+if(NOT OPENMODEL_VERSION MATCHES "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]?)\\.(0|[1-9][0-9]?)$")
+    message(FATAL_ERROR "OPENMODEL_VERSION must look like MAJOR.MINOR.PATCH with minor and patch between 0 and 99, no leading zeros (got '${OPENMODEL_VERSION}')")
+endif()
+
+project(OpenModel VERSION ${OPENMODEL_VERSION} LANGUAGES CXX)
 
 include(CTest)
 include(GNUInstallDirs)
+
+set(OPENMODEL_GENERATED_INCLUDE_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/include")
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/cmake/Version.hpp.in"
+    "${OPENMODEL_GENERATED_INCLUDE_DIR}/OpenModel/Version.hpp" @ONLY)
 
 option(OPENMODEL_BUILD_TESTS "Build dependency-free core tests" ON)
 option(OPENMODEL_BUILD_BENCHMARKS "Build optional synthetic mesh performance benchmarks" OFF)
@@ -31,6 +44,7 @@ set(OPENMODEL_NETGEN_TEST_STEP "" CACHE FILEPATH "Optional STEP/IGES/BREP fixtur
 set(OPENMODEL_CORE_SOURCES
     src/MeshData.cpp
     src/MeshBinaryIO.cpp
+    src/Version.cpp
     src/OpenModelProject.cpp
     src/MeshImporter.cpp
     src/AbaqusInpImporter.cpp
@@ -78,6 +92,7 @@ set(OPENMODEL_CORE_SOURCES
 function(openmodel_configure_core_target target export_name)
     target_include_directories(${target} PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<BUILD_INTERFACE:${OPENMODEL_GENERATED_INCLUDE_DIR}>
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
     target_compile_features(${target} PUBLIC cxx_std_17)
     set_target_properties(${target} PROPERTIES
@@ -89,7 +104,6 @@ endfunction()
 find_package(Threads REQUIRED)
 add_library(openmodel_core STATIC ${OPENMODEL_CORE_SOURCES})
 target_link_libraries(openmodel_core PRIVATE Threads::Threads)
-target_compile_definitions(openmodel_core PRIVATE OPENMODEL_VERSION="${PROJECT_VERSION}")
 add_library(OpenModel::Core ALIAS openmodel_core)
 set_target_properties(openmodel_core PROPERTIES OUTPUT_NAME OpenModelCore)
 openmodel_configure_core_target(openmodel_core Core)
@@ -98,7 +112,6 @@ if(OPENMODEL_BUILD_SHARED)
     add_library(openmodel_shared SHARED ${OPENMODEL_CORE_SOURCES})
     add_library(OpenModel::Shared ALIAS openmodel_shared)
     target_link_libraries(openmodel_shared PRIVATE Threads::Threads)
-    target_compile_definitions(openmodel_shared PRIVATE OPENMODEL_VERSION="${PROJECT_VERSION}")
     set_target_properties(openmodel_shared PROPERTIES
         OUTPUT_NAME OpenModel
         WINDOWS_EXPORT_ALL_SYMBOLS ON)
@@ -109,7 +122,6 @@ if(OPENMODEL_BUILD_CLI)
     add_executable(openmodel-cli src/cli/main.cpp)
     target_link_libraries(openmodel-cli PRIVATE OpenModel::Core)
     target_compile_features(openmodel-cli PRIVATE cxx_std_17)
-    target_compile_definitions(openmodel-cli PRIVATE OPENMODEL_VERSION="${PROJECT_VERSION}")
     set_target_properties(openmodel-cli PROPERTIES OUTPUT_NAME openmodel)
 endif()
 
@@ -144,7 +156,6 @@ ${_bytes}0x00};
     openmodel_embed_file("${CMAKE_CURRENT_SOURCE_DIR}/examples/webgl-fem-viewer/index.html" "${_openmodel_gen_dir}/viewer_html.inc" viewer_html)
     add_executable(openmodel-webui src/webui/main.cpp)
     target_include_directories(openmodel-webui PRIVATE "${OPENMODEL_WEBUI_INCLUDE_DIR}" "${_openmodel_gen_dir}")
-    target_compile_definitions(openmodel-webui PRIVATE OPENMODEL_VERSION="${PROJECT_VERSION}")
     if(WIN32)
         # webui.h pulls in <windows.h>, whose min/max macros break std::numeric_limits<T>::max().
         target_compile_definitions(openmodel-webui PRIVATE NOMINMAX)
@@ -169,6 +180,9 @@ endif()
 if(OPENMODEL_BUILD_TESTS)
     if(OPENMODEL_BUILD_CLI)
         add_test(NAME openmodel_cli_info COMMAND openmodel-cli info)
+        add_test(NAME openmodel_cli_version COMMAND openmodel-cli --version)
+        string(REPLACE "." "\\." _openmodel_version_regex "${PROJECT_VERSION}")
+        set_tests_properties(openmodel_cli_version PROPERTIES PASS_REGULAR_EXPRESSION "^OpenModel ${_openmodel_version_regex}\n$")
         add_test(NAME openmodel_cli_validate_demo COMMAND openmodel-cli validate-demo)
     endif()
     function(openmodel_add_test target source)
@@ -184,6 +198,9 @@ if(OPENMODEL_BUILD_TESTS)
         add_test(NAME ${target} COMMAND ${target})
     endfunction()
     openmodel_add_test(core_smoke_test tests/core_smoke_test.cpp)
+    openmodel_add_test(version_test tests/version_test.cpp)
+    # The version CMake was configured with, to be compared with what the macros and the library report.
+    target_compile_definitions(version_test PRIVATE OPENMODEL_EXPECTED_VERSION="${PROJECT_VERSION}")
     openmodel_add_test(mesh_binary_io_test tests/mesh_binary_io_test.cpp)
     openmodel_add_test(openmodel_project_test tests/openmodel_project_test.cpp)
     openmodel_add_test(mesh_importer_test tests/mesh_importer_test.cpp)
@@ -976,6 +993,8 @@ install(DIRECTORY examples/webgl-fem-viewer
     DESTINATION ${CMAKE_INSTALL_DATADIR}/OpenModel/examples)
 install(DIRECTORY include/OpenModel
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+install(FILES "${OPENMODEL_GENERATED_INCLUDE_DIR}/OpenModel/Version.hpp"
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/OpenModel)
 install(EXPORT OpenModelTargets
     FILE OpenModelTargets.cmake
     NAMESPACE OpenModel::

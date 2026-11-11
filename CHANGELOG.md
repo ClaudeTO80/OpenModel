@@ -1,32 +1,73 @@
 # Changelog
 
 All notable changes to this project are documented here.
-The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
+[Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`MAJOR.MINOR.PATCH`).
 
 ## [Unreleased]
 
-### Added
-- **code_aster support** ([`docs/CODE_ASTER.md`](docs/CODE_ASTER.md)): `writeCodeAsterCase` writes `.mail`, `.comm` and `.export` from a mesh and an analysis script (static and frequency);
-  `CodeAsterMeshImporter` reads `.mail` meshes; `CodeAsterTableImporter` reads the `.tab` result tables (displacements, stresses, strains, modes); launcher helpers.
-- CLI: `export-aster`, `solve-aster`, `export-mail`; `.mail` accepted wherever a mesh is read; `.tab` accepted as result file.
-- Desktop workbench: solver selector (CalculiX / code_aster), `.mail` mesh loading, `.tab` results.
-- Tests `code_aster_test`, `aster_cli_*` with a stand-in solver. **Not verified against a real code_aster.**
+## [0.1.0] - 2026-11-11
 
-## [0.1.0.0] - 2026-11-02
-
-First release under the name **OpenModel**. The project was previously called MeshGen (development phases 8–50, last CMake
-version 0.49.0); the version number restarts here. The old phase notes are kept in [`docs/DEVELOPMENT_LOG.md`](docs/DEVELOPMENT_LOG.md).
+First release of OpenModel. This entry is the starting point of the changelog: it lists what the release contains.
+The project was developed before under the name MeshGen; the notes of that work are kept in
+[`docs/DEVELOPMENT_LOG.md`](docs/DEVELOPMENT_LOG.md).
 
 ### Added
+
+**Mesh core**
+- `MeshData`: nodes, linear and quadratic elements, element blocks, node sets and physical groups.
+- Topology (faces, edges, boundary and internal classification, material interfaces), geometric validation and non-manifold diagnostics.
+- Element quality metrics (`computeMeshQuality`), surface meshes (`SurfaceMesh`) and surface refinement (`SurfaceRefiner`).
+
+**Mesh and model formats**
+- Abaqus / CalculiX `.inp` reader and writer.
+- code_aster `.mail` reader and writer.
+- Compact binary mesh format **MGMB** ([`docs/MGMB_FORMAT.md`](docs/MGMB_FORMAT.md)).
+- glTF / GLB export with PBR materials.
+- Single-file viewer container **MGWV** ([`docs/MGWV_FORMAT.md`](docs/MGWV_FORMAT.md)).
+
+**CAD and meshing backends (optional, off by default)**
+- Gmsh surface and volume meshing: unstructured tetrahedra, structured hexahedra and prisms by sweeping straight prismatic solids, second-order elements, thin-face size control.
+- Open CASCADE import of STEP, IGES and BREP, including assemblies, XDE layers and named sub-shapes.
+- TetGen and Netgen volume meshing, MFEM mesh adapter.
+- Assimp import of general 3D formats, with surface meshing and geometric group selectors (plane, normal, box, cylinder, sphere, cone) that create no CAD identities.
+
+**CAD to FEM groups**
+- Named CAD groups and user-defined B-Rep face groups carried onto the mesh as dimension-2 groups, mapped by Gmsh at meshing time or afterwards by geometry (`mapCADFacesToMesh`); a group is created whole or not at all.
+- User face groups stored in an `.omgroups` sidecar next to the CAD file ([`docs/cad-face-groups-phase-4.md`](docs/cad-face-groups-phase-4.md)).
+
+**FEM results and viewer**
+- Result readers for CalculiX `.frd` and `.dat`, code_aster `.tab` tables and CSV: displacements, stresses, strains, principal and von Mises values, modal frequencies and mode shapes ([`docs/FEM_RESULTS.md`](docs/FEM_RESULTS.md)).
+- Binding of results to a mesh, with a coordinate check.
+- WebGL viewer: colour fields, deformed shape, modal animation, section plane and GPU picking of nodes, elements and faces.
+
+**Analysis and solvers**
+- Analysis script (`material`, `fix`, `force`, `pressure`, `step static` / `step frequency`) with the selectors `all`, `group:NAME` and `plane:x|y|z=VALUE`, and groups created by picking in the viewer ([`docs/SOLVER.md`](docs/SOLVER.md)).
+- Complete CalculiX input writer and a solver runner that works in the background with live log and cancel (POSIX only).
+- code_aster case export (`.mail`, `.comm`, `.export`) and launcher support ([`docs/CODE_ASTER.md`](docs/CODE_ASTER.md)).
+
+**Fatigue module (library)**
+- `OpenModel::Fatigue`: stress history from FEM results, Rainflow cycle counting, S–N and strain-life damage, Palmgren–Miner and Wang–Brown models, mean-stress corrections, local strain correction, operating spectra, reports and damage maps for the viewer ([manual](docs/fatigue/index.html)).
+
+**Project manifest (library)**
+- `OpenModelProject`: an `.omproj` document indexing project assets with relative paths and SHA-256 and size verification ([`docs/PROJECT_PERSISTENCE.md`](docs/PROJECT_PERSISTENCE.md)).
+
+**Command-line tool `openmodel`**
+- `--version`, `info`, `validate-demo`, `demo-inp`, `demo-gltf`, `demo-glb`, `demo-web`, `export-web`, `results-info`, `write-input`, `solve`, `export-aster`, `solve-aster`, `export-mail`, and `mesh-volume` when built with Gmsh.
+
+**Desktop workbench `openmodel-webui` (optional, Italian interface)**
+- CAD and model import, volume meshing, mesh and result loading, selection and groups (FEM and CAD face groups), analysis editing, solver run with live status and cancel, mesh validation, export to MGMB, INP, MGWV and GLB.
+
+**Build, packaging and quality**
+- CMake package `OpenModel` with the targets `OpenModel::Core` and `OpenModel::Shared`, installable and usable with `find_package`.
+- Version configurable in one place, the `OPENMODEL_VERSION` CMake option, and exposed to programs through the generated `<OpenModel/Version.hpp>` (`OpenModel::version()`, `OpenModel::versionString()`, `OPENMODEL_VERSION_*` macros).
+- CPack ZIP and TGZ packages, GitHub Actions workflows for CI (Linux GCC and Windows MSVC) and for tagged releases.
+- 67 CTest tests in the default configuration, plus opt-in browser tests of the viewer and manual GUI end-to-end scripts.
+- HTML manual ([`docs/index.html`](docs/index.html)) and fatigue manual.
 - MIT license.
 
-### Changed
-- Renamed the project, C++ namespace (`OpenModel`), headers (`include/OpenModel/`), CMake package (`OpenModel`, target `OpenModel::Core`),
-  CMake options (`OPENMODEL_*`), executables (`openmodel`, `openmodel-webui`), viewer API (`OpenModelViewer`) and GUI bindings (`openmodel_*`).
-- File formats MGMB and MGWV and their extensions are unchanged.
-
-### Included (carried over from MeshGen phases 1–50)
-- Mesh data model, topology, validation, physical groups; Abaqus/CalculiX INP import and export; MGMB binary format; glTF/GLB export.
-- Optional backends: Gmsh, Open CASCADE, Assimp, TetGen, Netgen, MFEM.
-- FEM result loading (CalculiX `.frd`/`.dat`, CSV), WebGL viewer (MGWV) with fields, deformed shape, modes and GPU picking.
-- Analysis script, CalculiX input writer and solver launcher; node/element/face groups from the viewer.
+### Known limitations
+- The CalculiX input and the code_aster export have not been run through the real solvers; the tests use stand-ins and check the plumbing, not the physics.
+- The solver runner is POSIX only; the workbench was built and tested only on Linux.
+- The fatigue module and the project manifest are libraries: neither is used by the CLI or the workbench yet.
+- See [Status and known limits](README.md#status-and-known-limits) in the README for the full list.

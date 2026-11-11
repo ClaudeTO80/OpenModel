@@ -13,6 +13,7 @@
 #include <OpenModel/SurfaceMesh.hpp>
 #include <OpenModel/Mesher.hpp>
 #include <OpenModel/CADModel.hpp>
+#include <OpenModel/Version.hpp>
 #include <filesystem>
 #ifdef OPENMODEL_HAS_GMSH
 #include <OpenModel/GmshMesher.hpp>
@@ -44,11 +45,6 @@ MeshData makeDemoVolumeMesh() {
     mesh.addElement("Tetrahedra", ElementType::Tetrahedron4, 1, {n0, n1, n2, n3});
     return mesh;
 }
-
-
-#ifndef OPENMODEL_VERSION
-#define OPENMODEL_VERSION "unknown"
-#endif
 
 std::string lowerExtension(const std::filesystem::path& path) {
     auto ext = path.extension().string();
@@ -288,8 +284,9 @@ int prepareAster(const std::string& meshPath, const std::string& scriptPath, con
 }
 
 void usage() {
-    std::cout << "OpenModel " << OPENMODEL_VERSION << "\n"
+    std::cout << "OpenModel " << OpenModel::versionString() << "\n"
               << "Usage:\n"
+              << "  openmodel --version\n"
               << "  openmodel info\n"
               << "  openmodel validate-demo\n"
               << "  openmodel demo-inp <output.inp>\n"
@@ -314,6 +311,10 @@ void usage() {
 int main(int argc, char** argv) {
     if (argc < 2) { usage(); return 2; }
     const std::string command = argv[1];
+    if (command == "--version" || command == "version") {
+        std::cout << "OpenModel " << OpenModel::versionString() << "\n";
+        return 0;
+    }
 #ifdef OPENMODEL_HAS_GMSH
     if (command == "mesh-volume") {
         if (argc < 5 || argc > 6) { usage(); return 2; }
@@ -349,7 +350,7 @@ int main(int argc, char** argv) {
     }
 #endif
     if (command == "info") {
-        std::cout << "OpenModel " << OPENMODEL_VERSION << "\n"
+        std::cout << "OpenModel " << OpenModel::versionString() << "\n"
                   << "Core API: MeshData, MeshBinaryIO, MeshImporter, FemResults, ResultBinding, MeshValidator, MeshTopology, SurfaceMesh, GltfWriter, WebViewWriter, AbaqusInpWriter\n"
                   << "Build features: static library, shared library (when enabled), CLI\n";
         return 0;

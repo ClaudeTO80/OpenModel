@@ -6,8 +6,8 @@ A C++17 library, command-line tool and lightweight desktop workbench for **finit
 import CAD and mesh files, generate and validate meshes, write solver input, run CalculiX or code_aster, and inspect the results in a WebGL viewer
 where you can also pick nodes, elements and faces to build groups, supports and loads. A fatigue-analysis library works on the loaded results.
 
-> **Status: 0.1.0.0, early.** The project was previously called MeshGen (development phases 8–50, last version 0.49.0); the version
-> number restarted with the rename. See [Status and known limits](#status-and-known-limits) before relying on it.
+> **Version 0.1.0 — first release, early.** The project was previously called MeshGen; the notes of that development (phases 8–50) are in
+> [`docs/DEVELOPMENT_LOG.md`](docs/DEVELOPMENT_LOG.md). See [Status and known limits](#status-and-known-limits) before relying on it.
 
 ## Features
 
@@ -48,6 +48,7 @@ build/openmodel demo-web demo.mgwv 12      # a demo mesh with a scalar field
 ## Command-line tool
 
 ```text
+openmodel --version
 openmodel info
 openmodel validate-demo
 openmodel demo-inp <output.inp>
@@ -107,6 +108,32 @@ target_link_libraries(my_app PRIVATE OpenModel::Core)
 Use `CMAKE_PREFIX_PATH` or `OpenModel_DIR` for a non-standard prefix. A minimal consumer is in [`examples/cmake-consumer`](examples/cmake-consumer).
 The installed package contains the core; optional backends are built from source and are not exported as relocatable components.
 
+## Version
+
+The current version is **0.1.0** ([`CHANGELOG.md`](CHANGELOG.md)). It is set in one place, the CMake cache option `OPENMODEL_VERSION`
+(`MAJOR.MINOR.PATCH`, default `0.1.0`; minor and patch between 0 and 99, no leading zeros):
+
+```bash
+cmake -S . -B build -DOPENMODEL_VERSION=0.2.0     # override, e.g. from a release script
+```
+
+From that value CMake derives the project version, the installed CMake package (`find_package(OpenModel 0.1 CONFIG)` is satisfied by a package with the same
+major version and at least that version), the CPack file names and the generated header `<OpenModel/Version.hpp>`, which is installed with the headers:
+
+```cpp
+#include <OpenModel/Version.hpp>
+
+std::string s = OpenModel::versionString();        // "0.1.0", the version of the linked library
+OpenModel::Version v = OpenModel::version();       // v.major, v.minor, v.patch
+#if OPENMODEL_VERSION_NUMBER >= 100                // major*10000 + minor*100 + patch (0.1.0 -> 100)
+// ... code that needs 0.1.0 or later
+#endif
+```
+
+`OPENMODEL_VERSION_MAJOR`, `_MINOR`, `_PATCH`, `_NUMBER` and `_STRING` are macros that describe the headers a program was compiled against;
+`OpenModel::version()` and `OpenModel::versionString()` describe the library it is linked with, which can differ with a shared library.
+The CLI prints it with `openmodel --version`.
+
 ## Desktop workbench
 
 `openmodel-webui` is a desktop GUI (ribbon bar, embedded WebGL viewer) built on the [WebUI](https://webui.me) library, which is **not vendored**:
@@ -133,7 +160,7 @@ Each backend is off by default and needs its native library to be found by CMake
 | `OPENMODEL_BUILD_NETGEN_BACKEND` (+ `OPENMODEL_NETGEN_HAS_OCC`) | Netgen meshing |
 | `OPENMODEL_BUILD_MFEM_BACKEND` | MFEM mesh adapter |
 
-General options: `OPENMODEL_BUILD_TESTS` (ON), `OPENMODEL_BUILD_CLI` (ON), `OPENMODEL_BUILD_SHARED` (ON), `OPENMODEL_BUILD_BENCHMARKS` (OFF),
+General options: `OPENMODEL_VERSION` (`0.1.0`, see [Version](#version)), `OPENMODEL_BUILD_TESTS` (ON), `OPENMODEL_BUILD_CLI` (ON), `OPENMODEL_BUILD_SHARED` (ON), `OPENMODEL_BUILD_BENCHMARKS` (OFF),
 `OPENMODEL_BUILD_WEBUI` (OFF), `OPENMODEL_TEST_WEBGL_VIEWER` (OFF, needs Node.js with Playwright).
 
 ### Gmsh meshing controls
@@ -158,7 +185,7 @@ examples/            webgl-fem-viewer (the viewer), webgl-viewer (glTF), cmake-c
 tests/               C++ tests, tests/fatigue, tests/support (fixtures, fake ccx / code_aster), tests/webgl (browser and GUI tests)
 benchmarks/          optional synthetic performance benchmarks
 docs/                format and feature documentation; docs/index.html is the HTML manual
-cmake/               package configuration template
+cmake/               package configuration template, Version.hpp.in (generated version header)
 ```
 
 ## Documentation
@@ -180,7 +207,7 @@ cmake/               package configuration template
 
 ## Status and known limits
 
-What the automated tests cover (65 CTest tests in the default configuration, all passing on Linux with GCC 13.3; the headless-browser tests of the viewer and of the GUI are opt-in, see below):
+What the automated tests cover (67 CTest tests in the default configuration, all passing on Linux with GCC 13.3; the headless-browser tests of the viewer and of the GUI are opt-in, see below):
 mesh core, I/O round trips, result readers, result binding, group creation, CAD face mapping, analysis-script parsing, input writing for CalculiX and code_aster, process control, the fatigue module and the project manifest.
 With `OPENMODEL_TEST_WEBGL_VIEWER=ON` and Node.js with Playwright, CTest also runs the viewer tests (rendering, picking, modal animation). The GUI end-to-end scripts in `tests/webgl` are run by hand against a real `openmodel-webui` (see [`tests/webgl/README.md`](tests/webgl/README.md)); they need the WebUI SDK, Gmsh, TetGen and Open CASCADE.
 
