@@ -81,6 +81,22 @@ struct UserCADFaceGroup {
     std::vector<int> faceIds;
 };
 
+/**
+ * @brief Finest linear deflection selectable in the GUI, in model units.
+ *
+ * Used as the default so that CAD geometry is always drawn with the highest precision;
+ * it matches the minimum of the "linear" slider in gui.html.
+ */
+constexpr double kFinestLinearDeflection = 0.001;
+
+/**
+ * @brief Finest angular deflection selectable in the GUI, in radians.
+ *
+ * Used as the default so that CAD geometry is always drawn with the highest precision;
+ * it matches the minimum of the "angular" slider in gui.html.
+ */
+constexpr double kFinestAngularDeflection = 0.05;
+
 /** Whole application state; always accessed with g_mutex held. */
 struct AppState {
     std::shared_ptr<CADModel> cad;
@@ -91,8 +107,8 @@ struct AppState {
     MeshOrigin origin = MeshOrigin::None;
     std::string meshLabel;
     std::string source;
-    double linearDeflection = 0.1;
-    double angularDeflection = 0.5;
+    double linearDeflection = kFinestLinearDeflection;   ///< CAD tessellation chordal tolerance (model units).
+    double angularDeflection = kFinestAngularDeflection; ///< CAD tessellation angular tolerance (radians).
     std::vector<unsigned char> view; ///< Current MGWV image served as /model.mgwv.
     unsigned viewVersion = 0;
     std::string viewLabel;

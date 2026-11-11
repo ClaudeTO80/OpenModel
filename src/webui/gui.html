@@ -228,12 +228,12 @@ iframe{display:block;width:100%;height:100%;border:0;background:#10141b}
     <button class="primary full" id="btnImport" onclick="importModel()">Importa e triangola</button>
   </section>
 
-  <section id="secTess">
+  <section id="secTess" hidden>
     <h2>2 · Tessellazione CAD</h2>
-    <label for="linear">Deflessione lineare: <b id="linearValue">0.100</b></label>
-    <input id="linear" type="range" min="0.001" max="2" step="0.001" value="0.1" oninput="linearValue.textContent=Number(this.value).toFixed(3)">
-    <label for="angular">Deflessione angolare (rad): <b id="angularValue">0.50</b></label>
-    <input id="angular" type="range" min="0.05" max="3.14" step="0.05" value="0.5" oninput="angularValue.textContent=Number(this.value).toFixed(2)">
+    <label for="linear">Deflessione lineare: <b id="linearValue">0.001</b></label>
+    <input id="linear" type="range" min="0.001" max="2" step="0.001" value="0.001" oninput="linearValue.textContent=Number(this.value).toFixed(3)">
+    <label for="angular">Deflessione angolare (rad): <b id="angularValue">0.05</b></label>
+    <input id="angular" type="range" min="0.05" max="3.14" step="0.05" value="0.05" oninput="angularValue.textContent=Number(this.value).toFixed(2)">
     <button class="full" onclick="retessellate()">Applica e ritessella</button>
     <p class="hint">Determina la superficie mostrata prima della meshatura e, per TetGen, la superficie che viene riempita.</p>
   </section>
@@ -525,6 +525,14 @@ function vset(options) {
   syncRibbon();
 }
 const viewerClick = (selector) => { const w = viewerApi(); const el = w && w.document.querySelector(selector); if (el) el.click(); };
+/**
+ * Makes a section that is hidden by default visible.
+ * The CAD tessellation section starts hidden because the defaults already give the
+ * finest tessellation; it is revealed on demand by the "Parametri…" ribbon button.
+ */
+function revealSection(id) {
+  const el = $(id); if (el) el.hidden = false;
+}
 function focusSection(id) {
   const el = $(id); if (!el) return;
   el.scrollIntoView({behavior: "smooth", block: "nearest"});
@@ -550,7 +558,7 @@ const RIBBON_ACTIONS = {
   "save-glb": () => save("openmodel_export_glb", ".glb"),
   tess: retessellate,
   gen: generate,
-  "focus-tess": () => focusSection("secTess"),
+  "focus-tess": () => { revealSection("secTess"); focusSection("secTess"); },
   "focus-mesh": () => focusSection("secMesh"),
   validate: () => act("openmodel_validate"),
   status: () => act("openmodel_status"),

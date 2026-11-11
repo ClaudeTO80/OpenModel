@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Changed
+- Desktop workbench: CAD is now always drawn at the finest tessellation. The default linear and angular deflections are the smallest values the workbench offers (0.001 and 0.05 rad, previously 0.1 and 0.5 rad).
+- Desktop workbench: the "2 · Tessellazione CAD" section is hidden by default; the "Parametri…" ribbon button reveals it.
+
 ## [0.1.0] - 2026-11-11
 
 First release of OpenModel. This entry is the starting point of the changelog: it lists what the release contains.
