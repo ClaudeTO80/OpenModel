@@ -179,11 +179,38 @@ General options: `OPENMODEL_VERSION` (`0.1.1`, see [Version](#version)), `OPENMO
 
 `MeshingOptions` (Gmsh backend) controls, besides the element sizes and the order:
 
-- `structure` / `structuredShape`: `Unstructured` (tetrahedra, any solid) or `Structured`, which sweeps the end-face mesh of a
-  straight prismatic solid (beam, bar) in layers into hexahedra (`Hexahedron`: triangles that the recombination leaves become
-  prisms) or prisms (`Prism`). Other solids fall back to tetrahedra with a diagnostic, or fail when `structuredFallback` is
-  false. Second-order structured meshes use 20-node hexahedra and 15-node prisms in Abaqus node order. Conformal interfaces
-  between several solids are not available for structured meshes.
+- `structure` / `structuredShape` / `structuredGmsh`: `Unstructured` (tetrahedra, any solid) or `Structured`. The desktop
+  workbench always asks for `Structured` and never falls back (`structuredFallback = false`). A structured mesh is built with
+  the structured-meshing tools of Gmsh and needs every solid to be one of:
+  - a **hexahedral block** (six four-sided faces, eight corners; curved blocks qualify, the test is topological): transfinite
+    curves, surfaces and volume give a regular grid of hexahedra or of tetrahedra, and touching blocks stay conformal;
+  - a **straight prism** (beam, bar, cylinder, L profile): the mesh of one end face is swept in layers.
+
+  Any other solid is reported with the reason (or, with `structuredFallback = true`, meshed with unstructured tetrahedra and a
+  diagnostic). Element families (`StructuredElementShape`): `Hexahedron` (hexahedra only: transfinite blocks recombined,
+  swept end faces recombined with the blossom full-quad algorithm), `Tetrahedron` (regular grid of tetrahedra; swept solids
+  are layered into tetrahedra), `Prism` (swept triangular end face; a block is swept as a prism) and `Mixed` (hexahedra, plus
+  the prisms that the blossom recombination of a swept end face leaves). Second-order structured meshes use 20-node
+  hexahedra and 15-node prisms in Abaqus node order. Swept solids cannot be combined with conformal interfaces between
+  several solids; blocks can.
+
+  The Gmsh settings that govern a structured mesh, and the only ones the workbench shows (`StructuredGmshOptions`):
+
+  | Setting | Gmsh | Applies to |
+  |---|---|---|
+  | Maximum element size (`maxElementSize`) | sets the number of nodes of every transfinite curve and the number of layers of a sweep | all |
+  | Curve distribution and coefficient (`curveType`, `curveCoefficient`) | `setTransfiniteCurve` `meshType` (`Progression`, `Bump`, `Beta`) and `coef`; a progression is reversed on the sides that run the other way, so opposite sides are graded alike | blocks |
+  | Surface arrangement (`arrangement`) | `setTransfiniteSurface` `arrangement` (`Left`, `Right`, `AlternateLeft`, `AlternateRight`) | tetrahedral blocks |
+  | Recombination algorithm (`recombinationAlgorithm`) | `Mesh.RecombinationAlgorithm` (0 simple, 1 blossom, 2 simple full-quad, 3 blossom full-quad); `Automatic` picks 3 for hexahedra and 1 for mixed | hexahedra, mixed |
+  | Recombination angle (`recombineAngle`) | `setRecombine` `angle` | hexahedra, mixed |
+  | Topology optimisation passes (`recombineOptimizeTopology`) | `Mesh.RecombineOptimizeTopology` | hexahedra, mixed |
+  | Node repositioning (`recombineNodeRepositioning`) | `Mesh.RecombineNodeRepositioning` | hexahedra, mixed |
+  | Minimum quadrangle quality (`recombineMinimumQuality`) | `Mesh.RecombineMinimumQuality` | hexahedra, mixed |
+
+  The unstructured-mesh controls (minimum size, curvature adaptation, thin-face sizing) are not shown for Gmsh because they do
+  not create structure; they stay available through `MeshingOptions`. Not exposed: `setTransfiniteAutomatic` (it hides the node
+  counts, which OpenModel computes itself so that it can grade the curves), `Mesh.SubdivisionAlgorithm` (an all-hexahedra
+  subdivision of an unstructured mesh) and the quasi-structured quad algorithm (not a structured mesh).
 - `thinFaceSizeFactor`: limits the element size at the corners of each face to the given multiple of the face width
   (2 * area / perimeter). It avoids needle triangles on strips such as the flange edges of a beam; 1 is a good start.
 - `computeMeshQuality(mesh)` (`MeshQuality.hpp`) reports the quality of every element type (1 = ideal; non-positive = inverted).
