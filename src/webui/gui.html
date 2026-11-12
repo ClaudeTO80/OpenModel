@@ -262,23 +262,54 @@ iframe{display:block;width:100%;height:100%;border:0;background:#10141b}
     <select id="mesher" onchange="mesherChanged()"></select>
     <label for="size">Maximum element size</label>
     <input id="size" type="number" min="0" step="any" value="1">
-    <div data-f="min"><label for="minSize">Minimum size (0 = automatic)</label><input id="minSize" type="number" min="0" step="any" value="0"></div>
     <div data-f="order"><label for="order">Element order</label>
       <select id="order"><option value="1">Linear (1st order)</option><option value="2">Quadratic (2nd order)</option></select></div>
-    <div data-f="struct"><label for="struct">Mesh type</label>
-      <select id="struct" onchange="structChanged()">
-        <option value="unstructured">Unstructured (tetrahedra)</option>
-        <option value="structured">Structured (sweep of prismatic solids)</option>
-      </select></div>
-    <div data-f="struct" id="shapeBox" hidden><label for="shape">Structured mesh elements</label>
-      <select id="shape">
-        <option value="hex">Hexahedra (hex, prisms where needed)</option>
-        <option value="prism">Prisms (triangle + extrusion)</option>
+    <div data-f="sgmsh" id="sgmsh">
+      <label for="shape">Structured mesh elements (Gmsh)</label>
+      <select id="shape" onchange="shapeChanged()">
+        <option value="hex">Hexahedra only</option>
+        <option value="tet">Tetrahedra</option>
+        <option value="mixed">Mixed (hexahedra and prisms)</option>
+        <option value="prism">Prisms</option>
       </select>
-      <p class="hint">Only straight-extruded solids (beams, plates, profiles). Other solids fall back to tetrahedra.</p></div>
-    <div data-f="thin"><label for="thin">Adapt to thin faces (0 = off, 1 = recommended)</label>
-      <input id="thin" type="number" min="0" step="any" value="0"></div>
-    <label class="check" data-f="curv"><input type="checkbox" id="curv" checked> Adapt to curvature</label>
+      <p class="hint">The mesh is always structured. Hexahedral blocks (six four-sided faces) get transfinite curves, surfaces and volume; straight prisms (beams, bars, cylinders, profiles) are swept in layers. The number of divisions follows the maximum element size. A solid that is neither is reported and not meshed.</p>
+      <div data-s="blocks">
+        <label for="tcType">Transfinite curve distribution</label>
+        <select id="tcType">
+          <option value="progression">Progression</option>
+          <option value="bump">Bump (finer at both ends)</option>
+          <option value="beta">Beta</option>
+        </select>
+        <label for="tcCoef">Curve coefficient (1 = uniform for a progression)</label>
+        <input id="tcCoef" type="number" min="0" step="any" value="1">
+      </div>
+      <div data-s="tet" hidden>
+        <label for="tsArr">Transfinite surface arrangement (triangles)</label>
+        <select id="tsArr">
+          <option value="left">Left</option>
+          <option value="right">Right</option>
+          <option value="alternateleft">Alternate left</option>
+          <option value="alternateright">Alternate right</option>
+        </select>
+      </div>
+      <div data-s="rec">
+        <label for="recAlg">Recombination algorithm</label>
+        <select id="recAlg">
+          <option value="auto">Automatic (from the element type)</option>
+          <option value="0">Simple</option>
+          <option value="1">Blossom</option>
+          <option value="2">Simple full-quad</option>
+          <option value="3">Blossom full-quad</option>
+        </select>
+        <label for="recAngle">Recombination angle (degrees)</label>
+        <input id="recAngle" type="number" min="0" max="180" step="any" value="45">
+        <label for="recOpt">Topology optimisation passes after recombination</label>
+        <input id="recOpt" type="number" min="0" step="1" value="5">
+        <label for="recMinQ">Minimum quality of a recombined quadrangle (0 to 1)</label>
+        <input id="recMinQ" type="number" min="0" max="1" step="any" value="0.01">
+        <label class="check"><input type="checkbox" id="recMove" checked> Reposition nodes after recombination</label>
+      </div>
+    </div>
     <div data-f="iface"><label for="iface">Solids in contact</label>
       <select id="iface">
         <option value="independent">Independent meshes (separate nodes)</option>
@@ -489,21 +520,24 @@ $("viewer").addEventListener("load", () => { if (pendingView || viewVersion >= 0
 
 const importModel = () => act("openmodel_import_model", $("cadPath").value.trim(), $("linear").value, $("angular").value);
 const retessellate = () => act("openmodel_retessellate", $("linear").value, $("angular").value);
-const generate = () => act("openmodel_generate_volume", $("mesher").value, $("size").value, $("minSize").value, $("order").value, $("curv").checked ? "1" : "0", $("iface").value, $("verbose").checked ? "1" : "0", $("struct").value, $("shape").value, $("thin").value);
+const generate = () => act("openmodel_generate_volume", $("mesher").value, $("size").value, $("order").value, $("iface").value, $("verbose").checked ? "1" : "0",
+  $("shape").value, $("tcType").value, $("tcCoef").value, $("tsArr").value, $("recAlg").value, $("recAngle").value, $("recOpt").value, $("recMove").checked ? "1" : "0", $("recMinQ").value);
 const loadMesh = () => act("openmodel_load_mesh", $("loadPath").value.trim());
 const loadResults = () => act("openmodel_load_results", $("resPath").value.trim(), $("resStep").value.trim());
 const save = (fn, ext) => act(fn, $("outBase").value.trim(), ext);
 
-function structChanged() {
-  const m = meshers.find((x) => x.id === $("mesher").value);
-  $("shapeBox").hidden = !(m && m.fields.includes("struct")) || $("struct").value !== "structured";
+/* Shows only the Gmsh settings that apply to the chosen element type of the structured mesh. */
+function shapeChanged() {
+  const s = $("shape").value;
+  const on = { blocks: s !== "prism", rec: s === "hex" || s === "mixed", tet: s === "tet" };
+  document.querySelectorAll("#sgmsh [data-s]").forEach((el) => { el.hidden = !on[el.dataset.s]; });
 }
 
 function mesherChanged() {
   const m = meshers.find((x) => x.id === $("mesher").value);
   if (!m) return;
   document.querySelectorAll("[data-f]").forEach((el) => { el.hidden = !m.fields.includes(el.dataset.f); });
-  structChanged();
+  shapeChanged();
   $("mesherHint").textContent = m.hint;
 }
 
