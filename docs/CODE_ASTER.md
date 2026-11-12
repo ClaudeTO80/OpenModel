@@ -31,8 +31,8 @@ openmodel export-web beam.mail beam.mgwv
 The launcher is `--launcher`, else the environment variable `OPENMODEL_CODE_ASTER`, else `run_aster`, then `as_run`, in `PATH`. It
 is started in the job folder with the single argument `<job>.export`.
 
-In the desktop workbench (section *6 · Analisi e solver*) choose **code_aster** in the *Solutore* list; *Scrivi input* writes the
-case, *Avvia solutore* runs it and loads the tables when it ends. *Apri mesh* accepts `.mail`, *Carica risultati* accepts `.tab`.
+In the desktop workbench (section *6 · Analysis and solver*) choose **code_aster** in the *Solver* list; *Write input* writes the
+case, *Run solver* runs it and loads the tables when it ends. *Open mesh* accepts `.mail`, *Load results* accepts `.tab`.
 
 Library: `writeCodeAsterCase`, `writeCodeAsterMesh`, `findCodeAsterExecutable`, `codeAsterLaunchCommand`, `codeAsterResultFiles`,
 `CodeAsterMeshImporter`, `CodeAsterTableImporter` (`include/OpenModel/CodeAster.hpp`).

@@ -91,7 +91,7 @@ function check(ok, message) {
   check(Math.abs(ui.meta[0] - 8355.17) < 0.5 && ui.meta.every((f, i) => i === 0 || f > ui.meta[i - 1]),
         'frequencies are stored in ascending order (' + ui.meta.map((f) => f.toFixed(0)).join(', ') + ')');
   check(Math.abs(+ui.freq - 8355.17) < 0.5, 'the frequency of mode 1 is displayed: ' + ui.freq);
-  check(ui.firstField === '|u| (modo)' && ui.dynamic && ui.colour === 'scalar', 'the file opens coloured by the displacement magnitude of the mode');
+  check(ui.firstField === '|u| (mode)' && ui.dynamic && ui.colour === 'scalar', 'the file opens coloured by the displacement magnitude of the mode');
   check(!ui.hasDisplacementChunk, 'a modal file has no single displacement chunk (one chunk per mode)');
   check(ui.info.includes('5 modes'), 'results label: "' + ui.info + '"');
 
@@ -160,7 +160,7 @@ function check(ok, message) {
 
   // The check box drives the same state.
   const box = await page.evaluate(() => { const c = document.getElementById('modeAnim'); c.checked = true; c.dispatchEvent(new Event('change')); const on = window.OpenModelViewer.state.animate; c.checked = false; c.dispatchEvent(new Event('change')); return [on, window.OpenModelViewer.state.animate]; });
-  check(box[0] === true && box[1] === false, 'the "Anima" check box toggles the animation');
+  check(box[0] === true && box[1] === false, 'the "Animate" check box toggles the animation');
 
   // ---------------------------------------------------------- element fields
   const msgE = await load(elementFile);
@@ -174,18 +174,18 @@ function check(ok, message) {
       colour: S.mode,
     };
   });
-  check(el.names.length >= 4 && el.names.every((n) => n.endsWith('[elemento]')), 'all fields are marked as per-element (' + el.names.length + ' fields)');
+  check(el.names.length >= 4 && el.names.every((n) => n.endsWith('[element]')), 'all fields are marked as per-element (' + el.names.length + ' fields)');
   check(el.elementFlags.every(Boolean) && el.lengths.every((n) => n === el.tris), 'element fields hold one value per triangle (' + el.tris + ')');
   check(el.modeBox && el.colour === 'scalar', 'no mode selector for a file without modes; opens coloured by the field');
   const names = el.names;
-  const vm = names.indexOf('stress von Mises [elemento]');
+  const vm = names.indexOf('stress von Mises [element]');
   check(vm >= 0, 'derived von Mises is available for element tensors');
   await page.evaluate((i) => window.OpenModelViewer.set({ wire: 'none', view: 'y', mode: 'scalar', field: i }), Math.max(0, vm));
   const elShot = await snapshot();
   check(elShot.glError === 0 && elShot.colours >= 4, 'element field renders with several colours (' + elShot.colours + ' bins)');
   await shot('element_von_mises.png');
   // Per element means flat colours: far fewer distinct shades than the node-interpolated field would show.
-  const part = names.indexOf('part [elemento]');
+  const part = names.indexOf('part [element]');
   await page.evaluate((i) => window.OpenModelViewer.set({ field: i }), part);
   const partShot = await snapshot();
   check(partShot.colours >= 2 && partShot.colours <= 6, 'a two-valued element field gives two flat colour regions (' + partShot.colours + ' bins incl. edges)');

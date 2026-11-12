@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="it">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>OpenModel · Viewer FEM</title>
+<title>OpenModel · FEM Viewer</title>
 <style>
 :root {
   --bg: #f4f5f7; --panel: #ffffff; --panel-2: #eceef2; --line: #d3d8e0; --text: #1b2230; --muted: #5b6678;
@@ -73,110 +73,110 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
 </head>
 <body>
 <aside>
-  <h1>OpenModel · Viewer FEM</h1>
-  <div class="sub" id="fileName">Nessun file caricato</div>
+  <h1>OpenModel · FEM Viewer</h1>
+  <div class="sub" id="fileName">No file loaded</div>
   <div class="sub" id="resultsInfo" hidden></div>
   <div class="btns">
-    <button class="primary" id="openBtn">Apri .mgwv…</button>
-    <button id="shotBtn">Salva PNG</button>
-    <button id="themeBtn" title="Cambia tema">Tema</button>
+    <button class="primary" id="openBtn">Open .mgwv…</button>
+    <button id="shotBtn">Save PNG</button>
+    <button id="themeBtn" title="Toggle theme">Theme</button>
   </div>
   <input type="file" id="file" accept=".mgwv" hidden>
 
   <section>
-    <h2>Modello</h2>
+    <h2>Model</h2>
     <dl id="stats"></dl>
   </section>
 
   <section>
-    <h2>Vista</h2>
+    <h2>View</h2>
     <div class="btns">
       <button data-view="x">+X</button><button data-view="y">+Y</button><button data-view="z">+Z</button>
-      <button data-view="iso">Iso</button><button id="fitBtn">Inquadra</button>
+      <button data-view="iso">Iso</button><button id="fitBtn">Fit</button>
     </div>
-    <label class="row"><span>Colora per</span>
+    <label class="row"><span>Color by</span>
       <select id="colorMode">
-        <option value="block">Blocco</option>
-        <option value="region">Regione</option>
-        <option value="surface">Superficie</option>
-        <option value="scalar">Campo scalare</option>
-        <option value="flat">Uniforme</option>
+        <option value="block">Block</option>
+        <option value="region">Region</option>
+        <option value="surface">Surface</option>
+        <option value="scalar">Scalar field</option>
+        <option value="flat">Uniform</option>
       </select></label>
     <div id="scalarBox" hidden>
-      <label class="row"><span>Campo</span><select id="fieldSel"></select></label>
+      <label class="row"><span>Field</span><select id="fieldSel"></select></label>
       <div id="bar"></div>
       <div class="row"><span>Min / Max</span><input type="number" id="smin" step="any"><input type="number" id="smax" step="any"></div>
     </div>
-    <label class="row"><span>Spigoli</span>
+    <label class="row"><span>Edges</span>
       <select id="wire">
-        <option value="none">Nascosti</option>
-        <option value="skin" selected>Superficie</option>
-        <option value="all">Tutti (con sezione)</option>
+        <option value="none">Hidden</option>
+        <option value="skin" selected>Surface</option>
+        <option value="all">All (with section)</option>
       </select></label>
   </section>
 
   <section>
-    <h2>Sezione</h2>
-    <label class="row"><span>Piano</span><input type="checkbox" id="clipOn"> <span style="flex:1;color:var(--text)">Attiva sezione</span></label>
+    <h2>Section</h2>
+    <label class="row"><span>Plane</span><input type="checkbox" id="clipOn"> <span style="flex:1;color:var(--text)">Enable section</span></label>
     <div id="clipBox" hidden>
-      <label class="row"><span>Asse</span>
+      <label class="row"><span>Axis</span>
         <select id="clipAxis"><option value="0">X</option><option value="1">Y</option><option value="2" selected>Z</option></select></label>
-      <label class="row"><span>Posizione</span><input type="range" id="clipPos" min="0" max="1000" value="500"></label>
-      <label class="row"><span>Verso</span><input type="checkbox" id="clipFlip"> <span style="flex:1;color:var(--text)">Inverti</span></label>
+      <label class="row"><span>Position</span><input type="range" id="clipPos" min="0" max="1000" value="500"></label>
+      <label class="row"><span>Direction</span><input type="checkbox" id="clipFlip"> <span style="flex:1;color:var(--text)">Flip</span></label>
     </div>
   </section>
 
   <section id="defSec" hidden>
-    <h2>Deformata</h2>
-    <label class="row"><span>Mostra</span><input type="checkbox" id="defOn" checked> <span style="flex:1;color:var(--text)" id="defName">Spostamenti</span></label>
-    <label class="row"><span>Scala</span><input type="range" id="defScale" min="0" max="1000" value="100"></label>
-    <div class="row"><span>Fattore</span><input type="number" id="defFactor" step="any" min="0"></div>
-    <div class="row"><span>Max spost.</span><span id="defMax" style="flex:1;text-align:right"></span></div>
+    <h2>Deformed shape</h2>
+    <label class="row"><span>Show</span><input type="checkbox" id="defOn" checked> <span style="flex:1;color:var(--text)" id="defName">Displacements</span></label>
+    <label class="row"><span>Scale</span><input type="range" id="defScale" min="0" max="1000" value="100"></label>
+    <div class="row"><span>Factor</span><input type="number" id="defFactor" step="any" min="0"></div>
+    <div class="row"><span>Max disp.</span><span id="defMax" style="flex:1;text-align:right"></span></div>
     <div id="modeBox" hidden>
-      <label class="row"><span>Modo</span><select id="modeSel"></select></label>
-      <div class="row"><span>Frequenza</span><span id="modeFreq" style="flex:1;text-align:right"></span></div>
-      <label class="row"><span>Anima</span><input type="checkbox" id="modeAnim"> <span style="flex:1;color:var(--text)">oscillazione</span></label>
+      <label class="row"><span>Mode</span><select id="modeSel"></select></label>
+      <div class="row"><span>Frequency</span><span id="modeFreq" style="flex:1;text-align:right"></span></div>
+      <label class="row"><span>Animate</span><input type="checkbox" id="modeAnim"> <span style="flex:1;color:var(--text)">oscillation</span></label>
     </div>
   </section>
 
   <section id="pickSec" hidden>
-    <h2>Selezione</h2>
-    <label class="row"><span>Seleziona</span>
+    <h2>Selection</h2>
+    <label class="row"><span>Select</span>
       <select id="pickMode">
-        <option value="off">Disattivata</option>
-        <option value="node">Nodi</option>
-        <option value="element">Elementi</option>
-        <option value="face">Facce</option>
+        <option value="off">Off</option>
+        <option value="node">Nodes</option>
+        <option value="element">Elements</option>
+        <option value="face">Faces</option>
       </select></label>
-    <label class="row"><span>Angolo</span><input type="number" id="pickAngle" min="0" max="180" step="1" value="0" title="Facce: estende la selezione alle facce collegate la cui normale devia meno di questo angolo (0 = una sola faccia)"> <span style="flex:1;color:var(--text)">° (facce)</span></label>
-    <label class="row"><span>Riquadro</span><input type="checkbox" id="pickBox"> <span style="flex:1;color:var(--text)">trascina per selezionare</span></label>
-    <div class="row"><span>Selezionati</span><span id="pickCount" style="flex:1;text-align:right">nessuno</span></div>
-    <div class="row"><button id="pickClear" style="flex:1">Annulla selezione</button></div>
-    <p style="color:var(--muted);margin:0">Clic: seleziona · Ctrl+clic: aggiungi/togli · Alt+trascina o «Riquadro»: selezione ad area. Si selezionano solo le parti visibili.</p>
+    <label class="row"><span>Angle</span><input type="number" id="pickAngle" min="0" max="180" step="1" value="0" title="Faces: extends the selection to connected faces whose normal deviates by less than this angle (0 = single face)"> <span style="flex:1;color:var(--text)">° (faces)</span></label>
+    <label class="row"><span>Box</span><input type="checkbox" id="pickBox"> <span style="flex:1;color:var(--text)">drag to select</span></label>
+    <div class="row"><span>Selected</span><span id="pickCount" style="flex:1;text-align:right">none</span></div>
+    <div class="row"><button id="pickClear" style="flex:1">Clear selection</button></div>
+    <p style="color:var(--muted);margin:0">Click: select · Ctrl+click: add/remove · Alt+drag or "Box": area selection. Only visible parts can be selected.</p>
   </section>
 
   <section id="compSec" hidden>
-    <h2>Componenti</h2>
+    <h2>Components</h2>
     <ul id="comps"></ul>
   </section>
 
   <section id="blocksSec">
-    <h2>Blocchi</h2>
+    <h2>Blocks</h2>
     <ul id="blocks"></ul>
   </section>
 
   <section id="legendBox" hidden>
-    <h2 id="legendTitle">Legenda</h2>
+    <h2 id="legendTitle">Legend</h2>
     <ul id="legend"></ul>
   </section>
 </aside>
 
 <main id="view">
   <canvas id="gl"></canvas>
-  <div id="drop"><div><b>Trascina qui un file .mgwv</b>generato con <code>openmodel export-web</code></div></div>
+  <div id="drop"><div><b>Drop an .mgwv file here</b>generated with <code>openmodel export-web</code></div></div>
   <div id="msg" hidden></div>
   <div id="selBox" hidden style="position:absolute;border:1px dashed var(--accent);background:color-mix(in srgb, var(--accent) 15%, transparent);pointer-events:none"></div>
-  <div id="hud">Sinistro: ruota (o seleziona, se attiva) · Destro o Maiusc: sposta · Rotella: zoom · Doppio clic: inquadra</div>
+  <div id="hud">Left: rotate (or select, if enabled) · Right or Shift: pan · Wheel: zoom · Double-click: fit</div>
 </main>
 
 <script>
@@ -186,7 +186,7 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
   const canvas = $("gl"), view = $("view");
   const gl = canvas.getContext("webgl2", { antialias: true, preserveDrawingBuffer: true });
   if (!gl) {
-    $("msg").hidden = false; $("msg").textContent = "WebGL2 non è disponibile in questo browser.";
+    $("msg").hidden = false; $("msg").textContent = "WebGL2 is not available in this browser.";
     return;
   }
   const TEX_W = 4096, TEX_SHIFT = 12, TEX_MASK = TEX_W - 1;
@@ -332,7 +332,7 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
   function dataTexture(kind, array, components) {
     const count = array.length / components;
     const rows = Math.max(1, Math.ceil(count / TEX_W));
-    if (rows > maxTex) throw new Error("Il modello supera il limite delle texture della GPU (" + count + " elementi).");
+    if (rows > maxTex) throw new Error("The model exceeds the GPU texture size limit (" + count + " items).");
     const width = Math.min(Math.max(count, 1), TEX_W);
     const padded = new array.constructor(width * rows * components);
     padded.set(array);
@@ -354,7 +354,7 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     return t;
   }
-  // 1 row x 256 colour map used for scalar fields (viridis).
+  // 1 row x 256 color map used for scalar fields (viridis).
   const VIRIDIS = ["#440154", "#482878", "#3e4989", "#31688e", "#26828e", "#1f9e89", "#35b779", "#6ece58", "#b5de2b", "#fde725"];
   const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
   function lutColor(t) {
@@ -391,21 +391,21 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
   /* ---------------------------------------------------------- file parsing */
   function parseMGWV(buffer) {
     const dv = new DataView(buffer);
-    if (buffer.byteLength < 24) throw new Error("File troppo corto.");
+    if (buffer.byteLength < 24) throw new Error("File too short.");
     const magic = [0x4d, 0x47, 0x57, 0x56, 0x0d, 0x0a, 0x1a, 0x0a];
-    for (let i = 0; i < 8; i++) if (dv.getUint8(i) !== magic[i]) throw new Error("Non è un file MGWV.");
+    for (let i = 0; i < 8; i++) if (dv.getUint8(i) !== magic[i]) throw new Error("Not an MGWV file.");
     const version = dv.getUint32(8, true), jsonLen = dv.getUint32(12, true), binLen = dv.getUint32(16, true);
-    if (version !== 1) throw new Error("Versione MGWV non supportata: " + version);
-    if (24 + jsonLen + binLen !== buffer.byteLength) throw new Error("Dimensione del file incoerente.");
+    if (version !== 1) throw new Error("Unsupported MGWV version: " + version);
+    if (24 + jsonLen + binLen !== buffer.byteLength) throw new Error("Inconsistent file size.");
     const meta = JSON.parse(new TextDecoder().decode(new Uint8Array(buffer, 24, jsonLen)));
     const binStart = 24 + jsonLen;
     const slice = (Type, offset, count) => {
-      if (offset + count * 4 > binLen) throw new Error("Sezione dati fuori dal file.");
+      if (offset + count * 4 > binLen) throw new Error("Data section outside the file.");
       return new Type(buffer, binStart + offset, count);
     };
     const c = meta.chunks;
     for (const key of ["positions", "triIndices", "triBlock", "triRegion", "triSurface", "edgeIndices", "edgeBlock"])
-      if (!c[key]) throw new Error("Sezione mancante nel file: " + key + " (rigenerare il file con la versione corrente di OpenModel).");
+      if (!c[key]) throw new Error("Missing section in file: " + key + " (regenerate the file with the current version of OpenModel).");
     const model = {
       meta,
       positions: slice(Float32Array, c.positions.offset, c.positions.count),
@@ -434,15 +434,15 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     if (model.modes.length) {
       model.disp = model.modes[0].disp;
       // Dynamic field: displacement magnitude of the selected mode (recomputed when the mode changes).
-      const dyn = { name: "|u| (modo)", min: 0, max: 0, element: false, dynamic: true, values: new Float32Array(meta.counts.vertices) };
+      const dyn = { name: "|u| (mode)", min: 0, max: 0, element: false, dynamic: true, values: new Float32Array(meta.counts.vertices) };
       model.fields.unshift(dyn);
       fillModeMagnitude(dyn, model.modes[0]);
     }
     const n = meta.counts;
-    if (model.triIndices.length !== n.triangles * 3 || model.edgeIndices.length !== n.edges * 2) throw new Error("Conteggi incoerenti.");
+    if (model.triIndices.length !== n.triangles * 3 || model.edgeIndices.length !== n.edges * 2) throw new Error("Inconsistent counts.");
     model.canPick = !!(model.vertexNodeId && model.triElementId && model.triFace &&
       model.vertexNodeId.length === n.vertices && model.triElementId.length === n.triangles && model.triFace.length === n.triangles);
-    if (model.disp && model.disp.length !== n.vertices * 3) throw new Error("Spostamenti incoerenti con il numero di vertici.");
+    if (model.disp && model.disp.length !== n.vertices * 3) throw new Error("Displacements inconsistent with the vertex count.");
     return model;
   }
 
@@ -503,7 +503,7 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     S.tex.gvis = dataTexture("u1", S.gvis, 1);
     S.dirty = true;
   }
-  // Palette textures hold one colour per identifier (index 0 of region/surface = "no group").
+  // Palette textures hold one color per identifier (index 0 of region/surface = "no group").
   function paletteFor(mode) {
     if (S.palettes[mode]) return S.palettes[mode];
     const meta = S.model.meta;
@@ -518,7 +518,7 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     }
     return (S.palettes[mode] = dataTexture("c3", data, 3));
   }
-  // Colour of region/surface id i (1-based group index): the colour stored in the file (for example from the CAD) or the palette.
+  // Color of region/surface id i (1-based group index): the color stored in the file (for example from the CAD) or the palette.
   function groupColor(i) {
     const g = S.model.meta.groups[i - 1];
     return g && g.color ? g.color : CATEGORICAL[(i - 1) % CATEGORICAL.length];
@@ -690,13 +690,13 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
   new ResizeObserver(() => { S.dirty = true; }).observe(view);
 
   /* ------------------------------------------------------------------- UI */
-  const fmt = (n) => n.toLocaleString("it-IT");
+  const fmt = (n) => n.toLocaleString("en-US");
   function fillStats() {
     const m = S.model.meta, c = m.counts;
     const rows = [
-      ["Nodi", fmt(c.nodes)], ["Elementi", fmt(c.elements)], ["Triangoli (superficie)", fmt(c.boundaryTriangles)],
-      ["Triangoli (interni)", fmt(c.triangles - c.boundaryTriangles)], ["Spigoli", fmt(c.edges)],
-      ["Dimensioni", m.bbox.max.map((v, i) => Number((v - m.bbox.min[i]).toPrecision(4))).join(" × ")],
+      ["Nodes", fmt(c.nodes)], ["Elements", fmt(c.elements)], ["Triangles (surface)", fmt(c.boundaryTriangles)],
+      ["Triangles (interior)", fmt(c.triangles - c.boundaryTriangles)], ["Edges", fmt(c.edges)],
+      ["Dimensions", m.bbox.max.map((v, i) => Number((v - m.bbox.min[i]).toPrecision(4))).join(" × ")],
     ];
     $("stats").innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
   }
@@ -708,7 +708,7 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     $("blocksSec").hidden = m.blocks.length === 0;
   }
   // Tree of the volume groups: names are split at "/" so an assembly path (Assy/Bracket/Bolt) becomes a hierarchy.
-  // Dimension of the groups that colour the model by region: volume groups, or face groups when the file is a pure surface.
+  // Dimension of the groups that color the model by region: volume groups, or face groups when the file is a pure surface.
   function regionDim(meta) {
     if (meta.groups.some((g) => g.dimension === 3)) return 3;
     return meta.blocks.every((b) => b.dimension < 3) && meta.groups.some((g) => g.dimension === 2) ? 2 : 0;
@@ -753,13 +753,13 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     const m = S.model.meta, box = $("legendBox");
     if (S.mode !== "region" && S.mode !== "surface") { box.hidden = true; return; }
     const dim = S.mode === "region" ? 3 : 2;
-    const items = [`<li><span class="sw" style="background:#969ca6"></span><span class="nm">senza gruppo</span></li>`];
+    const items = [`<li><span class="sw" style="background:#969ca6"></span><span class="nm">no group</span></li>`];
     m.groups.forEach((g, i) => {
       if (S.mode === "region" ? g.dimension === 3 || g.dimension === 2 : g.dimension === dim)
         items.push(`<li><span class="sw" style="background:${colorOf(S.mode, i + 1)}"></span><span class="nm" title="${esc(g.name)}">${esc(g.name)}${g.material ? " · " + esc(g.material) : ""}</span><span class="ct">${g.tag}</span></li>`);
     });
     $("legend").innerHTML = items.join("");
-    $("legendTitle").textContent = S.mode === "region" ? "Regioni (gruppi fisici)" : "Superfici (gruppi fisici)";
+    $("legendTitle").textContent = S.mode === "region" ? "Regions (physical groups)" : "Surfaces (physical groups)";
     box.hidden = false;
   }
   function refreshUi() {
@@ -781,7 +781,7 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     S.defSuggested = def.max > 0 ? 0.1 * bounds().diag / def.max : 1;
     S.defFactor = S.defSuggested;
     $("defScale").value = 100; $("defFactor").value = trim(S.defFactor);
-    $("defName").textContent = def.name || "Spostamenti";
+    $("defName").textContent = def.name || "Displacements";
     $("defMax").textContent = def.max.toPrecision(4);
   }
   const modeText = (m) => m.label;
@@ -814,7 +814,7 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
   }
   function setupResultsInfo(meta) {
     const el = $("resultsInfo");
-    el.hidden = !meta.results; el.textContent = meta.results ? "Risultati: " + meta.results.label : "";
+    el.hidden = !meta.results; el.textContent = meta.results ? "Results: " + meta.results.label : "";
   }
   function showMessage(text) { const el = $("msg"); el.textContent = text; el.hidden = !text; }
   function loadBuffer(buffer, name) {
@@ -823,24 +823,24 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
       const model = parseMGWV(buffer);
       const t1 = performance.now();
       upload(model);
-      // A file with volume groups (CAD components) opens coloured by component; otherwise by block.
+      // A file with volume groups (CAD components) opens colored by component; otherwise by block.
       S.mode = regionDim(model.meta) ? "region" : "block";
-      // A file that carries solver results opens coloured by the first field.
+      // A file that carries solver results opens colored by the first field.
       if (model.meta.results && model.fields.length) S.mode = "scalar";
       $("colorMode").value = S.mode;
-      const sel = $("fieldSel"); sel.innerHTML = model.fields.map((f, i) => `<option value="${i}">${esc(f.name)}${f.element ? " [elemento]" : ""}</option>`).join("");
+      const sel = $("fieldSel"); sel.innerHTML = model.fields.map((f, i) => `<option value="${i}">${esc(f.name)}${f.element ? " [element]" : ""}</option>`).join("");
       if (model.fields.length) setField(0);
       S.clipOn = false; $("clipOn").checked = false;
-      $("fileName").textContent = name || "modello";
+      $("fileName").textContent = name || "model";
       $("drop").hidden = true; showMessage("");
-      S.pickMode = "off"; $("pickMode").value = "off"; canvas.style.cursor = ""; $("pickCount").textContent = "nessuno";
+      S.pickMode = "off"; $("pickMode").value = "off"; canvas.style.cursor = ""; $("pickCount").textContent = "none";
       $("pickSec").hidden = !model.canPick;
       setupDeformation(model); setupResultsInfo(model.meta);
       fillStats(); refreshUi(); setView("iso");
       S.loadInfo = { parse: t1 - t0, upload: performance.now() - t1 };
       window.__lastLoad = S.loadInfo;
     } catch (err) {
-      showMessage("Errore: " + err.message);
+      showMessage("Error: " + err.message);
     }
   }
   async function loadFile(file) {
@@ -1041,7 +1041,7 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     const normals = new Map(), edges = new Map();
     for (const f of Object.keys(first).map(Number)) {
       const t = first[f]; normals.set(f, normal(t));
-      if (t >= nSkin) continue;               // interior faces can be selected, but they have no neighbours for propagation
+      if (t >= nSkin) continue;               // interior faces can be selected, but they have no neighbors for propagation
       const ring = count[f] === 2 ? [tri[3 * t], tri[3 * t + 1], tri[3 * t + 2], tri[3 * (t + 1) + 2]] : [tri[3 * t], tri[3 * t + 1], tri[3 * t + 2]];
       for (let i = 0; i < ring.length; i++) {
         const a = ring[i], b = ring[(i + 1) % ring.length], key = Math.min(a, b) * V + Math.max(a, b);
@@ -1085,9 +1085,9 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     }
     gl.deleteTexture(S.tex.selTri); gl.deleteTexture(S.tex.selVert);
     S.tex.selTri = dataTexture("u1", tri, 1); S.tex.selVert = dataTexture("u1", vert, 1);
-    const label = { node: "nodi", element: "elementi", face: "facce" }[S.pickMode];
+    const label = { node: "nodes", element: "elements", face: "faces" }[S.pickMode];
     const count = label ? S.sel[S.pickMode].size : 0;
-    $("pickCount").textContent = count ? count + " " + label : "nessuno";
+    $("pickCount").textContent = count ? count + " " + label : "none";
     S.dirty = true;
     const hook = window.OpenModelViewer && window.OpenModelViewer.onSelect;
     if (typeof hook === "function") hook(getSelection());
@@ -1255,7 +1255,7 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
       if (!r.ok) throw new Error("HTTP " + r.status);
       loadBuffer(await r.arrayBuffer(), label || url.split("?")[0].split("/").pop());
     } catch (err) {
-      showMessage("Impossibile caricare " + url + ": " + err.message);
+      showMessage("Unable to load " + url + ": " + err.message);
     }
   }
   $("pickMode").addEventListener("change", (e) => setPickMode(e.target.value));

@@ -543,6 +543,27 @@ GmshMesher::GmshSession::~GmshSession() noexcept {
         
 }
 
+GmshLibraryInfo GmshMesher::libraryInfo() {
+    GmshLibraryInfo info;
+#ifdef GMSH_API_VERSION
+    info.version = GMSH_API_VERSION;
+#endif
+    std::lock_guard<std::mutex> lock(gmshMutex());
+    try {
+        gmsh::initialize();
+        GmshSession session; // finalises Gmsh when it goes out of scope
+        std::string value;
+        gmsh::option::getString("General.Version", value);
+        if (!value.empty()) info.version = value;
+        value.clear();
+        gmsh::option::getString("General.BuildInfo", value);
+        info.buildInfo = value;
+    } catch (...) {
+        // Not being able to describe the library must never be an error: keep what was read so far.
+    }
+    return info;
+}
+
 std::mutex& GmshMesher::gmshMutex() {
 
         static std::mutex mutex;

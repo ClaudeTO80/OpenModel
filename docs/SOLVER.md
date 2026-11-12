@@ -40,13 +40,13 @@ The mesh through `AbaqusInpWriter` (**volume elements only**; surface/line eleme
 
 ## Picking and groups (phase 50)
 
-Selecting in the viewer replaces typing selectors. In the GUI (section *7 · Selezione e gruppi*, or the *Analisi* ribbon tab) choose what to pick — **nodes, elements or faces** — then:
+Selecting in the viewer replaces typing selectors. In the GUI (section *7 · Selection and groups*, or the *Analysis* ribbon tab) choose what to pick — **nodes, elements or faces** — then:
 
 * click selects, Ctrl+click adds/removes, Alt+drag (or the *Riquadro* option) selects a rectangle; Shift+drag still pans;
 * faces: the *angle* option extends a click to the connected faces whose normals deviate less than that angle (0 = one face; 1° = a planar patch);
 * only what is **visible** can be picked (hidden blocks, back faces, parts cut by the section plane are not). With the section plane on, interior faces become pickable; interior elements are only reachable through a visible face.
 
-A selection becomes a group (`openmodel_create_group`): a **node set** (picked nodes, or the nodes of picked elements/faces, including mid-side nodes of quadratic elements found geometrically), an **element group** (physical group, dimension 3) or a **face group** (physical group, dimension 2, backed by new Triangle3/Quadrilateral4 surface elements with outward orientation, named `NAME_tri`/`NAME_quad`). The buttons *Vincola*, *Forza*, *Pressione* create the right kind of group with an automatic name (FIX1, FORZA1, PRESS1) and append `fix group:…`, `force group:…` or `pressure group:…` to the script. *Mostra* selects a group again in the viewer.
+A selection becomes a group (`openmodel_create_group`): a **node set** (picked nodes, or the nodes of picked elements/faces, including mid-side nodes of quadratic elements found geometrically), an **element group** (physical group, dimension 3) or a **face group** (physical group, dimension 2, backed by new Triangle3/Quadrilateral4 surface elements with outward orientation, named `NAME_tri`/`NAME_quad`). The buttons *Fix*, *Force*, *Pressure* create the right kind of group with an automatic name (FIX1, FORCE1, PRESS1) and append `fix group:…`, `force group:…` or `pressure group:…` to the script. *Show* selects a group again in the viewer.
 
 Group names: 1–64 characters from letters, digits, `_`, `-`, `.`; unique, case-insensitively, among node sets, groups and blocks.
 
