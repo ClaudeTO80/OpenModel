@@ -38,6 +38,12 @@ struct CADFaceMappingRecord {
     bool ambiguous = false;
 };
 
+/** @brief Version and build description reported by the linked Gmsh library. */
+struct GmshLibraryInfo {
+    std::string version;   ///< `General.Version` of the library; the API version of the headers when it cannot be read.
+    std::string buildInfo; ///< `General.BuildInfo`: licence, build system and options, versions of the libraries it uses. Empty when not available.
+};
+
 /**
  * @brief Gmsh adapter. Gmsh owns process-global state, so calls through this
  * adapter are serialized. This adapter owns the initialize/finalize lifecycle;
@@ -48,6 +54,14 @@ public:
     std::string getName() const override ;
 
     const std::string& lastError() const noexcept ;
+
+    /**
+     * @brief Asks the linked Gmsh library for its version and for how it was built.
+     *
+     * Starts and finalises a Gmsh session, serialised with the other calls of this adapter, so it must not be
+     * called while another component manages a Gmsh session. It never throws: what cannot be read stays empty.
+     */
+    static GmshLibraryInfo libraryInfo();
 
     const std::vector<std::string>& diagnostics() const override { return m_diagnostics; }
     /** Verbose log of the most recent buildMesh call (empty unless MeshingOptions::verboseLog was set). */

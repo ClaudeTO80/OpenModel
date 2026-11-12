@@ -43,6 +43,17 @@ iframe{display:block;width:100%;height:100%;border:0;background:#10141b}
 #entries li{padding:5px 10px;cursor:pointer;display:flex;gap:8px}
 #entries li:hover{background:#1d2a39}
 #entries .d::before{content:"\1F4C1";} #entries .f::before{content:"\1F4C4";}
+.dialog.about{grid-template-rows:auto minmax(0,1fr) auto;width:min(780px,94vw)}
+#aboutBody{overflow-y:auto;border:1px solid var(--line);border-radius:6px;background:var(--panel2);padding:10px 12px}
+#aboutBody h4{margin:12px 0 6px;font-size:12.5px;color:var(--accent)} #aboutBody h4:first-child{margin-top:0}
+#aboutBody dl{display:grid;grid-template-columns:max-content 1fr;gap:2px 12px;margin:0}
+#aboutBody dt{color:var(--muted)} #aboutBody dd{margin:0;overflow-wrap:anywhere}
+#aboutBody .lib{border-top:1px solid var(--line);padding:7px 0}
+#aboutBody .lib:first-of-type{border-top:0}
+#aboutBody .lib .role,#aboutBody .lib .loc{color:var(--muted);overflow-wrap:anywhere}
+#aboutBody .lib ul{margin:3px 0 0;padding-left:18px;color:var(--muted)} #aboutBody .lib li{overflow-wrap:anywhere}
+#aboutBody .chips{display:flex;flex-wrap:wrap;gap:4px} #aboutBody .chip{border:1px solid var(--line);border-radius:10px;padding:0 8px;font-size:11.5px}
+#aboutBody .chip.on{border-color:#2878aa;color:var(--accent)}
 /* ---- ribbon ---- */
 #ribbon{background:var(--panel);border-bottom:1px solid var(--line);user-select:none}
 .tabs{display:flex;gap:2px;padding:4px 8px 0;border-bottom:1px solid var(--line);background:var(--panel2);overflow-x:auto;overflow-y:hidden}
@@ -79,6 +90,7 @@ iframe{display:block;width:100%;height:100%;border:0;background:#10141b}
     <button class="tab" role="tab" data-tab="res">Risultati</button>
     <button class="tab" role="tab" data-tab="view">Vista</button>
     <button class="tab" role="tab" data-tab="check">Verifica</button>
+    <button class="tab" role="tab" data-tab="help">Help</button>
   </nav>
 
   <div class="panel" data-panel="file" role="tabpanel">
@@ -214,6 +226,12 @@ iframe{display:block;width:100%;height:100%;border:0;background:#10141b}
       <button class="rb" data-act="status" title="Riepilogo del modello e dei risultati caricati"><span class="ic">ℹ</span>Riepilogo</button>
       <button class="rb" data-act="validate" data-need="mesh" title="Controlla la coerenza strutturale della mesh"><span class="ic">✔</span>Valida mesh</button>
     </div><div class="gname">Modello</div></div>
+  </div>
+
+  <div class="panel" data-panel="help" role="tabpanel" hidden>
+    <div class="group"><div class="items">
+      <button class="rb" data-act="about" title="Versione del programma, librerie collegate e opzioni con cui sono state compilate"><span class="ic">ℹ</span>About…</button>
+    </div><div class="gname">Informazioni</div></div>
   </div>
 </header>
 
@@ -381,6 +399,14 @@ iframe{display:block;width:100%;height:100%;border:0;background:#10141b}
   </div>
 </div>
 
+<div class="modal" id="aboutModal" hidden>
+  <div class="dialog about" role="dialog" aria-modal="true" aria-labelledby="aboutTitle">
+    <h3 id="aboutTitle">About OpenModel Workbench</h3>
+    <div id="aboutBody">Caricamento…</div>
+    <div class="row" style="justify-content:flex-end"><button id="aboutCopy" onclick="copyAbout()" disabled>Copia</button><button onclick="closeAbout()">Chiudi</button></div>
+  </div>
+</div>
+
 <script>
 "use strict";
 const $ = (id) => document.getElementById(id);
@@ -507,7 +533,75 @@ async function list(path) {
 const goUp = () => list($("dirPath").dataset.parent || $("dirPath").value);
 function pick(path) { $(browseTarget).value = path; const next = afterPick; closeModal(); if (next) next(); }
 function closeModal() { $("modal").hidden = true; afterPick = null; }
-window.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
+window.addEventListener("keydown", (e) => { if (e.key === "Escape") { closeModal(); closeAbout(); } });
+
+/* ---- Help > About: program version, how OpenModel was built, libraries linked into the program ---- */
+let aboutData = null;
+/** Text shown for a version or path the program could not find out. */
+const UNKNOWN = "non disponibile";
+/** Plain-text form of the About information, used by the Copia button (handy in bug reports). */
+function aboutText(a) {
+  const lines = [a.program + " " + a.version, "",
+    "Compilazione", "  Configurazione: " + a.build.configuration, "  Compilatore: " + a.build.compiler,
+    "  Standard C++: " + a.build.cxxStandard, "  Sistema: " + a.build.system, "  CMake: " + a.build.cmake,
+    "  Opzioni: " + a.build.options.map((o) => o.name + "=" + o.value).join(", "), "", "Librerie collegate"];
+  for (const l of a.libraries) {
+    lines.push("  " + l.name + " " + (l.version || UNKNOWN) + " - " + l.role);
+    if (l.location) lines.push("    Percorso: " + l.location);
+    for (const o of l.options) lines.push("    " + o);
+  }
+  return lines.join("\n");
+}
+function aboutEl(tag, text, className) {
+  const el = document.createElement(tag);
+  if (text !== undefined) el.textContent = text;     // textContent: library names, paths and options are never parsed as HTML
+  if (className) el.className = className;
+  return el;
+}
+function renderAbout(a) {
+  const body = $("aboutBody"); body.textContent = "";
+  body.appendChild(aboutEl("h4", "Programma"));
+  const program = aboutEl("dl");
+  for (const [k, v] of [["Nome", a.program], ["Versione", a.version]]) { program.appendChild(aboutEl("dt", k)); program.appendChild(aboutEl("dd", v)); }
+  body.appendChild(program);
+  body.appendChild(aboutEl("h4", "Compilazione di OpenModel"));
+  const build = aboutEl("dl");
+  for (const [k, v] of [["Configurazione", a.build.configuration], ["Compilatore", a.build.compiler], ["Standard C++", a.build.cxxStandard], ["Sistema", a.build.system], ["CMake", a.build.cmake]]) {
+    build.appendChild(aboutEl("dt", k)); build.appendChild(aboutEl("dd", v));
+  }
+  body.appendChild(build);
+  const chips = aboutEl("div", undefined, "chips"); chips.style.marginTop = "6px";
+  for (const o of a.build.options) chips.appendChild(aboutEl("span", o.name + " = " + o.value, "chip" + (o.value === "ON" ? " on" : "")));
+  body.appendChild(chips);
+  body.appendChild(aboutEl("h4", "Librerie collegate"));
+  for (const l of a.libraries) {
+    const box = aboutEl("div", undefined, "lib");
+    const title = aboutEl("div"); title.appendChild(aboutEl("b", l.name)); title.appendChild(document.createTextNode("  " + (l.version || UNKNOWN)));
+    box.appendChild(title); box.appendChild(aboutEl("div", l.role, "role"));
+    if (l.location) box.appendChild(aboutEl("div", "Percorso: " + l.location, "loc"));
+    if (l.options.length) { const ul = aboutEl("ul"); for (const o of l.options) ul.appendChild(aboutEl("li", o)); box.appendChild(ul); }
+    body.appendChild(box);
+  }
+}
+async function showAbout() {
+  $("aboutModal").hidden = false; $("aboutCopy").disabled = true; aboutData = null;
+  $("aboutBody").textContent = "Caricamento…";
+  const r = await call("openmodel_about");
+  if (!r.ok) { $("aboutBody").textContent = r.message || "Informazioni non disponibili."; return; }
+  aboutData = r; renderAbout(r); $("aboutCopy").disabled = false;
+}
+function closeAbout() { $("aboutModal").hidden = true; }
+async function copyAbout() {
+  if (!aboutData) return;
+  const text = aboutText(aboutData);
+  try { await navigator.clipboard.writeText(text); show("Informazioni su versione e librerie copiate negli appunti.", "good"); }
+  catch (e) {
+    const area = document.createElement("textarea"); area.value = text; document.body.appendChild(area); area.select();
+    let ok = false; try { ok = document.execCommand("copy"); } catch (err) { /* not allowed */ }
+    area.remove();
+    show(ok ? "Informazioni su versione e librerie copiate negli appunti." : "Copia negli appunti non riuscita.", ok ? "good" : "bad");
+  }
+}
 
 
 /* ---- ribbon ----
@@ -560,6 +654,7 @@ const RIBBON_ACTIONS = {
   gen: generate,
   "focus-tess": () => { revealSection("secTess"); focusSection("secTess"); },
   "focus-mesh": () => focusSection("secMesh"),
+  about: showAbout,
   validate: () => act("openmodel_validate"),
   status: () => act("openmodel_status"),
   shot: () => viewerClick("#shotBtn"),

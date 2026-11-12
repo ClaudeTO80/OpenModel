@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.20)
 # The single place where the OpenModel version is set. It feeds project(), the installed CMake package,
 # the CPack file names and the generated <OpenModel/Version.hpp> (macros and OpenModel::version()).
 # Override it with -DOPENMODEL_VERSION=x.y.z (for example from a release script).
-set(OPENMODEL_VERSION "0.1.0" CACHE STRING "OpenModel version, MAJOR.MINOR.PATCH (minor and patch 0-99)")
+set(OPENMODEL_VERSION "0.1.1" CACHE STRING "OpenModel version, MAJOR.MINOR.PATCH (minor and patch 0-99)")
 if(NOT OPENMODEL_VERSION MATCHES "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]?)\\.(0|[1-9][0-9]?)$")
     message(FATAL_ERROR "OPENMODEL_VERSION must look like MAJOR.MINOR.PATCH with minor and patch between 0 and 99, no leading zeros (got '${OPENMODEL_VERSION}')")
 endif()
@@ -41,10 +41,32 @@ option(OPENMODEL_BUILD_TETGEN_BACKEND "Build the optional TetGen volume mesher" 
 option(OPENMODEL_NETGEN_HAS_OCC "Netgen was built with Open CASCADE support (OCCGEOMETRY)" OFF)
 set(OPENMODEL_NETGEN_TEST_STEP "" CACHE FILEPATH "Optional STEP/IGES/BREP fixture for a real Netgen integration test")
 
+# Build description exposed by OpenModel::buildInfo() (<OpenModel/BuildInfo.hpp>): compiler, system and the
+# options that select modules and backends. It is generated here, after the options above exist.
+set(_openmodel_build_info_options "")
+foreach(_openmodel_option
+        OPENMODEL_BUILD_TESTS OPENMODEL_BUILD_BENCHMARKS OPENMODEL_BUILD_CLI OPENMODEL_BUILD_SHARED
+        OPENMODEL_BUILD_WEBUI OPENMODEL_BUILD_GMSH_BACKEND OPENMODEL_BUILD_OCC_BACKEND
+        OPENMODEL_BUILD_NETGEN_BACKEND OPENMODEL_BUILD_MFEM_BACKEND OPENMODEL_BUILD_ASSIMP_BACKEND
+        OPENMODEL_BUILD_TETGEN_BACKEND OPENMODEL_NETGEN_HAS_OCC)
+    if(${_openmodel_option})
+        set(_openmodel_option_value "ON")
+    else()
+        set(_openmodel_option_value "OFF")
+    endif()
+    string(APPEND _openmodel_build_info_options "        {\"${_openmodel_option}\", \"${_openmodel_option_value}\"},\n")
+endforeach()
+unset(_openmodel_option)
+unset(_openmodel_option_value)
+set(OPENMODEL_BUILD_INFO_OPTIONS "${_openmodel_build_info_options}")
+set(OPENMODEL_BUILD_INFO_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/generated/BuildInfo.cpp")
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/cmake/BuildInfo.cpp.in" "${OPENMODEL_BUILD_INFO_SOURCE}" @ONLY)
+
 set(OPENMODEL_CORE_SOURCES
     src/MeshData.cpp
     src/MeshBinaryIO.cpp
     src/Version.cpp
+    "${OPENMODEL_BUILD_INFO_SOURCE}"
     src/OpenModelProject.cpp
     src/MeshImporter.cpp
     src/AbaqusInpImporter.cpp
@@ -95,6 +117,8 @@ function(openmodel_configure_core_target target export_name)
         $<BUILD_INTERFACE:${OPENMODEL_GENERATED_INCLUDE_DIR}>
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
     target_compile_features(${target} PUBLIC cxx_std_17)
+    # Read by the generated BuildInfo.cpp; the generator expression also works with multi-config generators.
+    target_compile_definitions(${target} PRIVATE "OPENMODEL_BUILD_CONFIGURATION=\"$<CONFIG>\"")
     set_target_properties(${target} PROPERTIES
         CXX_EXTENSIONS OFF
         POSITION_INDEPENDENT_CODE ON
@@ -201,6 +225,10 @@ if(OPENMODEL_BUILD_TESTS)
     openmodel_add_test(version_test tests/version_test.cpp)
     # The version CMake was configured with, to be compared with what the macros and the library report.
     target_compile_definitions(version_test PRIVATE OPENMODEL_EXPECTED_VERSION="${PROJECT_VERSION}")
+    openmodel_add_test(build_info_test tests/build_info_test.cpp)
+    target_compile_definitions(build_info_test PRIVATE
+        "OPENMODEL_EXPECTED_BUILD_SHARED=$<BOOL:${OPENMODEL_BUILD_SHARED}>"
+        "OPENMODEL_EXPECTED_CONFIGURATION=\"$<CONFIG>\"")
     openmodel_add_test(mesh_binary_io_test tests/mesh_binary_io_test.cpp)
     openmodel_add_test(openmodel_project_test tests/openmodel_project_test.cpp)
     openmodel_add_test(mesh_importer_test tests/mesh_importer_test.cpp)
@@ -958,6 +986,133 @@ endif()
 if(OPENMODEL_BUILD_WEBUI AND OPENMODEL_BUILD_GMSH_BACKEND)
     target_link_libraries(openmodel-webui PRIVATE openmodel_gmsh)
     target_compile_definitions(openmodel-webui PRIVATE OPENMODEL_HAS_GMSH=1)
+endif()
+
+# Table of the libraries linked into openmodel-webui, shown by Help > About and included by src/webui/main.cpp.
+# It records what CMake knows at configure time (version found, location, how the library was built). The program adds
+# what only the library can tell at run time (see linkedLibraries() in src/webui/main.cpp). An empty version means
+# "not known at configure time".
+if(OPENMODEL_BUILD_WEBUI)
+    set(_openmodel_linked_libraries "")
+
+    # openmodel_linked_library(<name> <role> <version> <location> [<option> ...]) appends one table row.
+    # The text is escaped for a C++ string literal; options must not contain semicolons.
+    function(openmodel_linked_library name role version location)
+        foreach(_field name role version location)
+            string(REPLACE "\\" "\\\\" ${_field} "${${_field}}")
+            string(REPLACE "\"" "\\\"" ${_field} "${${_field}}")
+        endforeach()
+        set(_options "")
+        foreach(_option IN LISTS ARGN)
+            string(REPLACE "\\" "\\\\" _option "${_option}")
+            string(REPLACE "\"" "\\\"" _option "${_option}")
+            string(APPEND _options "\"${_option}\", ")
+        endforeach()
+        string(APPEND _openmodel_linked_libraries
+            "    {\"${name}\", \"${role}\", \"${version}\", \"${location}\", {${_options}}},\n")
+        set(_openmodel_linked_libraries "${_openmodel_linked_libraries}" PARENT_SCOPE)
+    endfunction()
+
+    # Path of an imported library target, or empty when CMake does not know it.
+    function(openmodel_target_location out target)
+        set(_location "")
+        if(TARGET ${target})
+            foreach(_property IMPORTED_LOCATION_RELEASE IMPORTED_LOCATION IMPORTED_LOCATION_NOCONFIG IMPORTED_LOCATION_DEBUG)
+                get_target_property(_value ${target} ${_property})
+                if(_value)
+                    set(_location "${_value}")
+                    break()
+                endif()
+            endforeach()
+        endif()
+        set(${out} "${_location}" PARENT_SCOPE)
+    endfunction()
+
+    openmodel_linked_library("OpenModel Core" "Nucleo: mesh, formati di file, risultati e solutori" "${PROJECT_VERSION}"
+        "collegata staticamente")
+
+    openmodel_linked_library("WebUI" "Finestra desktop e collegamento con la pagina" ""
+        "${OPENMODEL_WEBUI_LIBRARY}" "header: ${OPENMODEL_WEBUI_INCLUDE_DIR}/webui.h")
+
+    if(OPENMODEL_BUILD_ASSIMP_BACKEND)
+        set(_assimp_version "")
+        foreach(_variable assimp_VERSION ASSIMP_VERSION)
+            if(NOT _assimp_version AND ${_variable})
+                set(_assimp_version "${${_variable}}")
+            endif()
+        endforeach()
+        if(OPENMODEL_ASSIMP_HAS_PBR_TEXTURE_API)
+            set(_assimp_pbr "sì")
+        else()
+            set(_assimp_pbr "no")
+        endif()
+        openmodel_linked_library("Assimp" "Importazione di formati 3D generici (OBJ, STL, glTF, ...)" "${_assimp_version}"
+            "${assimp_DIR}" "API texture PBR: ${_assimp_pbr}")
+    endif()
+
+    if(OPENMODEL_BUILD_OCC_BACKEND)
+        set(_occ_options "")
+        # Build settings that OpenCASCADEConfig.cmake records, listed only when the installed package defines them.
+        foreach(_setting BUILD_SHARED_LIBS BUILD_TYPE WITH_FREEIMAGE WITH_FFMPEG WITH_TBB WITH_VTK WITH_RAPIDJSON
+                         WITH_DRACO WITH_TCL WITH_FREETYPE WITH_OPENGL WITH_GLES2)
+            if(DEFINED OpenCASCADE_${_setting})
+                list(APPEND _occ_options "${_setting}: ${OpenCASCADE_${_setting}}")
+            endif()
+        endforeach()
+        if(_openmodel_occ_legacy_exchange)
+            list(APPEND _occ_options "toolkit STEP/IGES: separati (TKSTEP, TKIGES, ...)")
+        else()
+            list(APPEND _occ_options "toolkit STEP/IGES: unificati (TKDESTEP, TKDEIGES)")
+        endif()
+        openmodel_linked_library("Open CASCADE" "Importazione CAD (STEP, IGES, BREP) e tassellazione" "${OpenCASCADE_VERSION}"
+            "${OpenCASCADE_DIR}" ${_occ_options})
+    endif()
+
+    if(OPENMODEL_BUILD_GMSH_BACKEND)
+        set(_gmsh_version "")
+        foreach(_variable Gmsh_VERSION gmsh_VERSION)
+            if(NOT _gmsh_version AND ${_variable})
+                set(_gmsh_version "${${_variable}}")
+            endif()
+        endforeach()
+        openmodel_target_location(_gmsh_location "${_openmodel_gmsh_target}")
+        set(_gmsh_options "")
+        if(GMSH_INCLUDE_DIR)
+            list(APPEND _gmsh_options "header: ${GMSH_INCLUDE_DIR}/gmsh.h")
+        endif()
+        openmodel_linked_library("Gmsh" "Meshatura di superfici e volumi" "${_gmsh_version}" "${_gmsh_location}" ${_gmsh_options})
+    endif()
+
+    if(OPENMODEL_BUILD_TETGEN_BACKEND)
+        openmodel_linked_library("TetGen" "Meshatura volumetrica a tetraedri" ""
+            "${TETGEN_LIBRARY}" "header: ${TETGEN_INCLUDE_DIR}/tetgen.h")
+    endif()
+
+    if(OPENMODEL_BUILD_NETGEN_BACKEND)
+        set(_netgen_location "${NETGEN_LIBRARY}")
+        if(NOT _netgen_location)
+            openmodel_target_location(_netgen_location "${_openmodel_netgen_target}")
+        endif()
+        if(OPENMODEL_NETGEN_HAS_OCC)
+            set(_netgen_occ "sì")
+        else()
+            set(_netgen_occ "no")
+        endif()
+        openmodel_linked_library("Netgen (nglib)" "Meshatura volumetrica di modelli CAD" ""
+            "${_netgen_location}" "geometria Open CASCADE (OCCGEOMETRY): ${_netgen_occ}")
+    endif()
+
+    # Rewritten only when the content changes, so that re-configuring does not recompile the GUI for nothing.
+    set(_openmodel_linked_libraries_file "${_openmodel_gen_dir}/linked_libraries.inc")
+    set(_openmodel_linked_libraries_text
+        "// Generated by CMake (see openmodel_linked_library in CMakeLists.txt); do not edit.\n${_openmodel_linked_libraries}")
+    set(_openmodel_linked_libraries_old "")
+    if(EXISTS "${_openmodel_linked_libraries_file}")
+        file(READ "${_openmodel_linked_libraries_file}" _openmodel_linked_libraries_old)
+    endif()
+    if(NOT _openmodel_linked_libraries_old STREQUAL _openmodel_linked_libraries_text)
+        file(WRITE "${_openmodel_linked_libraries_file}" "${_openmodel_linked_libraries_text}")
+    endif()
 endif()
 
 if(OPENMODEL_BUILD_CLI AND OPENMODEL_BUILD_GMSH_BACKEND)
