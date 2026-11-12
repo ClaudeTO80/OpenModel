@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="it">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -82,328 +82,328 @@ iframe{display:block;width:100%;height:100%;border:0;background:#10141b}
 </head>
 <body>
 <header id="ribbon">
-  <nav class="tabs" role="tablist" aria-label="Barra multifunzione">
+  <nav class="tabs" role="tablist" aria-label="Ribbon">
     <button class="tab" role="tab" data-tab="file">File</button>
-    <button class="tab" role="tab" data-tab="geo">Geometria</button>
+    <button class="tab" role="tab" data-tab="geo">Geometry</button>
     <button class="tab" role="tab" data-tab="mesh">Mesh</button>
-    <button class="tab" role="tab" data-tab="solve">Analisi</button>
-    <button class="tab" role="tab" data-tab="res">Risultati</button>
-    <button class="tab" role="tab" data-tab="view">Vista</button>
-    <button class="tab" role="tab" data-tab="check">Verifica</button>
+    <button class="tab" role="tab" data-tab="solve">Analysis</button>
+    <button class="tab" role="tab" data-tab="res">Results</button>
+    <button class="tab" role="tab" data-tab="view">View</button>
+    <button class="tab" role="tab" data-tab="check">Check</button>
     <button class="tab" role="tab" data-tab="help">Help</button>
   </nav>
 
   <div class="panel" data-panel="file" role="tabpanel">
     <div class="group"><div class="items">
-      <button class="rb" data-act="cad" title="Scegli un file CAD (STEP, IGES, BREP, OBJ, STL…) e triangolalo"><span class="ic">📐</span>Importa CAD…</button>
-      <button class="rb" data-act="mesh" title="Scegli una mesh .mgmb, .inp o .mail (code_aster)"><span class="ic">📂</span>Apri mesh…</button>
-      <button class="rb" data-act="res" data-need="mesh" title="Scegli un file di risultati (.frd, .dat, .csv, .tab)"><span class="ic">📈</span>Apri risultati…</button>
-    </div><div class="gname">Apri</div></div>
+      <button class="rb" data-act="cad" title="Choose a CAD file (STEP, IGES, BREP, OBJ, STL…) and triangulate it"><span class="ic">📐</span>Import CAD…</button>
+      <button class="rb" data-act="mesh" title="Choose a .mgmb, .inp or .mail (code_aster) mesh"><span class="ic">📂</span>Open mesh…</button>
+      <button class="rb" data-act="res" data-need="mesh" title="Choose a results file (.frd, .dat, .csv, .tab)"><span class="ic">📈</span>Open results…</button>
+    </div><div class="gname">Open</div></div>
     <div class="group"><div class="items">
-      <button class="rb" data-act="save-mgmb" data-need="mesh" title="Formato binario ottimizzato (nome base: sezione 4)"><span class="ic">💾</span>MGMB</button>
+      <button class="rb" data-act="save-mgmb" data-need="mesh" title="Optimized binary format (base name: section 4)"><span class="ic">💾</span>MGMB</button>
       <button class="rb" data-act="save-inp" data-need="mesh" title="Abaqus / CalculiX"><span class="ic">📄</span>INP</button>
-      <button class="rb" data-act="save-mgwv" data-need="mesh" title="Per il viewer WebGL, con i risultati caricati"><span class="ic">🌐</span>MGWV</button>
-      <button class="rb" data-act="save-glb" data-need="cad" title="Superficie CAD"><span class="ic">🧊</span>GLB</button>
-    </div><div class="gname">Salva ed esporta</div></div>
+      <button class="rb" data-act="save-mgwv" data-need="mesh" title="For the WebGL viewer, with the loaded results"><span class="ic">🌐</span>MGWV</button>
+      <button class="rb" data-act="save-glb" data-need="cad" title="CAD surface"><span class="ic">🧊</span>GLB</button>
+    </div><div class="gname">Save and export</div></div>
     <div class="group"><div class="items">
-      <button class="rb" data-act="shot" data-need="model" title="Salva il viewer come immagine"><span class="ic">🖼</span>Salva PNG</button>
-    </div><div class="gname">Immagine</div></div>
+      <button class="rb" data-act="shot" data-need="model" title="Save the viewer as an image"><span class="ic">🖼</span>Save PNG</button>
+    </div><div class="gname">Image</div></div>
   </div>
 
   <div class="panel" data-panel="geo" role="tabpanel" hidden>
     <div class="group"><div class="items">
-      <button class="rb" data-act="cad" title="Importa e triangola un file CAD"><span class="ic">📐</span>Importa CAD…</button>
-      <button class="rb" data-act="tess" data-need="cad" title="Applica le deflessioni della sezione 2"><span class="ic">🔄</span>Ritessella</button>
-      <button class="rb" data-act="focus-tess" title="Vai ai parametri di tessellazione"><span class="ic">🎚</span>Parametri…</button>
+      <button class="rb" data-act="cad" title="Import and triangulate a CAD file"><span class="ic">📐</span>Import CAD…</button>
+      <button class="rb" data-act="tess" data-need="cad" title="Apply the deflections from section 2"><span class="ic">🔄</span>Retessellate</button>
+      <button class="rb" data-act="focus-tess" title="Go to the tessellation parameters"><span class="ic">🎚</span>Parameters…</button>
     </div><div class="gname">CAD</div></div>
   </div>
 
   <div class="panel" data-panel="mesh" role="tabpanel" hidden>
     <div class="group"><div class="items">
-      <button class="rb" data-act="gen" data-need="cad" title="Meshatore e parametri della sezione 3"><span class="ic">⚙</span>Genera mesh</button>
-      <button class="rb" data-act="focus-mesh" title="Vai ai parametri di meshatura"><span class="ic">🎚</span>Parametri…</button>
+      <button class="rb" data-act="gen" data-need="cad" title="Mesher and parameters from section 3"><span class="ic">⚙</span>Generate mesh</button>
+      <button class="rb" data-act="focus-mesh" title="Go to the meshing parameters"><span class="ic">🎚</span>Parameters…</button>
     </div><div class="gname">Volume</div></div>
     <div class="group"><div class="items">
-      <button class="rb" data-act="mesh" title="Carica una mesh .mgmb o .inp"><span class="ic">📂</span>Apri mesh…</button>
-      <button class="rb" data-act="save-mgmb" data-need="mesh" title="Salva in formato MGMB"><span class="ic">💾</span>Salva MGMB</button>
-      <button class="rb" data-act="save-inp" data-need="mesh" title="Esporta per Abaqus / CalculiX"><span class="ic">📄</span>Esporta INP</button>
-    </div><div class="gname">Mesh su file</div></div>
+      <button class="rb" data-act="mesh" title="Load a .mgmb or .inp mesh"><span class="ic">📂</span>Open mesh…</button>
+      <button class="rb" data-act="save-mgmb" data-need="mesh" title="Save in MGMB format"><span class="ic">💾</span>Save MGMB</button>
+      <button class="rb" data-act="save-inp" data-need="mesh" title="Export for Abaqus / CalculiX"><span class="ic">📄</span>Export INP</button>
+    </div><div class="gname">Mesh files</div></div>
     <div class="group"><div class="items">
-      <button class="rb" data-act="validate" data-need="mesh" title="Controlla la coerenza strutturale della mesh"><span class="ic">✔</span>Valida mesh</button>
-    </div><div class="gname">Controllo</div></div>
+      <button class="rb" data-act="validate" data-need="mesh" title="Check the structural consistency of the mesh"><span class="ic">✔</span>Validate mesh</button>
+    </div><div class="gname">Check</div></div>
   </div>
 
   <div class="panel" data-panel="solve" role="tabpanel" hidden>
     <div class="group"><div class="items">
-      <button class="rb" data-act="an-focus" title="Vai allo script di analisi e ai parametri del solutore"><span class="ic">📝</span>Definisci…</button>
-      <button class="rb" data-act="an-example" title="Inserisce uno script di esempio (mensola)"><span class="ic">📋</span>Esempio</button>
-    </div><div class="gname">Modello</div></div>
+      <button class="rb" data-act="an-focus" title="Go to the analysis script and solver parameters"><span class="ic">📝</span>Define…</button>
+      <button class="rb" data-act="an-example" title="Insert an example script (cantilever)"><span class="ic">📋</span>Example</button>
+    </div><div class="gname">Model</div></div>
     <div class="group"><div class="items">
-      <button class="rb" data-act="an-write" data-need="idle" title="Scrive il file .inp per CalculiX senza lanciare il solutore"><span class="ic">📄</span>Scrivi input</button>
-      <button class="rb" data-act="an-run" data-need="idle" title="Scrive l'input, lancia CalculiX in background e carica i risultati"><span class="ic">▶</span>Avvia solutore</button>
-      <button class="rb" data-act="an-cancel" data-need="solver" title="Interrompe il solutore in esecuzione"><span class="ic">⏹</span>Annulla</button>
-    </div><div class="gname">Solutore</div></div>
+      <button class="rb" data-act="an-write" data-need="idle" title="Write the .inp file for CalculiX without launching the solver"><span class="ic">📄</span>Write input</button>
+      <button class="rb" data-act="an-run" data-need="idle" title="Write the input, run CalculiX in the background and load the results"><span class="ic">▶</span>Run solver</button>
+      <button class="rb" data-act="an-cancel" data-need="solver" title="Stop the running solver"><span class="ic">⏹</span>Cancel</button>
+    </div><div class="gname">Solver</div></div>
     <div class="group"><div class="items">
-      <button class="rb" data-act="pick-node" data-on="pick:node" data-need="pick" title="Seleziona nodi nel viewer (clic; Ctrl+clic aggiunge; Alt+trascina = riquadro)"><span class="ic">•</span>Nodi</button>
-      <button class="rb" data-act="pick-element" data-on="pick:element" data-need="pick" title="Seleziona elementi (si vedono quelli con una faccia visibile)"><span class="ic">▣</span>Elementi</button>
-      <button class="rb" data-act="pick-face" data-on="pick:face" data-need="pick" title="Seleziona facce; con l'angolo > 0 si estende alle facce collegate"><span class="ic">◩</span>Facce</button>
-      <button class="rb" data-act="sel-clear" data-need="sel" title="Annulla la selezione"><span class="ic">✖</span>Nessuna</button>
-    </div><div class="gname">Selezione</div></div>
+      <button class="rb" data-act="pick-node" data-on="pick:node" data-need="pick" title="Select nodes in the viewer (click; Ctrl+click adds; Alt+drag = box)"><span class="ic">•</span>Nodes</button>
+      <button class="rb" data-act="pick-element" data-on="pick:element" data-need="pick" title="Select elements (those with a visible face are shown)"><span class="ic">▣</span>Elements</button>
+      <button class="rb" data-act="pick-face" data-on="pick:face" data-need="pick" title="Select faces; with angle > 0 the selection extends to connected faces"><span class="ic">◩</span>Faces</button>
+      <button class="rb" data-act="sel-clear" data-need="sel" title="Clear the selection"><span class="ic">✖</span>None</button>
+    </div><div class="gname">Selection</div></div>
     <div class="group"><div class="items">
-      <button class="rb" data-act="grp-make" data-need="sel" title="Crea un gruppo dalla selezione (nome: sezione 7)"><span class="ic">🗂</span>Crea gruppo</button>
-      <button class="rb" data-act="as-fix" data-need="sel" title="Crea un gruppo di nodi e aggiunge «fix» allo script (gradi di libertà: sezione 7)"><span class="ic">⚓</span>Vincola</button>
-      <button class="rb" data-act="as-force" data-need="sel" title="Crea un gruppo di nodi e aggiunge «force» allo script"><span class="ic">➡</span>Forza</button>
-      <button class="rb" data-act="as-press" data-need="selface" title="Crea un gruppo di facce e aggiunge «pressure» allo script (solo con facce selezionate)"><span class="ic">⬇</span>Pressione</button>
-    </div><div class="gname">Gruppi e carichi</div></div>
+      <button class="rb" data-act="grp-make" data-need="sel" title="Create a group from the selection (name: section 7)"><span class="ic">🗂</span>Create group</button>
+      <button class="rb" data-act="as-fix" data-need="sel" title="Create a node group and add 'fix' to the script (degrees of freedom: section 7)"><span class="ic">⚓</span>Fix</button>
+      <button class="rb" data-act="as-force" data-need="sel" title="Create a node group and add 'force' to the script"><span class="ic">➡</span>Force</button>
+      <button class="rb" data-act="as-press" data-need="selface" title="Create a face group and add 'pressure' to the script (only with faces selected)"><span class="ic">⬇</span>Pressure</button>
+    </div><div class="gname">Groups and loads</div></div>
   </div>
 
   <div class="panel" data-panel="res" role="tabpanel" hidden>
     <div class="group"><div class="items">
-      <button class="rb" data-act="res" data-need="mesh" title="Scegli e carica un file di risultati"><span class="ic">📈</span>Apri risultati…</button>
-      <button class="rb" data-act="res-clear" data-need="results" title="Toglie i risultati dalla mesh"><span class="ic">🗑</span>Togli risultati</button>
+      <button class="rb" data-act="res" data-need="mesh" title="Choose and load a results file"><span class="ic">📈</span>Open results…</button>
+      <button class="rb" data-act="res-clear" data-need="results" title="Remove the results from the mesh"><span class="ic">🗑</span>Remove results</button>
     </div><div class="gname">File</div></div>
     <div class="group"><div class="items">
       <div class="col">
-        <select id="rbField" data-need="fields" title="Campo scalare mostrato" aria-label="Campo scalare"></select>
-        <button class="rb" data-act="mode-scalar" data-on="mode:scalar" data-need="fields" title="Colora con il campo scelto"><span class="ic">🎨</span>Colora per campo</button>
+        <select id="rbField" data-need="fields" title="Displayed scalar field" aria-label="Scalar field"></select>
+        <button class="rb" data-act="mode-scalar" data-on="mode:scalar" data-need="fields" title="Color by the selected field"><span class="ic">🎨</span>Color by field</button>
       </div>
-    </div><div class="gname">Campo</div></div>
+    </div><div class="gname">Field</div></div>
     <div class="group"><div class="items">
-      <button class="rb" data-act="deform" data-on="def" data-need="disp" title="Mostra la forma deformata"><span class="ic">〰</span>Deformata</button>
-      <button class="rb" data-act="def-more" data-need="disp" title="Raddoppia il fattore di scala"><span class="ic">➕</span>Scala ×2</button>
-      <button class="rb" data-act="def-less" data-need="disp" title="Dimezza il fattore di scala"><span class="ic">➖</span>Scala ÷2</button>
-    </div><div class="gname">Deformata</div></div>
+      <button class="rb" data-act="deform" data-on="def" data-need="disp" title="Show the deformed shape"><span class="ic">〰</span>Deformed shape</button>
+      <button class="rb" data-act="def-more" data-need="disp" title="Double the scale factor"><span class="ic">➕</span>Scale ×2</button>
+      <button class="rb" data-act="def-less" data-need="disp" title="Halve the scale factor"><span class="ic">➖</span>Scale ÷2</button>
+    </div><div class="gname">Deformation</div></div>
     <div class="group"><div class="items">
-      <button class="rb small" data-act="mode-prev" data-need="modes" title="Modo precedente"><span class="ic">◀</span>Prec.</button>
-      <span class="rlabel" id="rbModeLabel">nessun modo</span>
-      <button class="rb small" data-act="mode-next" data-need="modes" title="Modo successivo"><span class="ic">▶</span>Succ.</button>
-      <button class="rb" data-act="animate" data-on="anim" data-need="modes" title="Anima l'oscillazione del modo"><span class="ic">🎞</span>Anima</button>
-    </div><div class="gname">Modi di vibrare</div></div>
+      <button class="rb small" data-act="mode-prev" data-need="modes" title="Previous mode"><span class="ic">◀</span>Prev.</button>
+      <span class="rlabel" id="rbModeLabel">no mode</span>
+      <button class="rb small" data-act="mode-next" data-need="modes" title="Next mode"><span class="ic">▶</span>Next</button>
+      <button class="rb" data-act="animate" data-on="anim" data-need="modes" title="Animate the mode oscillation"><span class="ic">🎞</span>Animate</button>
+    </div><div class="gname">Vibration modes</div></div>
   </div>
 
   <div class="panel" data-panel="view" role="tabpanel" hidden>
     <div class="group"><div class="items">
-      <button class="rb small" data-act="view-x" data-need="model" title="Vista da +X"><span class="ic">X</span>+X</button>
-      <button class="rb small" data-act="view-y" data-need="model" title="Vista da +Y"><span class="ic">Y</span>+Y</button>
-      <button class="rb small" data-act="view-z" data-need="model" title="Vista da +Z"><span class="ic">Z</span>+Z</button>
-      <button class="rb small" data-act="view-iso" data-need="model" title="Vista isometrica"><span class="ic">◇</span>Iso</button>
-      <button class="rb small" data-act="fit" data-need="model" title="Inquadra il modello"><span class="ic">⛶</span>Inquadra</button>
-    </div><div class="gname">Orientamento</div></div>
+      <button class="rb small" data-act="view-x" data-need="model" title="View from +X"><span class="ic">X</span>+X</button>
+      <button class="rb small" data-act="view-y" data-need="model" title="View from +Y"><span class="ic">Y</span>+Y</button>
+      <button class="rb small" data-act="view-z" data-need="model" title="View from +Z"><span class="ic">Z</span>+Z</button>
+      <button class="rb small" data-act="view-iso" data-need="model" title="Isometric view"><span class="ic">◇</span>Iso</button>
+      <button class="rb small" data-act="fit" data-need="model" title="Fit the model to the view"><span class="ic">⛶</span>Fit</button>
+    </div><div class="gname">Orientation</div></div>
     <div class="group"><div class="items">
       <div class="col">
-        <button class="rb" data-act="mode-block" data-on="mode:block" data-need="model"><span class="ic">▦</span>Blocchi</button>
-        <button class="rb" data-act="mode-region" data-on="mode:region" data-need="model"><span class="ic">▤</span>Componenti</button>
+        <button class="rb" data-act="mode-block" data-on="mode:block" data-need="model"><span class="ic">▦</span>Blocks</button>
+        <button class="rb" data-act="mode-region" data-on="mode:region" data-need="model"><span class="ic">▤</span>Components</button>
       </div>
       <div class="col">
-        <button class="rb" data-act="mode-surface" data-on="mode:surface" data-need="model"><span class="ic">▥</span>Superfici</button>
-        <button class="rb" data-act="mode-flat" data-on="mode:flat" data-need="model"><span class="ic">▭</span>Uniforme</button>
+        <button class="rb" data-act="mode-surface" data-on="mode:surface" data-need="model"><span class="ic">▥</span>Surfaces</button>
+        <button class="rb" data-act="mode-flat" data-on="mode:flat" data-need="model"><span class="ic">▭</span>Uniform</button>
       </div>
-      <button class="rb" data-act="mode-scalar" data-on="mode:scalar" data-need="fields" title="Colora con il campo scalare"><span class="ic">🎨</span>Campo</button>
-    </div><div class="gname">Colore</div></div>
+      <button class="rb" data-act="mode-scalar" data-on="mode:scalar" data-need="fields" title="Color by the scalar field"><span class="ic">🎨</span>Field</button>
+    </div><div class="gname">Color</div></div>
     <div class="group"><div class="items">
       <div class="col">
-        <button class="rb" data-act="wire-none" data-on="wire:none" data-need="model"><span class="ic">▢</span>Nascosti</button>
-        <button class="rb" data-act="wire-skin" data-on="wire:skin" data-need="model"><span class="ic">▣</span>Superficie</button>
-        <button class="rb" data-act="wire-all" data-on="wire:all" data-need="model"><span class="ic">▩</span>Tutti</button>
+        <button class="rb" data-act="wire-none" data-on="wire:none" data-need="model"><span class="ic">▢</span>Hidden</button>
+        <button class="rb" data-act="wire-skin" data-on="wire:skin" data-need="model"><span class="ic">▣</span>Surface</button>
+        <button class="rb" data-act="wire-all" data-on="wire:all" data-need="model"><span class="ic">▩</span>All</button>
       </div>
-    </div><div class="gname">Spigoli</div></div>
+    </div><div class="gname">Edges</div></div>
     <div class="group"><div class="items">
-      <button class="rb" data-act="clip" data-on="clip" data-need="model" title="Piano di sezione"><span class="ic">✂</span>Sezione</button>
+      <button class="rb" data-act="clip" data-on="clip" data-need="model" title="Section plane"><span class="ic">✂</span>Section</button>
       <div class="col">
-        <button class="rb" data-act="axis-0" data-on="axis:0" data-need="model"><span class="ic">X</span>Asse X</button>
-        <button class="rb" data-act="axis-1" data-on="axis:1" data-need="model"><span class="ic">Y</span>Asse Y</button>
-        <button class="rb" data-act="axis-2" data-on="axis:2" data-need="model"><span class="ic">Z</span>Asse Z</button>
+        <button class="rb" data-act="axis-0" data-on="axis:0" data-need="model"><span class="ic">X</span>Axis X</button>
+        <button class="rb" data-act="axis-1" data-on="axis:1" data-need="model"><span class="ic">Y</span>Axis Y</button>
+        <button class="rb" data-act="axis-2" data-on="axis:2" data-need="model"><span class="ic">Z</span>Axis Z</button>
       </div>
-      <button class="rb" data-act="clip-flip" data-need="model" title="Inverte il lato tagliato"><span class="ic">⇄</span>Inverti</button>
-    </div><div class="gname">Sezione</div></div>
+      <button class="rb" data-act="clip-flip" data-need="model" title="Flip the cut side"><span class="ic">⇄</span>Flip</button>
+    </div><div class="gname">Section</div></div>
     <div class="group"><div class="items">
-      <button class="rb" data-act="theme" title="Chiaro / scuro"><span class="ic">◐</span>Tema viewer</button>
-    </div><div class="gname">Aspetto</div></div>
+      <button class="rb" data-act="theme" title="Light / dark"><span class="ic">◐</span>Viewer theme</button>
+    </div><div class="gname">Appearance</div></div>
   </div>
 
   <div class="panel" data-panel="check" role="tabpanel" hidden>
     <div class="group"><div class="items">
-      <button class="rb" data-act="status" title="Riepilogo del modello e dei risultati caricati"><span class="ic">ℹ</span>Riepilogo</button>
-      <button class="rb" data-act="validate" data-need="mesh" title="Controlla la coerenza strutturale della mesh"><span class="ic">✔</span>Valida mesh</button>
-    </div><div class="gname">Modello</div></div>
+      <button class="rb" data-act="status" title="Summary of the model and the loaded results"><span class="ic">ℹ</span>Summary</button>
+      <button class="rb" data-act="validate" data-need="mesh" title="Check the structural consistency of the mesh"><span class="ic">✔</span>Validate mesh</button>
+    </div><div class="gname">Model</div></div>
   </div>
 
   <div class="panel" data-panel="help" role="tabpanel" hidden>
     <div class="group"><div class="items">
-      <button class="rb" data-act="about" title="Versione del programma, librerie collegate e opzioni con cui sono state compilate"><span class="ic">ℹ</span>About…</button>
-    </div><div class="gname">Informazioni</div></div>
+      <button class="rb" data-act="about" title="Program version, linked libraries and the options they were built with"><span class="ic">ℹ</span>About…</button>
+    </div><div class="gname">Information</div></div>
   </div>
 </header>
 
 <div id="shell">
 <aside>
-  <div><h1>OpenModel Workbench</h1><div class="sub" id="version">CAD → mesh FEM → visualizzazione</div></div>
+  <div><h1>OpenModel Workbench</h1><div class="sub" id="version">CAD → FEM mesh → visualization</div></div>
 
   <section>
-    <h2>1 · Geometria CAD</h2>
-    <label for="cadPath">File (STEP, IGES, BREP, oppure OBJ/STL/… via Assimp)</label>
-    <div class="row"><input id="cadPath" placeholder="/percorso/parte.step"><button onclick="browse('cadPath','cad')">Sfoglia…</button></div>
-    <button class="primary full" id="btnImport" onclick="importModel()">Importa e triangola</button>
+    <h2>1 · CAD geometry</h2>
+    <label for="cadPath">File (STEP, IGES, BREP, or OBJ/STL/… via Assimp)</label>
+    <div class="row"><input id="cadPath" placeholder="/path/part.step"><button onclick="browse('cadPath','cad')">Browse…</button></div>
+    <button class="primary full" id="btnImport" onclick="importModel()">Import and triangulate</button>
   </section>
 
   <section id="secTess" hidden>
-    <h2>2 · Tessellazione CAD</h2>
-    <label for="linear">Deflessione lineare: <b id="linearValue">0.001</b></label>
+    <h2>2 · CAD tessellation</h2>
+    <label for="linear">Linear deflection: <b id="linearValue">0.001</b></label>
     <input id="linear" type="range" min="0.001" max="2" step="0.001" value="0.001" oninput="linearValue.textContent=Number(this.value).toFixed(3)">
-    <label for="angular">Deflessione angolare (rad): <b id="angularValue">0.05</b></label>
+    <label for="angular">Angular deflection (rad): <b id="angularValue">0.05</b></label>
     <input id="angular" type="range" min="0.05" max="3.14" step="0.05" value="0.05" oninput="angularValue.textContent=Number(this.value).toFixed(2)">
-    <button class="full" onclick="retessellate()">Applica e ritessella</button>
-    <p class="hint">Determina la superficie mostrata prima della meshatura e, per TetGen, la superficie che viene riempita.</p>
+    <button class="full" onclick="retessellate()">Apply and retessellate</button>
+    <p class="hint">Sets the surface shown before meshing and, for TetGen, the surface that gets filled.</p>
   </section>
 
   <section id="secMesh">
-    <h2>3 · Meshatura volumetrica</h2>
-    <label for="mesher">Meshatore</label>
+    <h2>3 · Volume meshing</h2>
+    <label for="mesher">Mesher</label>
     <select id="mesher" onchange="mesherChanged()"></select>
-    <label for="size">Dimensione massima elemento</label>
+    <label for="size">Maximum element size</label>
     <input id="size" type="number" min="0" step="any" value="1">
-    <div data-f="min"><label for="minSize">Dimensione minima (0 = automatica)</label><input id="minSize" type="number" min="0" step="any" value="0"></div>
-    <div data-f="order"><label for="order">Ordine degli elementi</label>
-      <select id="order"><option value="1">Lineare (1° ordine)</option><option value="2">Quadratico (2° ordine)</option></select></div>
-    <div data-f="struct"><label for="struct">Tipo di mesh</label>
+    <div data-f="min"><label for="minSize">Minimum size (0 = automatic)</label><input id="minSize" type="number" min="0" step="any" value="0"></div>
+    <div data-f="order"><label for="order">Element order</label>
+      <select id="order"><option value="1">Linear (1st order)</option><option value="2">Quadratic (2nd order)</option></select></div>
+    <div data-f="struct"><label for="struct">Mesh type</label>
       <select id="struct" onchange="structChanged()">
-        <option value="unstructured">Non strutturata (tetraedri)</option>
-        <option value="structured">Strutturata (sweep di solidi prismatici)</option>
+        <option value="unstructured">Unstructured (tetrahedra)</option>
+        <option value="structured">Structured (sweep of prismatic solids)</option>
       </select></div>
-    <div data-f="struct" id="shapeBox" hidden><label for="shape">Elementi della mesh strutturata</label>
+    <div data-f="struct" id="shapeBox" hidden><label for="shape">Structured mesh elements</label>
       <select id="shape">
-        <option value="hex">Esaedri (hex, prismi dove serve)</option>
-        <option value="prism">Prismi (triangolo + estrusione)</option>
+        <option value="hex">Hexahedra (hex, prisms where needed)</option>
+        <option value="prism">Prisms (triangle + extrusion)</option>
       </select>
-      <p class="hint">Solo solidi estrusi in linea retta (travi, piastre, profilati). Gli altri solidi ricadono sui tetraedri.</p></div>
-    <div data-f="thin"><label for="thin">Adatta alle facce sottili (0 = disattivo, 1 = consigliato)</label>
+      <p class="hint">Only straight-extruded solids (beams, plates, profiles). Other solids fall back to tetrahedra.</p></div>
+    <div data-f="thin"><label for="thin">Adapt to thin faces (0 = off, 1 = recommended)</label>
       <input id="thin" type="number" min="0" step="any" value="0"></div>
-    <label class="check" data-f="curv"><input type="checkbox" id="curv" checked> Adatta alla curvatura</label>
-    <div data-f="iface"><label for="iface">Solidi a contatto</label>
+    <label class="check" data-f="curv"><input type="checkbox" id="curv" checked> Adapt to curvature</label>
+    <div data-f="iface"><label for="iface">Solids in contact</label>
       <select id="iface">
-        <option value="independent">Mesh indipendenti (nodi distinti)</option>
-        <option value="conformal">Mesh conforme (nodi condivisi sull'interfaccia)</option>
+        <option value="independent">Independent meshes (separate nodes)</option>
+        <option value="conformal">Conformal mesh (nodes shared on the interface)</option>
       </select></div>
-    <label class="check" data-f="log"><input type="checkbox" id="verbose"> Log Gmsh verboso (file <code>_gmsh.log</code> accanto al CAD)</label>
-    <button class="primary full" id="btnMesh" onclick="generate()">Genera mesh volumetrica</button>
+    <label class="check" data-f="log"><input type="checkbox" id="verbose"> Verbose Gmsh log (<code>_gmsh.log</code> file next to the CAD file)</label>
+    <button class="primary full" id="btnMesh" onclick="generate()">Generate volume mesh</button>
     <p class="hint" id="mesherHint"></p>
   </section>
 
   <section>
-    <h2>4 · Mesh su file</h2>
-    <label for="loadPath">Carica mesh esistente (.mgmb, .inp, .mail)</label>
-    <div class="row"><input id="loadPath" placeholder="/percorso/mesh.mgmb"><button onclick="browse('loadPath','mesh')">Sfoglia…</button></div>
-    <button class="full" onclick="loadMesh()">Carica e visualizza</button>
-    <label for="outBase">Salva con nome base (l'estensione viene aggiunta)</label>
-    <input id="outBase" placeholder="/percorso/modello">
+    <h2>4 · Mesh files</h2>
+    <label for="loadPath">Load an existing mesh (.mgmb, .inp, .mail)</label>
+    <div class="row"><input id="loadPath" placeholder="/path/mesh.mgmb"><button onclick="browse('loadPath','mesh')">Browse…</button></div>
+    <button class="full" onclick="loadMesh()">Load and display</button>
+    <label for="outBase">Save with base name (the extension is appended)</label>
+    <input id="outBase" placeholder="/path/model">
     <div class="grid2">
-      <button onclick="save('openmodel_save_mgmb','.mgmb')" title="Formato binario ottimizzato, ricaricabile">Salva MGMB</button>
-      <button onclick="save('openmodel_export_inp','.inp')" title="Abaqus / CalculiX">Esporta INP</button>
-      <button onclick="save('openmodel_export_mgwv','.mgwv')" title="Per il viewer WebGL">Esporta MGWV</button>
-      <button onclick="save('openmodel_export_glb','.glb')" title="Superficie CAD">Esporta GLB</button>
+      <button onclick="save('openmodel_save_mgmb','.mgmb')" title="Optimized binary format, reloadable">Save MGMB</button>
+      <button onclick="save('openmodel_export_inp','.inp')" title="Abaqus / CalculiX">Export INP</button>
+      <button onclick="save('openmodel_export_mgwv','.mgwv')" title="For the WebGL viewer">Export MGWV</button>
+      <button onclick="save('openmodel_export_glb','.glb')" title="CAD surface">Export GLB</button>
     </div>
   </section>
 
   <section>
-    <h2>5 · Risultati FEM</h2>
-    <label for="resPath">Risultati del solutore (.frd, .dat CalculiX; .tab code_aster; .csv; più file separati da «;» vengono uniti)</label>
-    <div class="row"><input id="resPath" placeholder="/percorso/run.frd; /percorso/run.dat"><button onclick="browse('resPath','results')">Sfoglia…</button></div>
-    <label for="resStep">Passo (vuoto = ultimo; file di soli modi = tutti i modi)</label>
-    <input id="resStep" type="number" min="0" step="1" placeholder="ultimo">
-    <div class="grid2"><button class="primary" onclick="loadResults()">Carica risultati</button><button onclick="act('openmodel_clear_results')">Rimuovi</button></div>
-    <p class="hint">I valori sono associati ai nodi della mesh corrente tramite il numero di nodo; se il file non appartiene alla mesh viene rifiutato. Campi e deformata compaiono nel viewer.</p>
+    <h2>5 · FEM results</h2>
+    <label for="resPath">Solver results (.frd, .dat CalculiX; .tab code_aster; .csv; multiple files separated by ';' are merged)</label>
+    <div class="row"><input id="resPath" placeholder="/path/run.frd; /path/run.dat"><button onclick="browse('resPath','results')">Browse…</button></div>
+    <label for="resStep">Step (empty = last; modes-only files = all modes)</label>
+    <input id="resStep" type="number" min="0" step="1" placeholder="last">
+    <div class="grid2"><button class="primary" onclick="loadResults()">Load results</button><button onclick="act('openmodel_clear_results')">Remove</button></div>
+    <p class="hint">Values are mapped to the nodes of the current mesh by node number; a file that does not belong to the mesh is rejected. Fields and the deformed shape appear in the viewer.</p>
   </section>
 
   <section id="secSolve">
-    <h2>6 · Analisi e solver</h2>
-    <label for="anScript">Script di analisi (materiale, vincoli, carichi, passo)</label>
+    <h2>6 · Analysis and solver</h2>
+    <label for="anScript">Analysis script (material, constraints, loads, step)</label>
     <textarea id="anScript" rows="9" spellcheck="false" style="width:100%;font-family:monospace;font-size:12px"></textarea>
-    <label>Condizioni presenti nello script</label>
+    <label>Conditions in the script</label>
     <ul id="analysisConditions" style="list-style:none;margin:0 0 8px;padding:0;font-size:12px"></ul>
-    <p class="hint">Modifica o rimuovi singolarmente materiale, vincoli, carichi e passi. Le modifiche aggiornano direttamente lo script utilizzato dal solver.</p>
-    <label for="anJob">File di lavoro (cartella o .inp; vuoto = ./openmodel_job/job.inp; per code_aster conta la cartella e il nome del file)</label>
-    <input id="anJob" placeholder="/percorso/lavoro/job.inp">
-    <label for="anSolverKind">Solutore</label>
+    <p class="hint">Edit or remove individual materials, constraints, loads and steps. Changes update the script used by the solver directly.</p>
+    <label for="anJob">Job file (folder or .inp; empty = ./openmodel_job/job.inp; for code_aster the folder and the file name matter)</label>
+    <input id="anJob" placeholder="/path/work/job.inp">
+    <label for="anSolverKind">Solver</label>
     <select id="anSolverKind"><option value="ccx">CalculiX</option><option value="aster">code_aster</option></select>
-    <label for="anSolver">Eseguibile (vuoto = «ccx» nel PATH; code_aster: «run_aster» o «as_run», oppure variabile OPENMODEL_CODE_ASTER)</label>
+    <label for="anSolver">Executable (empty = 'ccx' on PATH; code_aster: 'run_aster' or 'as_run', or the OPENMODEL_CODE_ASTER variable)</label>
     <input id="anSolver" placeholder="/usr/bin/ccx">
-    <div class="grid2"><button id="btnWrite" onclick="analysisWrite()">Scrivi input</button><button id="btnRun" class="primary" onclick="analysisRun()">Avvia solutore</button></div>
-    <div class="grid2"><button id="btnCancel" onclick="analysisCancel()" disabled>Annulla</button><button onclick="analysisExample()">Esempio</button></div>
-    <pre id="solverLog" style="max-height:180px;overflow:auto;font-size:11px;margin-top:6px" aria-live="polite">Nessuna analisi avviata.</pre>
-    <p class="hint">Comandi: <code>material E= nu= rho=</code>, <code>fix plane:x=0 [dof=1,2,3]</code>, <code>force plane:x=10 F=fx,fy,fz</code>, <code>pressure group:NOME p=</code>, <code>gravity g=gx,gy,gz</code>, <code>step static</code> o <code>step frequency modes=N</code>. Selettori: <code>all</code>, <code>group:NOME</code>, <code>plane:x|y|z=VALORE</code>. Unità coerenti a scelta dell'utente. Al termine i risultati si caricano da soli.</p>
+    <div class="grid2"><button id="btnWrite" onclick="analysisWrite()">Write input</button><button id="btnRun" class="primary" onclick="analysisRun()">Run solver</button></div>
+    <div class="grid2"><button id="btnCancel" onclick="analysisCancel()" disabled>Cancel</button><button onclick="analysisExample()">Example</button></div>
+    <pre id="solverLog" style="max-height:180px;overflow:auto;font-size:11px;margin-top:6px" aria-live="polite">No analysis started.</pre>
+    <p class="hint">Commands: <code>material E= nu= rho=</code>, <code>fix plane:x=0 [dof=1,2,3]</code>, <code>force plane:x=10 F=fx,fy,fz</code>, <code>pressure group:NAME p=</code>, <code>gravity g=gx,gy,gz</code>, <code>step static</code> or <code>step frequency modes=N</code>. Selectors: <code>all</code>, <code>group:NAME</code>, <code>plane:x|y|z=VALUE</code>. Use consistent units of your choice. When the run finishes, the results are loaded automatically.</p>
   </section>
 
   <dialog id="analysisEditDialog" style="max-width:520px;width:calc(100% - 32px);border:1px solid var(--border,#888);border-radius:8px;background:var(--panel,#fff);color:var(--text,inherit)">
     <form id="analysisEditForm">
-      <h3 id="analysisEditTitle">Modifica condizione</h3>
+      <h3 id="analysisEditTitle">Edit condition</h3>
       <div id="analysisEditFields" class="stack"></div>
-      <div class="grid2" style="margin-top:12px"><button type="button" id="analysisEditCancel">Annulla</button><button type="submit" class="primary">Applica</button></div>
+      <div class="grid2" style="margin-top:12px"><button type="button" id="analysisEditCancel">Cancel</button><button type="submit" class="primary">Apply</button></div>
     </form>
   </dialog>
 
   <section id="secSel">
-    <h2>7 · Selezione e gruppi</h2>
-    <label for="selMode">Seleziona nel viewer</label>
+    <h2>7 · Selection and groups</h2>
+    <label for="selMode">Select in the viewer</label>
     <select id="selMode" onchange="setPickMode(this.value)">
-      <option value="off">Disattivata</option><option value="node">Nodi</option><option value="element">Elementi</option><option value="face">Facce</option>
+      <option value="off">Off</option><option value="node">Nodes</option><option value="element">Elements</option><option value="face">Faces</option>
     </select>
-    <div class="grid2"><div><label for="selAngle">Angolo facce (°)</label><input id="selAngle" type="number" min="0" max="180" step="1" value="0" onchange="setPickAngle(this.value)"></div>
-      <div><label for="selBoxOn">Riquadro</label><input id="selBoxOn" type="checkbox" onchange="setPickBox(this.checked)"></div></div>
-    <p class="hint" id="selInfo">Selezione: nessuna.</p>
-    <p class="hint" id="cadFaceInfo">Facce CAD: nessuna selezionata.</p>
-    <label>Gruppi nominati importati dal CAD</label>
+    <div class="grid2"><div><label for="selAngle">Face angle (°)</label><input id="selAngle" type="number" min="0" max="180" step="1" value="0" onchange="setPickAngle(this.value)"></div>
+      <div><label for="selBoxOn">Box</label><input id="selBoxOn" type="checkbox" onchange="setPickBox(this.checked)"></div></div>
+    <p class="hint" id="selInfo">Selection: none.</p>
+    <p class="hint" id="cadFaceInfo">CAD faces: none selected.</p>
+    <label>Named groups imported from the CAD file</label>
     <ul id="nativeCadGrpList" style="list-style:none;margin:0 0 8px;padding:0;font-size:12px"></ul>
-    <p class="hint">Sola lettura: nomi/layer provenienti dal file CAD. La dimensione identifica vertice (0), spigolo (1), faccia (2) o solido (3).</p>
-    <label for="cadGrpName">Nuovo gruppo CAD di facce (indipendente dalla mesh)</label>
-    <div class="row"><input id="cadGrpName" placeholder="BladeRoot"><button id="btnCadGrpCreate" onclick="createCADFaceGroup()">Crea</button></div>
-    <p class="hint">Il gruppo memorizza gli ID delle facce B-Rep selezionate e viene salvato accanto al file CAD nel sidecar <code>.omgroups</code>. Gmsh, TetGen e Netgen possono trasferirlo alla mesh FEM: verrà creato il Node Set <code>NOME_NODES</code>. TetGen richiede gli ID delle facce nella tassellazione CAD; Netgen usa il mapping geometrico. Dopo la meshatura, il pulsante «Vincola» inserisce nello script il vincolo a spostamento nullo. Le modifiche ai gruppi invalidano la mesh volumetrica generata, che dovrà essere rigenerata.</p>
+    <p class="hint">Read-only: names/layers from the CAD file. The dimension identifies vertex (0), edge (1), face (2) or solid (3).</p>
+    <label for="cadGrpName">New CAD face group (independent of the mesh)</label>
+    <div class="row"><input id="cadGrpName" placeholder="BladeRoot"><button id="btnCadGrpCreate" onclick="createCADFaceGroup()">Create</button></div>
+    <p class="hint">The group stores the IDs of the selected B-Rep faces and is saved next to the CAD file in the <code>.omgroups</code> sidecar. Gmsh, TetGen and Netgen can transfer it to the FEM mesh: the Node Set <code>NAME_NODES</code> is created. TetGen requires the face IDs in the CAD tessellation; Netgen uses geometric mapping. After meshing, the 'Fix' button inserts the zero-displacement constraint into the script. Group changes invalidate the generated volume mesh, which must then be regenerated.</p>
     <ul id="cadGrpList" style="list-style:none;margin:4px 0 10px;padding:0;font-size:12px"></ul>
-    <label>Gruppi FEM generici (MeshGroupRegistry)</label>
+    <label>Generic FEM groups (MeshGroupRegistry)</label>
     <ul id="genericMeshGrpList" style="list-style:none;margin:0 0 8px;padding:0;font-size:12px"></ul>
-    <label for="grpName">Nome del gruppo FEM (vuoto = automatico; lettere, cifre, _ - .)</label>
-    <input id="grpName" placeholder="Appoggio">
-    <div class="grid2"><button id="btnGrpNode" onclick="makeGroup('node')">Gruppo nodi</button><button id="btnGrpElem" onclick="makeGroup('element')">Gruppo elementi</button></div>
-    <button id="btnGrpFace" onclick="makeGroup('face')" style="margin-top:6px">Gruppo facce</button>
-    <label for="asDof">Vincolo: gradi di libertà (1,2,3 = x,y,z)</label>
+    <label for="grpName">FEM group name (empty = automatic; letters, digits, _ - .)</label>
+    <input id="grpName" placeholder="Support">
+    <div class="grid2"><button id="btnGrpNode" onclick="makeGroup('node')">Node group</button><button id="btnGrpElem" onclick="makeGroup('element')">Element group</button></div>
+    <button id="btnGrpFace" onclick="makeGroup('face')" style="margin-top:6px">Face group</button>
+    <label for="asDof">Constraint: degrees of freedom (1,2,3 = x,y,z)</label>
     <input id="asDof" value="1,2,3">
-    <label for="asValue">Spostamento prescritto ux,uy,uz (unità del modello)</label>
+    <label for="asValue">Prescribed displacement ux,uy,uz (model units)</label>
     <input id="asValue" value="0,0,0">
-    <label for="asForce">Forza totale Fx,Fy,Fz</label>
+    <label for="asForce">Total force Fx,Fy,Fz</label>
     <input id="asForce" value="0,0,-100">
-    <label for="asPress">Pressione (positiva = verso il corpo)</label>
+    <label for="asPress">Pressure (positive = toward the body)</label>
     <input id="asPress" value="1">
-    <div class="grid2"><button id="btnAsFix" onclick="assign('fix')">Vincola</button><button id="btnAsForce" onclick="assign('force')">Forza</button></div>
-    <button id="btnAsPress" onclick="assign('press')" style="margin-top:6px">Pressione</button>
-    <p class="hint">Ogni assegnazione crea un gruppo dalla selezione e aggiunge la riga allo script della sezione 6.</p>
-    <label>Gruppi della mesh</label>
+    <div class="grid2"><button id="btnAsFix" onclick="assign('fix')">Fix</button><button id="btnAsForce" onclick="assign('force')">Force</button></div>
+    <button id="btnAsPress" onclick="assign('press')" style="margin-top:6px">Pressure</button>
+    <p class="hint">Each assignment creates a group from the selection and appends the line to the section 6 script.</p>
+    <label>Mesh groups</label>
     <ul id="grpList" style="list-style:none;margin:0;padding:0;font-size:12px"></ul>
   </section>
 
   <section>
-    <h2>Verifica</h2>
-    <div class="grid2" style="margin-top:0"><button onclick="act('openmodel_status')">Stato</button><button onclick="act('openmodel_validate')">Valida mesh</button></div>
+    <h2>Check</h2>
+    <div class="grid2" style="margin-top:0"><button onclick="act('openmodel_status')">Status</button><button onclick="act('openmodel_validate')">Validate mesh</button></div>
   </section>
 
-  <section><h2>Messaggi</h2><pre id="result">Pronto. Importa un modello CAD, carica una mesh o prova il modello dimostrativo.</pre></section>
+  <section><h2>Messages</h2><pre id="result">Ready. Import a CAD model, load a mesh or try the demo model.</pre></section>
 </aside>
 
-<main><iframe id="viewer" src="viewer.html" title="Viewer FEM"></iframe></main>
+<main><iframe id="viewer" src="viewer.html" title="FEM viewer"></iframe></main>
 </div>
 
 <div class="modal" id="modal" hidden>
-  <div class="dialog" role="dialog" aria-modal="true" aria-label="Scegli file">
-    <h3>Scegli un file</h3>
-    <div class="row"><button onclick="goUp()">↑ Su</button><input id="dirPath" onkeydown="if(event.key==='Enter')window.list(this.value)"><button onclick="list(dirPath.value)">Vai</button></div>
+  <div class="dialog" role="dialog" aria-modal="true" aria-label="Choose file">
+    <h3>Choose a file</h3>
+    <div class="row"><button onclick="goUp()">↑ Up</button><input id="dirPath" onkeydown="if(event.key==='Enter')window.list(this.value)"><button onclick="list(dirPath.value)">Go</button></div>
     <ul id="entries"></ul>
-    <div class="row" style="justify-content:flex-end"><button onclick="closeModal()">Annulla</button></div>
+    <div class="row" style="justify-content:flex-end"><button onclick="closeModal()">Cancel</button></div>
   </div>
 </div>
 
 <div class="modal" id="aboutModal" hidden>
   <div class="dialog about" role="dialog" aria-modal="true" aria-labelledby="aboutTitle">
     <h3 id="aboutTitle">About OpenModel Workbench</h3>
-    <div id="aboutBody">Caricamento…</div>
-    <div class="row" style="justify-content:flex-end"><button id="aboutCopy" onclick="copyAbout()" disabled>Copia</button><button onclick="closeAbout()">Chiudi</button></div>
+    <div id="aboutBody">Loading…</div>
+    <div class="row" style="justify-content:flex-end"><button id="aboutCopy" onclick="copyAbout()" disabled>Copy</button><button onclick="closeAbout()">Close</button></div>
   </div>
 </div>
 
@@ -424,7 +424,7 @@ async function bridgeReady() {
     if (typeof webui !== "undefined" && (typeof webui.isConnected !== "function" || webui.isConnected())) return;
     await new Promise((r) => setTimeout(r, 100));
   }
-  throw new Error("bridge WebUI non connesso");
+  throw new Error("WebUI bridge not connected");
 }
 async function call(name, ...args) {
   try {
@@ -432,7 +432,7 @@ async function call(name, ...args) {
     const raw = await webui.call(name, ...args);
     return JSON.parse(raw);
   } catch (e) {
-    return {ok: false, message: "Comunicazione con OpenModel non riuscita (" + name + "): " + e};
+    return {ok: false, message: "Communication with OpenModel failed (" + name + "): " + e};
   }
 }
 function setBusy(on) {
@@ -452,7 +452,7 @@ function applyView(r) {
 async function act(name, ...args) {
   if (busy) return null;
   setBusy(true);
-  show("Operazione in corso…");
+  show("Operation in progress…");
   const r = await call(name, ...args);
   setBusy(false);
   show(r.message || "", r.ok ? "good" : "bad");
@@ -471,7 +471,7 @@ function loadView(label) {
   pendingView = false;
   if (viewVersion < 0 || !viewAvailable) return;
   selectedCadFaceIds = [];
-  $("cadFaceInfo").textContent = "Facce CAD: nessuna selezionata.";
+  $("cadFaceInfo").textContent = "CAD faces: none selected.";
   // The viewer reports the selected B-Rep face ids when the displayed model is the CAD surface.
   // FEM selections remain unchanged; they simply have no cadFaceId field.
   w.OpenModelViewer.onSelect = (selection) => {
@@ -480,8 +480,8 @@ function loadView(label) {
       .filter((id) => Number.isInteger(id) && id >= 0))].sort((a, b) => a - b);
     selectedCadFaceIds = ids;
     $("cadFaceInfo").textContent = ids.length
-      ? "Facce CAD selezionate: " + ids.join(", ")
-      : "Facce CAD: nessuna selezionata.";
+      ? "Selected CAD faces: " + ids.join(", ")
+      : "CAD faces: none selected.";
   };
   w.OpenModelViewer.loadUrl("model.mgwv?v=" + viewVersion, label);
 }
@@ -538,16 +538,16 @@ window.addEventListener("keydown", (e) => { if (e.key === "Escape") { closeModal
 /* ---- Help > About: program version, how OpenModel was built, libraries linked into the program ---- */
 let aboutData = null;
 /** Text shown for a version or path the program could not find out. */
-const UNKNOWN = "non disponibile";
-/** Plain-text form of the About information, used by the Copia button (handy in bug reports). */
+const UNKNOWN = "not available";
+/** Plain-text form of the About information, used by the Copy button (handy in bug reports). */
 function aboutText(a) {
   const lines = [a.program + " " + a.version, "",
-    "Compilazione", "  Configurazione: " + a.build.configuration, "  Compilatore: " + a.build.compiler,
-    "  Standard C++: " + a.build.cxxStandard, "  Sistema: " + a.build.system, "  CMake: " + a.build.cmake,
-    "  Opzioni: " + a.build.options.map((o) => o.name + "=" + o.value).join(", "), "", "Librerie collegate"];
+    "Build", "  Configuration: " + a.build.configuration, "  Compiler: " + a.build.compiler,
+    "  C++ standard: " + a.build.cxxStandard, "  System: " + a.build.system, "  CMake: " + a.build.cmake,
+    "  Options: " + a.build.options.map((o) => o.name + "=" + o.value).join(", "), "", "Linked libraries"];
   for (const l of a.libraries) {
     lines.push("  " + l.name + " " + (l.version || UNKNOWN) + " - " + l.role);
-    if (l.location) lines.push("    Percorso: " + l.location);
+    if (l.location) lines.push("    Path: " + l.location);
     for (const o of l.options) lines.push("    " + o);
   }
   return lines.join("\n");
@@ -560,46 +560,46 @@ function aboutEl(tag, text, className) {
 }
 function renderAbout(a) {
   const body = $("aboutBody"); body.textContent = "";
-  body.appendChild(aboutEl("h4", "Programma"));
+  body.appendChild(aboutEl("h4", "Program"));
   const program = aboutEl("dl");
-  for (const [k, v] of [["Nome", a.program], ["Versione", a.version]]) { program.appendChild(aboutEl("dt", k)); program.appendChild(aboutEl("dd", v)); }
+  for (const [k, v] of [["Name", a.program], ["Version", a.version]]) { program.appendChild(aboutEl("dt", k)); program.appendChild(aboutEl("dd", v)); }
   body.appendChild(program);
-  body.appendChild(aboutEl("h4", "Compilazione di OpenModel"));
+  body.appendChild(aboutEl("h4", "OpenModel build"));
   const build = aboutEl("dl");
-  for (const [k, v] of [["Configurazione", a.build.configuration], ["Compilatore", a.build.compiler], ["Standard C++", a.build.cxxStandard], ["Sistema", a.build.system], ["CMake", a.build.cmake]]) {
+  for (const [k, v] of [["Configuration", a.build.configuration], ["Compiler", a.build.compiler], ["C++ standard", a.build.cxxStandard], ["System", a.build.system], ["CMake", a.build.cmake]]) {
     build.appendChild(aboutEl("dt", k)); build.appendChild(aboutEl("dd", v));
   }
   body.appendChild(build);
   const chips = aboutEl("div", undefined, "chips"); chips.style.marginTop = "6px";
   for (const o of a.build.options) chips.appendChild(aboutEl("span", o.name + " = " + o.value, "chip" + (o.value === "ON" ? " on" : "")));
   body.appendChild(chips);
-  body.appendChild(aboutEl("h4", "Librerie collegate"));
+  body.appendChild(aboutEl("h4", "Linked libraries"));
   for (const l of a.libraries) {
     const box = aboutEl("div", undefined, "lib");
     const title = aboutEl("div"); title.appendChild(aboutEl("b", l.name)); title.appendChild(document.createTextNode("  " + (l.version || UNKNOWN)));
     box.appendChild(title); box.appendChild(aboutEl("div", l.role, "role"));
-    if (l.location) box.appendChild(aboutEl("div", "Percorso: " + l.location, "loc"));
+    if (l.location) box.appendChild(aboutEl("div", "Path: " + l.location, "loc"));
     if (l.options.length) { const ul = aboutEl("ul"); for (const o of l.options) ul.appendChild(aboutEl("li", o)); box.appendChild(ul); }
     body.appendChild(box);
   }
 }
 async function showAbout() {
   $("aboutModal").hidden = false; $("aboutCopy").disabled = true; aboutData = null;
-  $("aboutBody").textContent = "Caricamento…";
+  $("aboutBody").textContent = "Loading…";
   const r = await call("openmodel_about");
-  if (!r.ok) { $("aboutBody").textContent = r.message || "Informazioni non disponibili."; return; }
+  if (!r.ok) { $("aboutBody").textContent = r.message || "Information not available."; return; }
   aboutData = r; renderAbout(r); $("aboutCopy").disabled = false;
 }
 function closeAbout() { $("aboutModal").hidden = true; }
 async function copyAbout() {
   if (!aboutData) return;
   const text = aboutText(aboutData);
-  try { await navigator.clipboard.writeText(text); show("Informazioni su versione e librerie copiate negli appunti.", "good"); }
+  try { await navigator.clipboard.writeText(text); show("Version and library information copied to the clipboard.", "good"); }
   catch (e) {
     const area = document.createElement("textarea"); area.value = text; document.body.appendChild(area); area.select();
     let ok = false; try { ok = document.execCommand("copy"); } catch (err) { /* not allowed */ }
     area.remove();
-    show(ok ? "Informazioni su versione e librerie copiate negli appunti." : "Copia negli appunti non riuscita.", ok ? "good" : "bad");
+    show(ok ? "Version and library information copied to the clipboard." : "Copy to clipboard failed.", ok ? "good" : "bad");
   }
 }
 
@@ -614,7 +614,7 @@ const viewerApi = () => {
 };
 function vset(options) {
   const w = viewerApi();
-  if (!w) { show("Nessun modello nel viewer: importa o genera prima una mesh.", "bad"); return; }
+  if (!w) { show("No model in the viewer: import or generate a mesh first.", "bad"); return; }
   w.OpenModelViewer.set(options);
   syncRibbon();
 }
@@ -637,7 +637,7 @@ RIBBON_EXTRA["pick-node"] = () => setPickMode("node");
 RIBBON_EXTRA["pick-element"] = () => setPickMode("element");
 RIBBON_EXTRA["pick-face"] = () => setPickMode("face");
 RIBBON_EXTRA["sel-clear"] = () => { const pk = pickApi(); if (pk) pk.clear(); syncRibbon(); };
-RIBBON_EXTRA["grp-make"] = () => { const sel = currentSelection(); if (sel) makeGroup(sel.mode); else show("Seleziona prima nodi, elementi o facce nel viewer.", "bad"); };
+RIBBON_EXTRA["grp-make"] = () => { const sel = currentSelection(); if (sel) makeGroup(sel.mode); else show("Select nodes, elements or faces in the viewer first.", "bad"); };
 RIBBON_EXTRA["as-fix"] = () => assign("fix");
 RIBBON_EXTRA["as-force"] = () => assign("force");
 RIBBON_EXTRA["as-press"] = () => assign("press");
@@ -701,7 +701,7 @@ async function analysisRun() {
   const r = await act("openmodel_run_solver", $("anScript").value, $("anJob").value.trim(), $("anSolver").value.trim(), $("anSolverKind").value);
   if (!r || !r.ok) return;
   solverRunning = true;
-  logLines(["— solutore avviato —"], true);
+  logLines(["— solver started —"], true);
   syncRibbon();
   solverTimer = setInterval(pollSolver, 500);
 }
@@ -710,7 +710,7 @@ async function pollSolver() {
   logLines(r.lines || []);
   if (r.state === "running" || r.state === "idle" && solverRunning && !r.message) return;
   clearInterval(solverTimer); solverTimer = null; solverRunning = false;
-  logLines(["— " + (r.state === "done" ? "terminato" : r.state === "cancelled" ? "annullato" : "errore") + " —"]);
+  logLines(["— " + (r.state === "done" ? "finished" : r.state === "cancelled" ? "cancelled" : "error") + " —"]);
   show(r.message || "", r.ok ? "good" : "bad");
   applyView(r);
   syncRibbon();
@@ -752,31 +752,31 @@ function currentSelection() {
 }
 const esc2 = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 function renderGroups(groups) {
-  const label = { node: "nodi", element: "elementi", face: "facce" };
+  const label = { node: "nodes", element: "elements", face: "faces" };
   $("grpList").innerHTML = groups.length ? groups.map((g, i) =>
-    `<li style="display:flex;gap:6px;align-items:center;margin:2px 0"><span style="flex:1" title="group:${esc2(g.name)}"><b>${esc2(g.name)}</b> · ${g.count} ${label[g.kind]}</span><button data-group="${i}" style="padding:2px 8px">Mostra</button></li>`).join("")
-    : '<li style="color:var(--muted)">Nessun gruppo.</li>';
+    `<li style="display:flex;gap:6px;align-items:center;margin:2px 0"><span style="flex:1" title="group:${esc2(g.name)}"><b>${esc2(g.name)}</b> · ${g.count} ${label[g.kind]}</span><button data-group="${i}" style="padding:2px 8px">Show</button></li>`).join("")
+    : '<li style="color:var(--muted)">No groups.</li>';
   $("grpList").querySelectorAll("button[data-group]").forEach((b) => b.addEventListener("click", () => showGroup(groups[+b.dataset.group].name)));
 }
 async function refreshGroups() { const r = await call("openmodel_list_groups"); if (r.groups) renderGroups(r.groups); }
 
 function renderNativeCADGroups(groups) {
-  const dimension = ["Vertici", "Spigoli", "Facce", "Solidi"];
+  const dimension = ["Vertices", "Edges", "Faces", "Solids"];
   $("nativeCadGrpList").innerHTML = groups.length ? groups.map(g =>
-    `<li style="margin:2px 0"><b>${esc2(g.name)}</b> · ${dimension[g.dimension] || "Dimensione " + g.dimension} · ${g.entityCount} entità · ${esc2(g.kind)}</li>`).join("")
-    : '<li style="color:var(--muted)">Nessun gruppo nominato nel file CAD o backend senza supporto.</li>';
+    `<li style="margin:2px 0"><b>${esc2(g.name)}</b> · ${dimension[g.dimension] || "Dimension " + g.dimension} · ${g.entityCount} entities · ${esc2(g.kind)}</li>`).join("")
+    : '<li style="color:var(--muted)">No named groups in the CAD file, or the backend does not support them.</li>';
 }
 function renderGenericMeshGroups(groups) {
-  const dimension = ["Vertice", "Spigolo", "Faccia", "Volume"];
+  const dimension = ["Vertex", "Edge", "Face", "Volume"];
   $("genericMeshGrpList").innerHTML = groups.length ? groups.map(g =>
-    `<li style="margin:2px 0"><b>${esc2(g.name)}</b> · ${dimension[g.dimension] || "Dim. " + g.dimension} · ${g.elementCount} elementi · ${g.nodeCount} nodi · ${esc2(g.source)}</li>`).join("")
-    : '<li style="color:var(--muted)">Nessun gruppo generico nella mesh corrente.</li>';
+    `<li style="margin:2px 0"><b>${esc2(g.name)}</b> · ${dimension[g.dimension] || "Dim. " + g.dimension} · ${g.elementCount} elements · ${g.nodeCount} nodes · ${esc2(g.source)}</li>`).join("")
+    : '<li style="color:var(--muted)">No generic groups in the current mesh.</li>';
 }
 
 function renderCADFaceGroups(groups) {
   $("cadGrpList").innerHTML = groups.length ? groups.map((g, i) =>
-    `<li style="display:flex;gap:6px;align-items:center;margin:3px 0"><span style="flex:1"><b>${esc2(g.name)}</b> · ${g.faceCount} facce${g.nodeCount ? " · " + g.nodeCount + " nodi FEM" : ""}</span><button data-cad-show="${i}" style="padding:2px 7px">Mostra</button><button data-cad-update="${i}" style="padding:2px 7px">Aggiorna</button><button data-cad-fix="${i}" style="padding:2px 7px" ${g.nodeCount ? "" : "disabled"}>Vincola</button><button data-cad-delete="${i}" style="padding:2px 7px">Elimina</button></li>`).join("")
-    : '<li style="color:var(--muted)">Nessun gruppo CAD.</li>';
+    `<li style="display:flex;gap:6px;align-items:center;margin:3px 0"><span style="flex:1"><b>${esc2(g.name)}</b> · ${g.faceCount} faces${g.nodeCount ? " · " + g.nodeCount + " FEM nodes" : ""}</span><button data-cad-show="${i}" style="padding:2px 7px">Show</button><button data-cad-update="${i}" style="padding:2px 7px">Update</button><button data-cad-fix="${i}" style="padding:2px 7px" ${g.nodeCount ? "" : "disabled"}>Fix</button><button data-cad-delete="${i}" style="padding:2px 7px">Delete</button></li>`).join("")
+    : '<li style="color:var(--muted)">No CAD groups.</li>';
   $("cadGrpList").querySelectorAll("button[data-cad-show]").forEach((b) => b.addEventListener("click", () => showCADFaceGroup(groups[+b.dataset.cadShow])));
   $("cadGrpList").querySelectorAll("button[data-cad-update]").forEach((b) => b.addEventListener("click", () => updateCADFaceGroup(groups[+b.dataset.cadUpdate].name)));
   $("cadGrpList").querySelectorAll("button[data-cad-fix]").forEach((b) => b.addEventListener("click", () => addCADGroupFixedSupport(groups[+b.dataset.cadFix].nodeSetName)));
@@ -791,17 +791,17 @@ async function refreshCADFaceGroups() {
 }
 async function createCADFaceGroup() {
   const name = $("cadGrpName").value.trim();
-  if (!selectedCadFaceIds.length) { show("Seleziona prima una o più facce CAD nel viewer.", "bad"); return; }
+  if (!selectedCadFaceIds.length) { show("Select one or more CAD faces in the viewer first.", "bad"); return; }
   const r = await act("openmodel_create_cad_face_group", name, selectedCadFaceIds.join(","));
   if (r && r.ok) { $("cadGrpName").value = ""; await refreshGroups(); }
 }
 function buildFixedSupportLine(selector) {
   const dofs = $("asDof").value.split(",").map((x) => x.trim()).filter(Boolean);
   if (!dofs.length || !dofs.every((d) => ["1", "2", "3"].includes(d)) || new Set(dofs).size !== dofs.length) {
-    show("Gradi di libertà non validi: usa 1, 2, 3 senza duplicati.", "bad"); return null;
+    show("Invalid degrees of freedom: use 1, 2, 3 without duplicates.", "bad"); return null;
   }
   const value = numList($("asValue").value, 3);
-  if (!value) { show("Lo spostamento prescritto richiede tre numeri ux,uy,uz.", "bad"); return null; }
+  if (!value) { show("The prescribed displacement requires three numbers ux,uy,uz.", "bad"); return null; }
   const dofText = dofs.length === 3 ? "" : " dof=" + dofs.join(",");
   return "fix " + selector + dofText + " value=" + value.join(",");
 }
@@ -811,28 +811,28 @@ function addCADGroupFixedSupport(nodeSetName) {
   const editor = $("anScript");
   const lines = editor.value.split(/\r?\n/);
   if (lines.some((existing) => existing.trim().toLowerCase() === line.toLowerCase())) {
-    show("Il vincolo per " + nodeSetName + " è già presente nello script.", "good");
+    show("The constraint for " + nodeSetName + " is already in the script.", "good");
     return;
   }
   editor.value = editor.value.trimEnd() + (editor.value.trim() ? "\n" : "") + line + "\n";
   renderAnalysisConditions();
   editor.focus();
-  show("Aggiunto vincolo a spostamento nullo su " + nodeSetName + ". Verifica materiale e carichi prima di avviare l'analisi.", "good");
+  show("Added zero-displacement constraint on " + nodeSetName + ". Check the material and loads before running the analysis.", "good");
 }
 async function updateCADFaceGroup(name) {
-  if (!selectedCadFaceIds.length) { show("Seleziona prima le facce CAD che devono sostituire i membri del gruppo.", "bad"); return; }
-  if (!confirm("Sostituire tutte le facce del gruppo «" + name + "» con la selezione corrente?")) return;
+  if (!selectedCadFaceIds.length) { show("Select the CAD faces that should replace the group members first.", "bad"); return; }
+  if (!confirm("Replace all faces of group '" + name + "' with the current selection?")) return;
   await act("openmodel_update_cad_face_group", name, selectedCadFaceIds.join(","));
 }
 async function deleteCADFaceGroup(name) {
-  if (!confirm("Eliminare il gruppo CAD «" + name + "»?")) return;
+  if (!confirm("Delete CAD group '" + name + "'?")) return;
   await act("openmodel_delete_cad_face_group", name);
 }
 function showCADFaceGroup(group) {
   const V = viewerApi() && viewerApi().OpenModelViewer;
   const m = V && V.state && V.state.model;
   if (!m || !m.triRegion || !m.meta.groups) {
-    show("Il gruppo CAD è memorizzato, ma la vista corrente non espone la tessellazione delle facce CAD. Torna alla superficie CAD per visualizzarlo.", "bad");
+    show("The CAD group is stored, but the current view does not expose the CAD face tessellation. Go back to the CAD surface to display it.", "bad");
     return;
   }
   const wanted = new Set(group.faceIds);
@@ -843,26 +843,26 @@ function showCADFaceGroup(group) {
     if (!match || !wanted.has(Number(match[1]))) continue;
     faces.push({element: m.triElementId[t], nodes: [0,1,2].map((k) => m.vertexNodeId[m.triIndices[3*t+k]])});
   }
-  if (!faces.length) { show("Nessuna faccia del gruppo è presente nella vista corrente.", "bad"); return; }
+  if (!faces.length) { show("No face of the group is present in the current view.", "bad"); return; }
   const pk = pickApi();
-  if (!pk) { show("Il viewer non offre il picking delle facce.", "bad"); return; }
+  if (!pk) { show("The viewer does not offer face picking.", "bad"); return; }
   pk.set({mode:"face", nodes:[], elements:[], faces});
   $("selMode").value = "face";
   syncRibbon();
-  show("Gruppo CAD «" + group.name + "»: " + faces.length + " triangoli evidenziati.", "good");
+  show("CAD group '" + group.name + "': " + faces.length + " triangles highlighted.", "good");
 }
 async function showGroup(name) {
   const r = await act("openmodel_show_group", name);
   if (!r || !r.ok || !r.selMode) return;
   const pk = pickApi();
-  if (!pk) { show("Il viewer non offre la selezione per questo modello.", "bad"); return; }
+  if (!pk) { show("The viewer does not offer selection for this model.", "bad"); return; }
   const res = pk.set(selectionFromText(r.selMode, r.selection));
-  show((r.message ? r.message + "\n" : "") + "Gruppo «" + name + "» mostrato nel viewer" + (res.missing ? " (" + res.missing + " voci non visibili: interne o nascoste)" : "") + ".", "good");
+  show((r.message ? r.message + "\n" : "") + "Group '" + name + "' shown in the viewer" + (res.missing ? " (" + res.missing + " entries not visible: internal or hidden)" : "") + ".", "good");
   syncRibbon();
 }
 async function makeGroup(kind, name, prefix) {
   const sel = currentSelection();
-  if (!sel) { show("Seleziona prima nodi, elementi o facce nel viewer (sezione 7 o scheda Analisi).", "bad"); return null; }
+  if (!sel) { show("Select nodes, elements or faces in the viewer first (section 7 or the Analysis tab).", "bad"); return null; }
   const r = await act("openmodel_create_group", name === undefined ? $("grpName").value.trim() : name, kind, sel.mode, selectionText(sel), prefix || "");
   if (r && r.ok) { $("grpName").value = ""; }
   return r;
@@ -915,25 +915,25 @@ async function editAnalysisCondition(command, line, id, lines, index) {
   const values = analysisTokens(line, command);
   const dialog = $("analysisEditDialog"), fields = $("analysisEditFields");
   fields.replaceChildren();
-  $("analysisEditTitle").textContent = "Modifica " + ({material:"materiale",fix:"vincolo",force:"forza",pressure:"pressione"}[command]);
+  $("analysisEditTitle").textContent = "Edit " + ({material:"material",fix:"constraint",force:"force",pressure:"pressure"}[command]);
   const positional = values._selector || "";
   if (command === "material") {
-    analysisField(fields, "Modulo elastico E", "E", values.e);
-    analysisField(fields, "Coefficiente di Poisson nu", "nu", values.nu);
-    analysisField(fields, "Densità rho", "rho", values.rho || "0");
-    analysisField(fields, "Nome materiale", "name", values.name || "MATERIAL");
+    analysisField(fields, "Elastic modulus E", "E", values.e);
+    analysisField(fields, "Poisson's ratio nu", "nu", values.nu);
+    analysisField(fields, "Density rho", "rho", values.rho || "0");
+    analysisField(fields, "Material name", "name", values.name || "MATERIAL");
   } else if (command === "fix") {
-    analysisField(fields, "Selettore (all, group:NAME, plane:x=VALUE)", "selector", positional);
-    analysisField(fields, "Gradi di libertà (1,2,3 oppure all)", "dof", values.dof || "1,2,3");
-    analysisField(fields, "Spostamento prescritto ux,uy,uz", "value", values.value || "0,0,0");
-    analysisField(fields, "Tolleranza (opzionale)", "tol", values.tol || "");
+    analysisField(fields, "Selector (all, group:NAME, plane:x=VALUE)", "selector", positional);
+    analysisField(fields, "Degrees of freedom (1,2,3 or all)", "dof", values.dof || "1,2,3");
+    analysisField(fields, "Prescribed displacement ux,uy,uz", "value", values.value || "0,0,0");
+    analysisField(fields, "Tolerance (optional)", "tol", values.tol || "");
   } else if (command === "force") {
-    analysisField(fields, "Selettore (all, group:NAME, plane:x=VALUE)", "selector", positional);
-    analysisField(fields, "Forza totale Fx,Fy,Fz", "F", values.f || "0,0,0");
-    analysisField(fields, "Tolleranza (opzionale)", "tol", values.tol || "");
+    analysisField(fields, "Selector (all, group:NAME, plane:x=VALUE)", "selector", positional);
+    analysisField(fields, "Total force Fx,Fy,Fz", "F", values.f || "0,0,0");
+    analysisField(fields, "Tolerance (optional)", "tol", values.tol || "");
   } else {
-    analysisField(fields, "Gruppo di superficie", "selector", positional);
-    analysisField(fields, "Pressione", "p", values.p || "0");
+    analysisField(fields, "Surface group", "selector", positional);
+    analysisField(fields, "Pressure", "p", values.p || "0");
   }
   return new Promise(resolve => {
     let finished = false;
@@ -992,23 +992,23 @@ function renderAnalysisConditions() {
     content.textContent = (idMatch ? "[" + idMatch[1] + "] " : "") + line.trim();
     content.style.cssText = "flex:1;overflow-wrap:anywhere;white-space:pre-wrap";
     const edit = document.createElement("button");
-    edit.type = "button"; edit.textContent = "Modifica";
+    edit.type = "button"; edit.textContent = "Edit";
     edit.addEventListener("click", async () => {
       const structured = await editAnalysisCondition(command, line.trim(), idMatch && idMatch[1], lines, index);
       if (structured !== null) return;
       {
-        const replacement = prompt("Modifica la condizione (comando " + command + "):", line.trim());
+        const replacement = prompt("Edit the condition (command " + command + "):", line.trim());
         if (replacement === null) return;
         if (analysisCommand(replacement) !== command) {
-          show("La riga modificata deve mantenere il comando " + command + ".", "bad"); return;
+          show("The edited line must keep the " + command + " command.", "bad"); return;
         }
         await applyAnalysisEdit(replacement, idMatch && idMatch[1], lines, index);
       }
     });
     const remove = document.createElement("button");
-    remove.type = "button"; remove.textContent = "Rimuovi";
+    remove.type = "button"; remove.textContent = "Remove";
     remove.addEventListener("click", async () => {
-      if (!confirm("Rimuovere questa condizione?")) return;
+      if (!confirm("Remove this condition?")) return;
       const id = idMatch && idMatch[1];
       if (id) {
         const r = await act("openmodel_analysis_delete", id);
@@ -1027,7 +1027,7 @@ function renderAnalysisConditions() {
   });
   if (!count) {
     const empty = document.createElement("li");
-    empty.textContent = "Nessuna condizione riconosciuta.";
+    empty.textContent = "No recognized conditions.";
     empty.className = "hint";
     list.append(empty);
   }
@@ -1042,27 +1042,27 @@ function appendScript(line) {
 const numList = (t, n) => { const p = t.split(",").map((x) => x.trim()); return p.length === n && p.every((x) => x !== "" && Number.isFinite(Number(x))) ? p.map(Number) : null; };
 async function assign(type) {
   const sel = currentSelection();
-  if (!sel) { show("Seleziona prima nodi, elementi o facce nel viewer.", "bad"); return; }
+  if (!sel) { show("Select nodes, elements or faces in the viewer first.", "bad"); return; }
   let line, kind = "node";
   if (type === "fix") {
     line = (g) => buildFixedSupportLine("group:" + g);
     if (!line("VALIDATION_ONLY")) return;
   } else if (type === "force") {
     const f = numList($("asForce").value, 3);
-    if (!f) { show("La forza richiede tre numeri Fx,Fy,Fz separati da virgole.", "bad"); return; }
+    if (!f) { show("The force requires three comma-separated numbers Fx,Fy,Fz.", "bad"); return; }
     line = (g) => "force group:" + g + " F=" + f.join(",");
   } else {
     const p = Number($("asPress").value);
-    if (!Number.isFinite(p) || $("asPress").value.trim() === "") { show("La pressione deve essere un numero.", "bad"); return; }
-    if (sel.mode !== "face") { show("La pressione agisce sulle facce: seleziona facce nel viewer.", "bad"); return; }
+    if (!Number.isFinite(p) || $("asPress").value.trim() === "") { show("The pressure must be a number.", "bad"); return; }
+    if (sel.mode !== "face") { show("Pressure acts on faces: select faces in the viewer.", "bad"); return; }
     kind = "face";
     line = (g) => "pressure group:" + g + " p=" + p;
   }
-  const prefix = { fix: "FIX", force: "FORZA", press: "PRESS" }[type];
+  const prefix = { fix: "FIX", force: "FORCE", press: "PRESS" }[type];
   const r = await makeGroup(kind, undefined, prefix);
   if (!r || !r.ok || !r.created) return;
   appendScript(line(r.created));
-  show(r.message + "\nRiga aggiunta allo script: " + line(r.created), "good");
+  show(r.message + "\nLine added to the script: " + line(r.created), "good");
 }
 function stepMode(delta) {
   const w = viewerApi(); if (!w) return;
@@ -1102,14 +1102,14 @@ function syncRibbon() {
     idle: !!M && !solverRunning, solver: solverRunning,
     pick: !!(M && M.canPick), sel: false, selface: false,
   };
-  let selText = "nessuna", pickMode = "off";
+  let selText = "none", pickMode = "off";
   if (M && M.canPick) {
     pickMode = S.pickMode;
     const n = pickMode === "off" ? 0 : S.sel[pickMode].size;
     has.sel = n > 0; has.selface = n > 0 && pickMode === "face";
-    selText = n ? n + " " + { node: "nodi", element: "elementi", face: "facce" }[pickMode] : "nessuna" + (pickMode === "off" ? " (selezione disattivata)" : "");
+    selText = n ? n + " " + { node: "nodes", element: "elements", face: "faces" }[pickMode] : "none" + (pickMode === "off" ? " (selection off)" : "");
   }
-  $("selInfo").textContent = "Selezione: " + selText + ".";
+  $("selInfo").textContent = "Selection: " + selText + ".";
   if (document.activeElement !== $("selMode")) $("selMode").value = pickMode;
   $("selMode").disabled = busy || !has.pick;
   const on = M ? {
@@ -1136,7 +1136,7 @@ function syncRibbon() {
   const sig = M ? M.fields.map((f) => f.name + (f.element ? "@e" : "")).join("|") : "";
   if (sig !== fieldSignature) {
     fieldSignature = sig;
-    $("rbField").innerHTML = M ? M.fields.map((f, i) => `<option value="${i}">${f.name.replace(/&/g, "&amp;").replace(/</g, "&lt;")}${f.element ? " [elemento]" : ""}</option>`).join("") : "";
+    $("rbField").innerHTML = M ? M.fields.map((f, i) => `<option value="${i}">${f.name.replace(/&/g, "&amp;").replace(/</g, "&lt;")}${f.element ? " [element]" : ""}</option>`).join("") : "";
   }
   if (M && M.fields.length && document.activeElement !== $("rbField")) $("rbField").value = String(S.fieldIndex);
   $("rbField").disabled = busy || !has.fields;
@@ -1148,7 +1148,7 @@ function syncRibbon() {
   $("btnRun").disabled = busy || !M || solverRunning;
   $("btnWrite").disabled = busy || !M || solverRunning;
   $("btnCancel").disabled = !solverRunning;
-  $("rbModeLabel").textContent = has.modes ? `modo ${S.modeIndex + 1} / ${M.modes.length}` : "nessun modo";
+  $("rbModeLabel").textContent = has.modes ? `mode ${S.modeIndex + 1} / ${M.modes.length}` : "no mode";
 }
 setInterval(syncRibbon, 700);
 (() => {
@@ -1161,9 +1161,9 @@ setInterval(syncRibbon, 700);
 (async () => {
   const d = await call("openmodel_defaults");
   if (d.ok) {
-    defaults = d; $("outBase").value = d.outBase; $("version").textContent = "v" + d.version + " · CAD → mesh FEM → visualizzazione";
+    defaults = d; $("outBase").value = d.outBase; $("version").textContent = "v" + d.version + " · CAD → FEM mesh → visualization";
     meshers = d.meshers;
-    $("mesher").innerHTML = meshers.map((m) => `<option value="${m.id}"${m.available ? "" : " disabled"}>${m.name}${m.available ? "" : " (non compilato)"}</option>`).join("");
+    $("mesher").innerHTML = meshers.map((m) => `<option value="${m.id}"${m.available ? "" : " disabled"}>${m.name}${m.available ? "" : " (not built)"}</option>`).join("");
     const first = meshers.find((m) => m.available);
     if (first) $("mesher").value = first.id; else { noMesher = true; $("btnMesh").disabled = true; }
     mesherChanged();

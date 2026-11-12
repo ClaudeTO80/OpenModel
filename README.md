@@ -23,7 +23,7 @@ where you can also pick nodes, elements and faces to build groups, supports and 
 | Solver | Analysis script → complete CalculiX input → `ccx` run in the background with live log and cancel → results loaded back into the viewer; the same script can also write and run a **code_aster** case ([`docs/CODE_ASTER.md`](docs/CODE_ASTER.md)) |
 | Fatigue *(library)* | `OpenModel::Fatigue`: stress history from FEM results, Rainflow counting, S–N and strain-life damage, Palmgren–Miner and Wang–Brown, mean-stress corrections, operating spectra, reports and damage maps for the viewer ([manual](docs/fatigue/index.html)). Not exposed by the CLI or the workbench yet |
 | Project manifest *(library)* | `OpenModelProject`: an `.omproj` document that indexes CAD, mesh, analysis and result files with relative paths, SHA-256 and size checks ([`docs/PROJECT_PERSISTENCE.md`](docs/PROJECT_PERSISTENCE.md)). Not used by the CLI or the workbench yet |
-| Interfaces | C++ library (`OpenModel::Core`), CLI (`openmodel`), desktop workbench (`openmodel-webui`, **Italian user interface**) |
+| Interfaces | C++ library (`OpenModel::Core`), CLI (`openmodel`), desktop workbench (`openmodel-webui`, **English user interface**) |
 
 ## Quick start
 
@@ -155,7 +155,7 @@ cmake -S . -B build-gui -DCMAKE_BUILD_TYPE=Release \
 cmake --build build-gui --target openmodel-webui
 ```
 
-It needs a Chromium-based browser at run time. The interface strings are currently in Italian.
+It needs a Chromium-based browser at run time.
 
 **Help > About** shows the program version, how OpenModel was built (configuration, compiler, C++ standard, system, `OPENMODEL_*` options) and the libraries linked into the program (WebUI, Assimp, Open CASCADE, Gmsh, TetGen, Netgen, as enabled). For each library it lists the version the library itself reports, where CMake found it and, when available, the options it was built with: the settings recorded by the Open CASCADE CMake package, the compile flags reported by Assimp and the build information of Gmsh (`General.BuildInfo`). Information a library does not expose (for example the version of TetGen or Netgen) is shown as "non disponibile". The **Copia** button puts the same report on the clipboard, ready to paste into a bug report.
 

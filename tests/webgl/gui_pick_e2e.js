@@ -76,13 +76,13 @@ function wrapper(name, env) {
   // 1. Mesh loaded: the selection controls come alive.
   check(await page.isDisabled('#selMode'), 'without a model the selection mode is disabled');
   await page.fill('#loadPath', path.resolve(dir, 'beam.inp'));
-  await click('Carica e visualizza');
-  check(/Mesh caricata/.test(await message()), 'beam.inp loads');
+  await click('Load and display');
+  check(/Mesh loaded/.test(await message()), 'beam.inp loads');
   await V('V.set({deform: {on: false}, wire: "none"})');
   check(await V('V.pick.available()'), 'the viewer offers picking for the loaded mesh');
   await page.waitForTimeout(900);
   check(await page.isEnabled('#selMode'), 'the selection mode becomes enabled');
-  check(/Nessun gruppo/.test(await page.textContent('#grpList')), 'the group list is empty');
+  check(/No groups/.test(await page.textContent('#grpList')), 'the group list is empty');
   check(await page.isDisabled('#btnAsFix') && await page.isDisabled('aside #btnGrpNode'), 'assign and group buttons need a selection');
 
   // 2. Face selection with the mouse and the angle option, through the page controls.
@@ -93,45 +93,45 @@ function wrapper(name, env) {
   const c0 = await centroid(face0.nodes);
   await page.mouse.click(c0[0], c0[1]);
   await page.waitForTimeout(900);
-  check(/80 facce/.test(await page.textContent('#selInfo')), 'one click + angle 1 selects the whole top face: "' + (await page.textContent('#selInfo')) + '"');
+  check(/80 faces/.test(await page.textContent('#selInfo')), 'one click + angle 1 selects the whole top face: "' + (await page.textContent('#selInfo')) + '"');
   check(await page.isEnabled('#btnAsPress') && await page.isEnabled('#btnAsFix'), 'assign buttons are enabled once faces are selected');
   await shot('pick_gui_selection.png');
 
   // 3. Pressure on the selected faces: group, script line.
   await page.fill('#asPress', '2.5');
-  await click('Pressione');
-  check(!(await isBad()) && /Gruppo «PRESS1»/.test(await message()), 'pressure creates the face group PRESS1: "' + (await message()).split('\n')[0] + '"');
+  await click('Pressure');
+  check(!(await isBad()) && /Group 'PRESS1'/.test(await message()), 'pressure creates the face group PRESS1: "' + (await message()).split('\n')[0] + '"');
   check(/pressure group:PRESS1 p=2.5/.test(await script()), 'the script gets "pressure group:PRESS1 p=2.5"');
-  check(/PRESS1.*80 facce/.test(await page.textContent('#grpList')), 'the group list shows PRESS1 with 80 faces');
+  check(/PRESS1.*80 faces/.test(await page.textContent('#grpList')), 'the group list shows PRESS1 with 80 faces');
 
   // 4. Support on the nodes of a face selection (named group), force on the end face by plain click.
-  await page.fill('#grpName', 'Appoggio');
+  await page.fill('#grpName', 'Support');
   await page.fill('#asDof', '1,2');
-  await click('Vincola');
-  check(!(await isBad()) && /Gruppo «Appoggio» creato: 63 nodi/.test(await message()), 'support: node group of the 63 nodes of the top face: "' + (await message()).split('\n')[0] + '"');
+  await click('Fix');
+  check(!(await isBad()) && /Group 'Support' created: 63 nodes/.test(await message()), 'support: node group of the 63 nodes of the top face: "' + (await message()).split('\n')[0] + '"');
   check(/fix group:Appoggio dof=1,2/.test(await script()), 'the script gets "fix group:Appoggio dof=1,2"');
   const endFaces = model.skin.filter((f) => f.nodes.every((id) => Math.abs(model.nodes.get(id)[0] - 10) < 1e-6));
   await page.fill('#selAngle', '1'); await page.dispatchEvent('#selAngle', 'change');
   const ec = await centroid(endFaces[0].nodes);
   await page.mouse.click(ec[0], ec[1]);
   await page.waitForTimeout(900);
-  check(/8 facce/.test(await page.textContent('#selInfo')), 'click on the end face with angle 1 selects its 8 triangles: "' + (await page.textContent('#selInfo')) + '"');
+  check(/8 faces/.test(await page.textContent('#selInfo')), 'click on the end face with angle 1 selects its 8 triangles: "' + (await page.textContent('#selInfo')) + '"');
   await page.fill('#asForce', '0,-80,0');
-  await click('Forza');
-  check(/force group:FORZA1 F=0,-80,0/.test(await script()) && /Gruppo «FORZA1» creato: 9 nodi/.test(await message()), 'force: 9-node group on the end face and its script line: "' + (await message()).split('\n')[0] + '" / ' + (await script()).split('\n').filter((l) => /force/.test(l)).join(' | '));
+  await click('Force');
+  check(/force group:FORCE1 F=0,-80,0/.test(await script()) && /Group 'FORCE1' created: 9 nodes/.test(await message()), 'force: 9-node group on the end face and its script line: "' + (await message()).split('\n')[0] + '" / ' + (await script()).split('\n').filter((l) => /force/.test(l)).join(' | '));
 
   // 5. Input validation in the page and in the group rules.
   await page.fill('#asForce', '0,abc,0');
-  await click('Forza');
+  await click('Force');
   check((await isBad()) && /tre numeri/.test(await message()), 'a malformed force is refused in the page');
   await page.fill('#asDof', '1,5');
-  await click('Vincola');
-  check((await isBad()) && /Gradi di libertà/.test(await message()), 'a bad dof list is refused');
-  await page.fill('#asDof', '1,2,3'); await page.fill('#grpName', 'Appoggio');
-  await click('Gruppo nodi');
-  check((await isBad()) && /già/.test(await message()) || /already exists/.test(await message()), 'a duplicate group name is refused: "' + (await message()).slice(0, 70) + '"');
+  await click('Fix');
+  check((await isBad()) && /degrees of freedom/.test(await message()), 'a bad dof list is refused');
+  await page.fill('#asDof', '1,2,3'); await page.fill('#grpName', 'Support');
+  await click('Node group');
+  check((await isBad()) && /already/.test(await message()) || /already exists/.test(await message()), 'a duplicate group name is refused: "' + (await message()).slice(0, 70) + '"');
   await page.fill('#grpName', 'bad name');
-  await click('Gruppo nodi');
+  await click('Node group');
   check((await isBad()) && /Invalid group name/.test(await message()), 'an invalid group name is refused');
   await page.fill('#grpName', '');
 
@@ -141,16 +141,16 @@ function wrapper(name, env) {
   const na = await nodeXY(nodeA);
   await page.mouse.click(na[0], na[1]);
   await page.waitForTimeout(900);
-  check(/1 nodi/.test(await page.textContent('#selInfo')), 'a node is selected by clicking it: "' + (await page.textContent('#selInfo')) + '"');
+  check(/1 nodes/.test(await page.textContent('#selInfo')), 'a node is selected by clicking it: "' + (await page.textContent('#selInfo')) + '"');
   check(await page.isDisabled('#btnAsPress'), 'with only nodes selected the pressure button is disabled');
   const groupsBefore = (await page.$$('#grpList li')).length;
   // Ribbon: tab Analisi, group creation from the ribbon button.
   await page.click('#ribbon .tab[data-tab="solve"]');
   const pickOn = await page.evaluate(() => document.querySelector('#ribbon [data-act="pick-node"]').getAttribute('aria-pressed'));
-  check(pickOn === 'true', 'the ribbon "Nodi" button shows the active mode');
+  check(pickOn === 'true', 'the ribbon "Nodes" button shows the active mode');
   await page.click('#ribbon .rb[data-act="grp-make"]');
   await waitIdle();
-  check(/Gruppo «NODI1» creato: 1 nodi/.test(await message()) && (await page.$$('#grpList li')).length === groupsBefore + 1, 'the ribbon creates the node group NODI1 with one node');
+  check(/Group 'NODES1' created: 1 nodes/.test(await message()) && (await page.$$('#grpList li')).length === groupsBefore + 1, 'the ribbon creates the node group NODES1 with one node');
 
   // 7. Show a group: the viewer selects its faces again.
   await page.selectOption('#selMode', 'off');
@@ -168,7 +168,7 @@ function wrapper(name, env) {
   await page.fill('#anJob', path.join(work, 'job'));
   await page.fill('#anSolver', wrapper('ccx_ok.sh', {}));
   await page.fill('#anScript', 'material E=210000 nu=0.3 rho=7.85e-9\n' + (await script()).split('\n').filter((l) => /^(fix|force|pressure) group:/.test(l)).join('\n') + '\nstep static\n');
-  await click('Scrivi input');
+  await click('Write input');
   const wm = await message();
   check(!(await isBad()) && /pressure on 80 faces/.test(wm) && /63 constrained nodes/.test(wm) && /force on 9 nodes/.test(wm), 'input written with 80 pressure faces, 63 supports, 9 loaded nodes: "' + wm.split('\n')[1] + '"');
   const inp = fs.readFileSync(path.join(work, 'job', 'job.inp'), 'utf8');
@@ -179,10 +179,10 @@ function wrapper(name, env) {
   check(/\*NSET, NSET=MG_FIX1/.test(inp) && !/TYPE=S3/.test(inp), 'the face elements created for the group are not written as structure');
 
   // 9. Run, results arrive, groups survive the reload of the view.
-  await click('Avvia solutore');
+  await click('Run solver');
   await page.waitForFunction(() => /terminato/.test(document.getElementById('solverLog').textContent), null, { timeout: 30000 });
   await waitIdle();
-  check(/Analisi completata/.test(await message()), 'the run completes with the groups from the picks');
+  check(/Analysis completed/.test(await message()), 'the run completes with the groups from the picks');
   check(/PRESS1/.test(await page.textContent('#grpList')) && /Appoggio/.test(await page.textContent('#grpList')), 'the groups are still listed after the results reload the view');
   check(await V('V.pick.available()') && (await page.inputValue('#selMode')) === 'off', 'the reloaded viewer starts with the selection off');
 

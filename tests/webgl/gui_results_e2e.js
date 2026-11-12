@@ -46,7 +46,7 @@ const file = (name) => path.resolve(dir, name);
   const loadResults = async (name, step) => {
     await page.fill('#resPath', name ? file(name) : '');
     await page.fill('#resStep', step === undefined ? '' : String(step));
-    await click('Carica risultati');
+    await click('Load results');
   };
 
   // 1. No mesh yet: the results are refused with an explanation.
@@ -55,8 +55,8 @@ const file = (name) => path.resolve(dir, name);
 
   // 2. Load the mesh the results belong to.
   await page.fill('#loadPath', file('beam.inp'));
-  await click('Carica e visualizza');
-  check(/Mesh caricata/.test(await message()), 'beam.inp loads');
+  await click('Load and display');
+  check(/Mesh loaded/.test(await message()), 'beam.inp loads');
   let v = await viewer();
   check(v && v.fields.length === 0 && !v.hasDisp && v.label === '', 'plain mesh: no fields, no deformation panel');
 
@@ -90,7 +90,7 @@ const file = (name) => path.resolve(dir, name);
   // 6. Export keeps the results in the MGWV file.
   await page.fill('#outBase', file('gui_out'));
   await loadResults('beam.frd');
-  await click('Esporta MGWV');
+  await click('Export MGWV');
   const mgwv = fs.readFileSync(file('gui_out.mgwv'));
   const jsonLength = mgwv.readUInt32LE(12), json = mgwv.subarray(24, 24 + jsonLength).toString('utf8');
   check(json.includes('"displacement":{"offset"') && json.includes('"results":{"label":"beam.frd') && json.includes('DISP magnitude'),
@@ -98,8 +98,8 @@ const file = (name) => path.resolve(dir, name);
 
   // 7. Status and removal.
   await click('Stato');
-  check(/Risultati: beam\.frd/.test(await message()), 'status reports the loaded results');
-  await click('Rimuovi');
+  check(/Results: beam\.frd/.test(await message()), 'status reports the loaded results');
+  await click('Remove');
   v = await viewer();
   check(v && v.fields.length === 0 && !v.hasDisp && v.defHidden && v.label === '', 'removing the results restores the plain view');
 
@@ -120,17 +120,17 @@ const file = (name) => path.resolve(dir, name);
   // 8c. Vibration modes: all modes are bound, frequencies are listed, the mode selector appears.
   await loadResults('beam_modal.frd');
   const mm = await message();
-  check(!(await isBad()) && /5 modi di vibrare/.test(mm) && /1 = 8355/.test(mm) && /5 = 4749/.test(mm), 'modal file loads with its frequencies: "' + mm.split('\n')[1] + '"');
+  check(!(await isBad()) && /5 vibration modes/.test(mm) && /1 = 8355/.test(mm) && /5 = 4749/.test(mm), 'modal file loads with its frequencies: "' + mm.split('\n')[1] + '"');
   const modal = await page.evaluate(async () => {
     const w = document.getElementById('viewer').contentWindow;
     for (let i = 0; i < 40 && !(w.OpenModelViewer && w.OpenModelViewer.state.model && w.OpenModelViewer.state.model.modes.length); i++) await new Promise((r) => setTimeout(r, 100));
     const S = w.OpenModelViewer.state, d = w.document;
     return { modes: S.model.modes.length, boxHidden: d.getElementById('modeBox').hidden, first: S.model.fields[0].name };
   });
-  check(modal.modes === 5 && !modal.boxHidden && modal.first === '|u| (modo)', 'the viewer shows the mode selector with 5 modes');
+  check(modal.modes === 5 && !modal.boxHidden && modal.first === '|u| (mode)', 'the viewer shows the mode selector with 5 modes');
   await shot('gui_modal.png');
   await page.fill('#outBase', file('gui_modal_out'));
-  await click('Esporta MGWV');
+  await click('Export MGWV');
   const modalImage = fs.readFileSync(file('gui_modal_out.mgwv'));
   const modalJson = modalImage.subarray(24, 24 + modalImage.readUInt32LE(12)).toString('utf8');
   check(modalJson.includes('"modes":[{"label":"mode 1: f = 8355.17"') && !modalJson.includes('"displacement":{"offset"'), 'exported MGWV carries the modes');
@@ -150,20 +150,20 @@ const file = (name) => path.resolve(dir, name);
   // 8e. CalculiX text output merged with the .frd of the same run (';' separates the files).
   await page.fill('#resPath', file('beam.frd') + '; ' + file('beam.dat'));
   await page.fill('#resStep', '');
-  await click('Carica risultati');
+  await click('Load results');
   const md = await message();
   check(!(await isBad()) && /beam\.frd \+ beam\.dat/.test(md) && /12 campi per elemento/.test(md) && /28 campi nodali/.test(md), 'frd + dat are merged: "' + md.split('\n').slice(1, 3).join(' / ') + '"');
   v = await viewer();
   check(v && v.fields.includes('DISP magnitude') && v.fields.includes('STRESS von Mises') && v.fields.includes('STRESS principal 1'), 'nodal and element fields from both files reach the viewer');
   await page.fill('#resPath', file('beam_modal.dat'));
-  await click('Carica risultati');
+  await click('Load results');
   check((await isBad()) && /eigenvalue table/.test(await message()), 'an eigenvalue-only .dat cannot be painted and is refused: "' + (await message()).slice(0, 90) + '"');
   v = await viewer();
   check(v && v.fields.includes('DISP magnitude'), 'the previous results stay after that refusal');
 
   // 9. Replacing the mesh drops the results (they belong to the old node numbering).
   await page.fill('#loadPath', file('beam.inp'));
-  await click('Carica e visualizza');
+  await click('Load and display');
   v = await viewer();
   check(v && v.fields.length === 0 && !v.hasDisp && v.label === '', 'loading another mesh clears the attached results');
 

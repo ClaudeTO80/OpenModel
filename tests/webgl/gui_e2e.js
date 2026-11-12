@@ -41,7 +41,7 @@ const check = (ok, text) => { console.log((ok ? 'PASS ' : 'FAIL ') + text); if (
 
   // 1. Import and triangulate.
   await page.fill('#cadPath', cadFixture);
-  await click('Importa e triangola');
+  await click('Import and triangulate');
   check(/importato/.test(await message()), 'CAD import reports success');
   const surf = await viewerInfo();
   check(surf && surf.tris > 0 && /Triangle3/.test(surf.types), 'viewer shows the CAD surface (' + (surf && surf.tris) + ' triangles)');
@@ -75,11 +75,11 @@ const check = (ok, text) => { console.log((ok ? 'PASS ' : 'FAIL ') + text); if (
   await page.fill('#cadGrpName', 'BladeRoot');
   await page.click('#btnCadGrpCreate');
   await waitIdle();
-  check(/Gruppo CAD/.test(await message()) && fs.existsSync(cadSidecar),
+  check(/CAD group/.test(await message()) && fs.existsSync(cadSidecar),
         'CAD face group is created and persisted beside the STEP file');
   await page.selectOption('#selMode', 'off');
   await page.fill('#cadPath', cadFixture);
-  await click('Importa e triangola');
+  await click('Import and triangulate');
   await page.waitForFunction(() => document.querySelector('#cadGrpList').textContent.includes('BladeRoot'), null, { timeout: 10000 });
   check(/Gruppi CAD utente: 1/.test(await message()) || (await page.textContent('#cadGrpList')).includes('BladeRoot'),
         'CAD face group is restored after reimporting the source STEP');
@@ -92,11 +92,11 @@ const check = (ok, text) => { console.log((ok ? 'PASS ' : 'FAIL ') + text); if (
   // 2. Gmsh volume mesh must change the viewer content to tetrahedra.
   await page.selectOption('#mesher', 'gmsh');
   await page.fill('#size', '0.8');
-  await click('Genera mesh volumetrica');
+  await click('Generate volume mesh');
   check(/Gmsh/.test(await message()) && /validata/.test(await message()), 'Gmsh generates and validates a volume mesh');
   const gm = await viewerInfo();
   check(gm && /Tetrahedron4/.test(gm.types) && gm.elements > 1000, 'viewer shows the Gmsh tetrahedra (' + (gm && gm.elements) + ' elements)');
-  check(/Node Set BladeRoot_NODES: [1-9][0-9]* nodi/.test(await message()),
+  check(/Node Set BladeRoot_NODES: [1-9][0-9]* nodes/.test(await message()),
         'Gmsh maps the CAD face group to a non-empty FEM node set');
   await page.click('#cadGrpList button[data-cad-fix]');
   check((await page.inputValue('#anScript')).includes('fix group:BladeRoot_NODES dof=1,2,3'),
@@ -106,7 +106,7 @@ const check = (ok, text) => { console.log((ok ? 'PASS ' : 'FAIL ') + text); if (
   // 3. Save / export in every format.
   const base = path.join(workDir, 'gui_out');
   await page.fill('#outBase', base);
-  for (const [label, ext] of [['Salva MGMB', '.mgmb'], ['Esporta INP', '.inp'], ['Esporta MGWV', '.mgwv'], ['Esporta GLB', '.glb']]) {
+  for (const [label, ext] of [['Save MGMB', '.mgmb'], ['Export INP', '.inp'], ['Export MGWV', '.mgwv'], ['Export GLB', '.glb']]) {
     await click(label);
     check(fs.existsSync(base + ext) && fs.statSync(base + ext).size > 100, label + ' writes ' + path.basename(base + ext));
   }
@@ -122,26 +122,26 @@ const check = (ok, text) => { console.log((ok ? 'PASS ' : 'FAIL ') + text); if (
   // 4. TetGen from the same CAD model.
   await page.selectOption('#mesher', 'tetgen');
   await page.fill('#size', '0.8');
-  await click('Genera mesh volumetrica');
+  await click('Generate volume mesh');
   check(/TetGen/.test(await message()) && /validata/.test(await message()), 'TetGen generates and validates a volume mesh: ' + (await message()).split('\n')[1]);
   const tg = await viewerInfo();
   check(tg && /Tetrahedron4/.test(tg.types), 'viewer shows the TetGen tetrahedra (' + (tg && tg.elements) + ' elements)');
 
   // 5. Reload the saved MGMB (loads a mesh without CAD) and compare counts with the Gmsh mesh.
   await page.fill('#loadPath', base + '.mgmb');
-  await click('Carica e visualizza');
+  await click('Load and display');
   check(/caricata/.test(await message()), 'saved MGMB reloads');
   const back = await viewerInfo();
   check(back && gm && back.elements === gm.elements, 'reloaded mesh has the same element count as the saved one (' + (back && back.elements) + ')');
   await page.fill('#loadPath', base + '.inp');
-  await click('Carica e visualizza');
+  await click('Load and display');
   const inp = await viewerInfo();
   check(inp && gm && inp.elements === gm.elements, 'exported INP reloads with the same element count (' + (inp && inp.elements) + ')');
   await shot('3_reloaded.png');
 
   // 6. Server-side file browser.
   await page.fill('#cadPath', stepFile);
-  await page.click('aside button:has-text("Sfoglia")');
+  await page.click('aside button:has-text("Browse")');
   await page.waitForSelector('#entries li');
   const names = await page.$$eval('#entries li', (l) => l.map((x) => x.textContent));
   check(names.includes(path.basename(stepFile)), 'file browser lists ' + path.basename(stepFile));
@@ -149,7 +149,7 @@ const check = (ok, text) => { console.log((ok ? 'PASS ' : 'FAIL ') + text); if (
 
   // 7. Errors are reported, not swallowed.
   await page.fill('#loadPath', path.join(workDir, 'missing.mgmb'));
-  await click('Carica e visualizza');
+  await click('Load and display');
   check(/non trovato/.test(await message()), 'missing file is reported');
 
   check(problems.length === 0, 'no page errors' + (problems.length ? ': ' + problems[0] : ''));

@@ -56,7 +56,7 @@ const check = (ok, text) => { console.log((ok ? 'PASS ' : 'FAIL ') + text); if (
 
   // 1. Structure: seven tabs, File selected, each panel has buttons.
   const tabs = await page.$$eval('#ribbon .tab', (t) => t.map((x) => x.textContent));
-  check(tabs.join(',') === 'File,Geometria,Mesh,Analisi,Risultati,Vista,Verifica', 'seven tabs: ' + tabs.join(', '));
+  check(tabs.join(',') === 'File,Geometry,Mesh,Analysis,Results,View,Check,Help', 'eight tabs: ' + tabs.join(', '));
   const panels = await page.$$eval('#ribbon .panel', (p) => p.map((x) => ({ name: x.dataset.panel, hidden: x.hidden, buttons: x.querySelectorAll('button').length })));
   check(panels.filter((p) => !p.hidden).length === 1 && panels.every((p) => p.buttons >= 1), 'exactly one panel visible, every panel has actions');
   const actions = await page.$$eval('#ribbon [data-act]', (b) => [...new Set(b.map((x) => x.dataset.act))]);
@@ -79,7 +79,7 @@ const check = (ok, text) => { console.log((ok ? 'PASS ' : 'FAIL ') + text); if (
   await press('mesh');
   await choose(dir, 'beam.inp');
   await waitIdle();
-  check(/Mesh caricata/.test(await message()), 'Apri mesh... opens the dialog and loads the picked file: "' + (await message()).split('\n')[0] + '"');
+  check(/Mesh loaded/.test(await message()), 'Apri mesh... opens the dialog and loads the picked file: "' + (await message()).split('\n')[0] + '"');
   check((await page.inputValue('#loadPath')).endsWith('beam.inp'), 'the picked path is shown in the side panel');
   await press('mesh');
   await page.waitForSelector('#modal:not([hidden])');
@@ -91,7 +91,7 @@ const check = (ok, text) => { console.log((ok ? 'PASS ' : 'FAIL ') + text); if (
   await press('res');
   await choose(dir, 'beam_modal.frd');
   await waitIdle();
-  check(/5 modi di vibrare/.test(await message()), 'Apri risultati... loads the modal file: "' + (await message()).split('\n')[1] + '"');
+  check(/5 vibration modes/.test(await message()), 'Apri risultati... loads the modal file: "' + (await message()).split('\n')[1] + '"');
   let v = await viewer();
   check(v.modes === 5 && v.fields > 0 && v.modeIndex === 0, 'viewer has 5 modes');
   check(!(await state('mode-next')).disabled && !(await state('deform')).disabled && !(await state('res-clear')).disabled, 'mode and deformation buttons are enabled');
@@ -119,7 +119,7 @@ const check = (ok, text) => { console.log((ok ? 'PASS ' : 'FAIL ') + text); if (
   await press('deform');
   check((await viewer()).defOn === true && (await state('deform')).on, 'Deformata toggles on');
   const options = await page.$$eval('#rbField option', (o) => o.map((x) => x.textContent));
-  check(options.length > 0 && options[0] === '|u| (modo)', 'ribbon field list follows the viewer: ' + options.slice(0, 2).join(', '));
+  check(options.length > 0 && options[0] === '|u| (mode)', 'ribbon field list follows the viewer: ' + options.slice(0, 2).join(', '));
 
   // 6. Field choice from the ribbon.
   await page.selectOption('#rbField', '0');
@@ -156,7 +156,7 @@ const check = (ok, text) => { console.log((ok ? 'PASS ' : 'FAIL ') + text); if (
   // 8. Verifica tab and results removal.
   await tab('check');
   await press('status'); await waitIdle();
-  check(/beam_modal\.frd/.test(await message()) || /Risultati/.test(await message()), 'Riepilogo reports the loaded results');
+  check(/beam_modal\.frd/.test(await message()) || /Results/.test(await message()), 'Riepilogo reports the loaded results');
   await press('validate'); await waitIdle();
   check(!(await isBad()), 'Valida mesh runs: "' + (await message()).split('\n')[0] + '"');
   await tab('res');

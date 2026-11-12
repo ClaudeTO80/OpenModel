@@ -1028,10 +1028,10 @@ if(OPENMODEL_BUILD_WEBUI)
         set(${out} "${_location}" PARENT_SCOPE)
     endfunction()
 
-    openmodel_linked_library("OpenModel Core" "Nucleo: mesh, formati di file, risultati e solutori" "${PROJECT_VERSION}"
-        "collegata staticamente")
+    openmodel_linked_library("OpenModel Core" "Core: meshes, file formats, results and solvers" "${PROJECT_VERSION}"
+        "statically linked")
 
-    openmodel_linked_library("WebUI" "Finestra desktop e collegamento con la pagina" ""
+    openmodel_linked_library("WebUI" "Desktop window and bridge to the page" ""
         "${OPENMODEL_WEBUI_LIBRARY}" "header: ${OPENMODEL_WEBUI_INCLUDE_DIR}/webui.h")
 
     if(OPENMODEL_BUILD_ASSIMP_BACKEND)
@@ -1042,12 +1042,12 @@ if(OPENMODEL_BUILD_WEBUI)
             endif()
         endforeach()
         if(OPENMODEL_ASSIMP_HAS_PBR_TEXTURE_API)
-            set(_assimp_pbr "sì")
+            set(_assimp_pbr "yes")
         else()
             set(_assimp_pbr "no")
         endif()
-        openmodel_linked_library("Assimp" "Importazione di formati 3D generici (OBJ, STL, glTF, ...)" "${_assimp_version}"
-            "${assimp_DIR}" "API texture PBR: ${_assimp_pbr}")
+        openmodel_linked_library("Assimp" "Import of generic 3D formats (OBJ, STL, glTF, ...)" "${_assimp_version}"
+            "${assimp_DIR}" "PBR texture API: ${_assimp_pbr}")
     endif()
 
     if(OPENMODEL_BUILD_OCC_BACKEND)
@@ -1060,11 +1060,11 @@ if(OPENMODEL_BUILD_WEBUI)
             endif()
         endforeach()
         if(_openmodel_occ_legacy_exchange)
-            list(APPEND _occ_options "toolkit STEP/IGES: separati (TKSTEP, TKIGES, ...)")
+            list(APPEND _occ_options "STEP/IGES toolkits: separate (TKSTEP, TKIGES, ...)")
         else()
-            list(APPEND _occ_options "toolkit STEP/IGES: unificati (TKDESTEP, TKDEIGES)")
+            list(APPEND _occ_options "STEP/IGES toolkits: merged (TKDESTEP, TKDEIGES)")
         endif()
-        openmodel_linked_library("Open CASCADE" "Importazione CAD (STEP, IGES, BREP) e tassellazione" "${OpenCASCADE_VERSION}"
+        openmodel_linked_library("Open CASCADE" "CAD import (STEP, IGES, BREP) and tessellation" "${OpenCASCADE_VERSION}"
             "${OpenCASCADE_DIR}" ${_occ_options})
     endif()
 
@@ -1080,11 +1080,11 @@ if(OPENMODEL_BUILD_WEBUI)
         if(GMSH_INCLUDE_DIR)
             list(APPEND _gmsh_options "header: ${GMSH_INCLUDE_DIR}/gmsh.h")
         endif()
-        openmodel_linked_library("Gmsh" "Meshatura di superfici e volumi" "${_gmsh_version}" "${_gmsh_location}" ${_gmsh_options})
+        openmodel_linked_library("Gmsh" "Surface and volume meshing" "${_gmsh_version}" "${_gmsh_location}" ${_gmsh_options})
     endif()
 
     if(OPENMODEL_BUILD_TETGEN_BACKEND)
-        openmodel_linked_library("TetGen" "Meshatura volumetrica a tetraedri" ""
+        openmodel_linked_library("TetGen" "Tetrahedral volume meshing" ""
             "${TETGEN_LIBRARY}" "header: ${TETGEN_INCLUDE_DIR}/tetgen.h")
     endif()
 
@@ -1094,12 +1094,12 @@ if(OPENMODEL_BUILD_WEBUI)
             openmodel_target_location(_netgen_location "${_openmodel_netgen_target}")
         endif()
         if(OPENMODEL_NETGEN_HAS_OCC)
-            set(_netgen_occ "sì")
+            set(_netgen_occ "yes")
         else()
             set(_netgen_occ "no")
         endif()
-        openmodel_linked_library("Netgen (nglib)" "Meshatura volumetrica di modelli CAD" ""
-            "${_netgen_location}" "geometria Open CASCADE (OCCGEOMETRY): ${_netgen_occ}")
+        openmodel_linked_library("Netgen (nglib)" "Volume meshing of CAD models" ""
+            "${_netgen_location}" "Open CASCADE geometry (OCCGEOMETRY): ${_netgen_occ}")
     endif()
 
     # Rewritten only when the content changes, so that re-configuring does not recompile the GUI for nothing.

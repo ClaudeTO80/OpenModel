@@ -61,9 +61,9 @@ function countPixels(png, pred) {
 
   // 1. Import: the structure stored in the file is reported and drives the viewer.
   await page.fill('#cadPath', stepFile);
-  await click('Importa e triangola');
+  await click('Import and triangulate');
   const msg = await message();
-  check(/Struttura CAD: 5 nodi di assieme \(4 componenti\), 2 gruppi di facce/.test(msg), 'import reports the CAD structure: ' + (msg.split('\n').find((l) => l.startsWith('Struttura')) || msg));
+  check(/CAD structure: 5 assembly nodes \(4 components\), 2 face groups/.test(msg), 'import reports the CAD structure: ' + (msg.split('\n').find((l) => l.startsWith('CAD structure')) || msg));
   await page.waitForFunction(() => document.querySelector('#nativeCadGrpList')?.textContent.includes('TopFace'), null, { timeout: 10000 });
   const nativeGroups = await page.textContent('#nativeCadGrpList');
   check(/TopFace/.test(nativeGroups) && /Facce/.test(nativeGroups), 'Workbench lists native CAD named groups with topological dimension: ' + nativeGroups);
@@ -84,7 +84,7 @@ function countPixels(png, pred) {
   await page.selectOption('#mesher', 'gmsh');
   await page.selectOption('#iface', 'conformal');
   await page.fill('#size', '2');
-  await click('Genera mesh volumetrica');
+  await click('Generate volume mesh');
   const gmsg = await message();
   check(/validata/.test(gmsg) && /conformi/.test(gmsg), 'Gmsh conformal mesh generated');
   check(/CAD groups created: 4 components, 0 solid groups, 2 face groups/.test(gmsg), 'CAD groups transferred: ' + (gmsg.split('\n').find((l) => l.startsWith('CAD groups')) || ''));
@@ -115,26 +115,26 @@ function countPixels(png, pred) {
 
   // 3. Independent mode must say so; the groups stay.
   await page.selectOption('#iface', 'independent');
-  await click('Genera mesh volumetrica');
+  await click('Generate volume mesh');
   const imsg = await message();
   check(/indipendenti/.test(imsg) && !/fragmented/.test(imsg) && /4 components/.test(imsg), 'independent mode reported, no fragmentation');
 
   // 4. MGMB keeps the groups (names, hierarchy); colours are not stored there.
   const base = path.join(workDir, 'asm_out');
   await page.fill('#outBase', base);
-  await click('Salva MGMB');
+  await click('Save MGMB');
   await page.fill('#loadPath', base + '.mgmb');
-  await click('Carica e visualizza');
+  await click('Load and display');
   await page.waitForTimeout(800);
   const reloaded = await leaves();
   check(reloaded.length === 4 && reloaded.includes('Assy/Base'), 'groups survive MGMB save/load: ' + reloaded.join(', '));
 
   // 5. TetGen is honest about what it cannot do. Needs the CAD model: re-import.
   await page.fill('#cadPath', stepFile);
-  await click('Importa e triangola');
+  await click('Import and triangulate');
   await page.selectOption('#mesher', 'tetgen');
   await page.fill('#size', '2');
-  await click('Genera mesh volumetrica');
+  await click('Generate volume mesh');
   const tmsg = await message();
   check(/TetGen/.test(tmsg) && /does not transfer CAD components/.test(tmsg), 'TetGen reports that it does not transfer CAD groups');
 
@@ -143,10 +143,10 @@ function countPixels(png, pred) {
   await page.waitForFunction(() => document.querySelectorAll('#analysisConditions > li button').length === 8);
   check(await page.locator('#analysisConditions > li').count() === 4, 'analysis condition list recognises material, support, load and step');
   page.once('dialog', (dialog) => dialog.accept('fix group:CLAMP dof=1,2 value=0.1,0,0'));
-  await page.locator('#analysisConditions > li').nth(1).getByRole('button', {name:'Modifica'}).click();
+  await page.locator('#analysisConditions > li').nth(1).getByRole('button', {name:'Edit'}).click();
   check((await page.inputValue('#anScript')).includes('fix group:CLAMP dof=1,2 value=0.1,0,0'), 'editing a condition updates its script line');
   page.once('dialog', (dialog) => dialog.accept());
-  await page.locator('#analysisConditions > li').nth(2).getByRole('button', {name:'Rimuovi'}).click();
+  await page.locator('#analysisConditions > li').nth(2).getByRole('button', {name:'Remove'}).click();
   check(await page.locator('#analysisConditions > li').count() === 3 && !(await page.inputValue('#anScript')).includes('force group:LOAD'), 'removing a condition leaves unrelated conditions intact');
 
   check(problems.length === 0, 'no page errors' + (problems.length ? ': ' + problems[0] : ''));

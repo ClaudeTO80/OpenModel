@@ -96,7 +96,7 @@ The library follows the project's C++17 baseline; failures are reported through 
 
 ## GUI
 
-Section **5 · Risultati FEM** of `openmodel-webui`: choose the file, optionally a step number (empty = last), *Carica risultati*. The results are attached to the mesh currently shown; if they do not belong to it nothing changes and the reason is shown. Loading, generating or importing another mesh drops the results (they refer to the old node numbering). *Esporta MGWV* keeps the results in the exported file.
+Section **5 · FEM results** of `openmodel-webui`: choose the file, optionally a step number (empty = last), *Load results*. The results are attached to the mesh currently shown; if they do not belong to it nothing changes and the reason is shown. Loading, generating or importing another mesh drops the results (they refer to the old node numbering). *Export MGWV* keeps the results in the exported file.
 
 ## Viewer
 
