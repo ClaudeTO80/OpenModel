@@ -110,41 +110,286 @@ bool analysePrism(int solid, PrismSweep& sweep, std::string& why) {
     return found;
 }
 
+/** One four-sided face of a hexahedral block and the pairs of its opposite curves. */
+struct BlockFace {
+    int face = 0;
+    /** {curve, opposite curve, parity}: parity is +1 when both curves run the same way, -1 when they run opposite ways. */
+    std::vector<std::array<int, 3>> opposites;
+    std::vector<int> curves;
+};
+
+/** A solid with the topology of a hexahedron: six four-sided faces and eight corners. */
+struct HexahedralBlock {
+    int solid = 0;
+    std::vector<BlockFace> faces;
+};
+
 /**
- * @brief Replace every solid by the layered sweep of one of its end faces, when all of them are straight prisms.
- * @param layerSize Target layer thickness; each solid gets ceil(height / layerSize) layers.
- * @param recombine Recombine the end-face mesh into quadrilaterals (hexahedra) instead of leaving triangles (prisms).
- * @param reason Why the model could not be swept; the model is untouched in that case.
- * @return the number of solids swept, 0 on refusal.
+ * @brief Decide whether a solid is topologically a hexahedron, which Gmsh can mesh with transfinite constraints.
+ *
+ * The test is purely topological (faces, boundary curves and their end points), so curved blocks qualify too.
+ * @param why Set when the solid is not a block.
  */
-std::size_t sweepPrismaticSolids(double layerSize, bool recombine, std::string& reason) {
+bool analyseBlock(int solid, HexahedralBlock& block, std::string& why) {
+    block = HexahedralBlock{};
+    block.solid = solid;
+    std::vector<std::pair<int, int>> boundary;
+    gmsh::model::getBoundary({{3, solid}}, boundary, false, false, false);
+    std::set<int> faceTags;
+    for (const auto& face : boundary) faceTags.insert(std::abs(face.second));
+    if (boundary.size() != 6 || faceTags.size() != 6) {
+        why = std::to_string(faceTags.size()) + " faces instead of 6";
+        return false;
+    }
+    std::set<int> corners;
+    for (const int face : faceTags) {
+        std::vector<std::pair<int, int>> curveBoundary;
+        gmsh::model::getBoundary({{2, face}}, curveBoundary, false, false, false);
+        std::vector<int> curves;
+        for (const auto& curve : curveBoundary) curves.push_back(std::abs(curve.second));
+        const std::set<int> distinct(curves.begin(), curves.end());
+        if (curves.size() != 4 || distinct.size() != 4) {
+            why = "face " + std::to_string(face) + " has " + std::to_string(curves.size()) + " boundary curves instead of 4";
+            return false;
+        }
+        std::map<int, std::array<int, 2>> ends;      // curve -> {start corner, end corner}
+        std::map<int, int> cornerUses;
+        for (const int curve : curves) {
+            std::vector<std::pair<int, int>> points;
+            gmsh::model::getBoundary({{1, curve}}, points, false, true, false);
+            if (points.size() != 2 || std::abs(points[0].second) == std::abs(points[1].second)) {
+                why = "curve " + std::to_string(curve) + " is closed or degenerate";
+                return false;
+            }
+            ends[curve] = {std::abs(points[0].second), std::abs(points[1].second)};
+            ++cornerUses[ends[curve][0]];
+            ++cornerUses[ends[curve][1]];
+        }
+        bool loop = cornerUses.size() == 4;
+        for (const auto& use : cornerUses) loop = loop && use.second == 2;
+        if (!loop) {
+            why = "face " + std::to_string(face) + " is not bounded by one loop of four curves";
+            return false;
+        }
+        for (const auto& use : cornerUses) corners.insert(use.first);
+        const auto touches = [&](int a, int b) {
+            return ends[a][0] == ends[b][0] || ends[a][0] == ends[b][1] || ends[a][1] == ends[b][0] || ends[a][1] == ends[b][1];
+        };
+        BlockFace blockFace;
+        blockFace.face = face;
+        blockFace.curves = curves;
+        for (std::size_t i = 0; i < 4; ++i) {
+            for (std::size_t j = i + 1; j < 4; ++j) {
+                const int a = curves[i], c = curves[j];
+                if (touches(a, c)) continue;
+                // a and c are opposite sides; a side b that joins them tells whether they run the same way.
+                int parity = 0;
+                for (const int b : curves) {
+                    if (b == a || b == c) continue;
+                    const int onA = (ends[b][0] == ends[a][0] || ends[b][0] == ends[a][1]) ? ends[b][0] : ends[b][1];
+                    const int onC = onA == ends[b][0] ? ends[b][1] : ends[b][0];
+                    parity = ((onA == ends[a][0]) == (onC == ends[c][0])) ? 1 : -1;
+                    break;
+                }
+                blockFace.opposites.push_back({a, c, parity});
+            }
+        }
+        if (blockFace.opposites.size() != 2) {
+            why = "face " + std::to_string(face) + " is not four-sided";
+            return false;
+        }
+        block.faces.push_back(blockFace);
+    }
+    if (corners.size() != 8) {
+        why = std::to_string(corners.size()) + " corners instead of 8";
+        return false;
+    }
+    return true;
+}
+
+/**
+ * @brief Groups of curves that must carry the same number of nodes, with their relative direction.
+ *
+ * Opposite sides of a transfinite face must have the same node count and, for a graded distribution, the same
+ * grading in the same physical direction. A weighted union-find keeps both: the parity of a curve is +1 when it
+ * runs the way the root of its group does and -1 when it runs the other way.
+ */
+class CurveGroups {
+public:
+    /** @return the root of the group of @p curve; @p parity receives the direction of @p curve relative to it. */
+    int find(int curve, int& parity) {
+        if (!m_parent.count(curve)) { m_parent[curve] = curve; m_parity[curve] = 1; }
+        int root = curve;
+        parity = 1;
+        while (m_parent[root] != root) { parity *= m_parity[root]; root = m_parent[root]; }
+        return root;
+    }
+    /** @return false when the new relation contradicts one already known. */
+    bool unite(int a, int c, int relation) {
+        int pa = 1, pc = 1;
+        const int ra = find(a, pa), rc = find(c, pc);
+        if (ra == rc) return pa * pc == relation;
+        m_parent[rc] = ra;
+        m_parity[rc] = pa * relation * pc;
+        return true;
+    }
+private:
+    std::map<int, int> m_parent;
+    std::map<int, int> m_parity;
+};
+
+/** How the solids of a structured model are meshed. */
+struct StructuredResult {
+    std::size_t blocks = 0;  ///< Solids meshed with transfinite constraints.
+    std::size_t swept = 0;   ///< Solids meshed by sweeping an end face.
+};
+
+const char* curveTypeName(TransfiniteCurveType type) {
+    switch (type) {
+        case TransfiniteCurveType::Bump: return "Bump";
+        case TransfiniteCurveType::Beta: return "Beta";
+        case TransfiniteCurveType::Progression: break;
+    }
+    return "Progression";
+}
+
+const char* arrangementName(TransfiniteArrangement arrangement) {
+    switch (arrangement) {
+        case TransfiniteArrangement::Right: return "Right";
+        case TransfiniteArrangement::AlternateLeft: return "AlternateLeft";
+        case TransfiniteArrangement::AlternateRight: return "AlternateRight";
+        case TransfiniteArrangement::Left: break;
+    }
+    return "Left";
+}
+
+/** @return an error message when a structured-mesh setting is out of range, empty otherwise. */
+std::string validateStructuredOptions(const StructuredGmshOptions& s) {
+    if (!std::isfinite(s.curveCoefficient) || s.curveCoefficient <= 0.0)
+        return "the transfinite curve coefficient must be positive";
+    if (!std::isfinite(s.recombineAngle) || s.recombineAngle <= 0.0 || s.recombineAngle > 180.0)
+        return "the recombination angle must be in (0, 180] degrees";
+    if (s.recombineOptimizeTopology < 0)
+        return "the number of recombination topology optimisation passes must not be negative";
+    if (!std::isfinite(s.recombineMinimumQuality) || s.recombineMinimumQuality < 0.0 || s.recombineMinimumQuality > 1.0)
+        return "the minimum recombination quality must be in [0, 1]";
+    const int algorithm = static_cast<int>(s.recombinationAlgorithm);
+    if (algorithm < -1 || algorithm > 3) return "unknown recombination algorithm";
+    return {};
+}
+
+/**
+ * @brief Turn the model into a structured one with the structured-meshing tools of Gmsh.
+ *
+ * Every solid is either a hexahedral block, meshed with transfinite curves, surfaces and volume (a regular grid of
+ * hexahedra or of tetrahedra), or a straight prism, meshed by sweeping one end face in layers. The solids are all
+ * classified before anything is changed, so the model is untouched when one of them is neither.
+ * @param size Target element size: the number of nodes of a curve and of layers is the smallest that keeps the
+ *        elements no longer than this.
+ * @param conformalAssembly True when the solids were fragmented to share their faces: swept solids would then
+ *        lose their shared faces, so they are refused.
+ * @param reason Why the model could not be made structured.
+ * @return how many solids of each kind were prepared; both zero on refusal.
+ */
+StructuredResult buildStructuredModel(const MeshingOptions& options, double size, bool conformalAssembly, std::string& reason) {
+    const StructuredElementShape shape = options.structuredShape;
+    const StructuredGmshOptions& settings = options.structuredGmsh;
     std::vector<std::pair<int, int>> solids;
     gmsh::model::getEntities(solids, 3);
-    if (solids.empty()) { reason = "the CAD model has no solid"; return 0; }
+    if (solids.empty()) { reason = "the CAD model has no solid"; return {}; }
+
+    std::vector<HexahedralBlock> blocks;
     std::vector<PrismSweep> sweeps;
     for (const auto& solid : solids) {
-        PrismSweep sweep;
-        std::string why;
-        if (!analysePrism(solid.second, sweep, why)) {
-            reason = "solid " + std::to_string(solid.second) + " is not a straight prism (" + why + ")";
-            return 0;
+        std::string blockWhy = "not tried for prisms";
+        HexahedralBlock block;
+        if (shape != StructuredElementShape::Prism && analyseBlock(solid.second, block, blockWhy)) {
+            blocks.push_back(block);
+            continue;
         }
-        sweeps.push_back(sweep);
+        PrismSweep sweep;
+        std::string prismWhy;
+        if (analysePrism(solid.second, sweep, prismWhy)) {
+            sweeps.push_back(sweep);
+            continue;
+        }
+        reason = "solid " + std::to_string(solid.second) + " is " +
+                 (shape == StructuredElementShape::Prism
+                      ? "not a straight prism (" + prismWhy + ")"
+                      : "neither a hexahedral block (" + blockWhy + ") nor a straight prism (" + prismWhy + ")");
+        return {};
     }
+    if (conformalAssembly && !sweeps.empty()) {
+        reason = "conformal interfaces between several solids cannot be combined with the sweep of a solid; "
+                 "only hexahedral blocks can share faces";
+        return {};
+    }
+
+    // Node counts: the curves of a group get as many nodes as the longest of them needs.
+    CurveGroups groups;
+    std::set<int> blockCurves, blockFaces;
+    for (const auto& block : blocks) {
+        for (const auto& face : block.faces) {
+            blockFaces.insert(face.face);
+            for (const int curve : face.curves) blockCurves.insert(curve);
+            for (const auto& pair : face.opposites) {
+                if (!groups.unite(pair[0], pair[1], pair[2])) {
+                    reason = "the curves of solid " + std::to_string(block.solid) + " have inconsistent directions";
+                    return {};
+                }
+            }
+        }
+    }
+    std::map<int, int> nodesOfGroup;
+    for (const int curve : blockCurves) {
+        double length = 0.0;
+        gmsh::model::occ::getMass(1, curve, length);
+        int parity = 1;
+        const int root = groups.find(curve, parity);
+        const int divisions = std::max(1, static_cast<int>(std::ceil(length / size - 1e-9)));
+        nodesOfGroup[root] = std::max(nodesOfGroup[root], divisions + 1);
+    }
+
+    const bool recombine = shape == StructuredElementShape::Hexahedron || shape == StructuredElementShape::Mixed;
+    for (const int curve : blockCurves) {
+        int parity = 1;
+        const int root = groups.find(curve, parity);
+        double coefficient = settings.curveCoefficient;
+        // A progression is directional: the opposite side that runs the other way needs the reciprocal ratio.
+        if (settings.curveType == TransfiniteCurveType::Progression && parity < 0) coefficient = 1.0 / coefficient;
+        gmsh::model::mesh::setTransfiniteCurve(curve, nodesOfGroup[root], curveTypeName(settings.curveType), coefficient);
+    }
+    for (const int face : blockFaces) {
+        gmsh::model::mesh::setTransfiniteSurface(face, arrangementName(settings.arrangement));
+        if (recombine) gmsh::model::mesh::setRecombine(2, face, settings.recombineAngle);
+    }
+    for (const auto& block : blocks) gmsh::model::mesh::setTransfiniteVolume(block.solid);
+
     for (const auto& sweep : sweeps) {
         std::vector<std::pair<int, int>> copied;
         gmsh::model::occ::copy({{2, sweep.baseFace}}, copied);
         gmsh::model::occ::remove({{3, sweep.solid}}, true);
         gmsh::model::occ::synchronize();
-        const int layers = std::max(1, static_cast<int>(std::ceil(sweep.length / layerSize - 1e-9)));
+        const int layers = std::max(1, static_cast<int>(std::ceil(sweep.length / size - 1e-9)));
         std::vector<std::pair<int, int>> extruded;
-        // The layers are always "recombined": for a triangular base this is what makes them prisms.
+        // Recombined layers turn a triangular base into prisms; unrecombined ones split it into tetrahedra.
         gmsh::model::occ::extrude(copied, sweep.direction[0] * sweep.length, sweep.direction[1] * sweep.length,
-                                  sweep.direction[2] * sweep.length, extruded, {layers}, {1.0}, true);
+                                  sweep.direction[2] * sweep.length, extruded, {layers}, {1.0},
+                                  shape != StructuredElementShape::Tetrahedron);
         gmsh::model::occ::synchronize();
-        if (recombine) gmsh::model::mesh::setRecombine(2, copied.front().second);
+        if (recombine) gmsh::model::mesh::setRecombine(2, copied.front().second, settings.recombineAngle);
     }
-    return sweeps.size();
+
+    if (recombine) {
+        int algorithm = static_cast<int>(settings.recombinationAlgorithm);
+        if (settings.recombinationAlgorithm == RecombinationAlgorithm::Automatic)
+            algorithm = shape == StructuredElementShape::Hexahedron ? 3 : 1;
+        gmsh::option::setNumber("Mesh.RecombinationAlgorithm", algorithm);
+        gmsh::option::setNumber("Mesh.RecombineOptimizeTopology", settings.recombineOptimizeTopology);
+        gmsh::option::setNumber("Mesh.RecombineNodeRepositioning", settings.recombineNodeRepositioning ? 1.0 : 0.0);
+        gmsh::option::setNumber("Mesh.RecombineMinimumQuality", settings.recombineMinimumQuality);
+    }
+    return {blocks.size(), sweeps.size()};
 }
 
 /**
@@ -301,23 +546,29 @@ bool GmshMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Mesh
                                             std::to_string(after.size()) + " volumes.");
                 }
             }
-            // Structured volume mesh: sweep the end face of every straight prismatic solid.
+            // Structured volume mesh: transfinite blocks and swept straight prisms.
             bool structuredApplied = false;
             if (options.structure == MeshStructure::Structured) {
                 std::string reason;
                 std::vector<std::pair<int, int>> currentSolids;
                 gmsh::model::getEntities(currentSolids, 3);
+                const std::string invalid = validateStructuredOptions(options.structuredGmsh);
+                if (!invalid.empty()) return fail("Invalid structured mesh setting: " + invalid + ".");
                 if (meshDimension != 3) {
                     m_diagnostics.push_back("A structured mesh applies to volume meshes only; ignored for a surface mesh.");
-                } else if (options.interfaceMode == InterfaceMode::Conformal && currentSolids.size() > 1) {
-                    reason = "conformal interfaces between several solids cannot be combined with the sweep of each solid";
                 } else {
-                    const bool hexahedra = options.structuredShape == StructuredElementShape::Hexahedron;
-                    const std::size_t swept = sweepPrismaticSolids(baseSize, hexahedra, reason);
-                    structuredApplied = swept > 0;
-                    if (structuredApplied)
-                        m_diagnostics.push_back("Structured mesh: " + std::to_string(swept) + " solid(s) swept in layers of about " +
-                                                std::to_string(baseSize) + " (" + (hexahedra ? "hexahedra" : "prisms") + ").");
+                    const bool conformalAssembly = options.interfaceMode == InterfaceMode::Conformal && currentSolids.size() > 1;
+                    const StructuredResult built = buildStructuredModel(options, baseSize, conformalAssembly, reason);
+                    structuredApplied = built.blocks + built.swept > 0;
+                    if (structuredApplied) {
+                        const char* family = options.structuredShape == StructuredElementShape::Hexahedron ? "hexahedra"
+                                           : options.structuredShape == StructuredElementShape::Prism ? "prisms"
+                                           : options.structuredShape == StructuredElementShape::Tetrahedron ? "tetrahedra"
+                                           : "hexahedra and prisms";
+                        m_diagnostics.push_back("Structured mesh: " + std::to_string(built.blocks) + " hexahedral block(s) with transfinite constraints, " +
+                                                std::to_string(built.swept) + " solid(s) swept in layers, elements of about " +
+                                                std::to_string(baseSize) + " (" + family + ").");
+                    }
                 }
                 if (!structuredApplied && meshDimension == 3) {
                     if (!options.structuredFallback)
@@ -499,15 +750,16 @@ bool GmshMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Mesh
             // depend on importCadGroups, which only governs the groups stored
             // in the CAD source (components, layers, named shapes).
             if (structuredApplied) {
-                std::size_t hexahedra = 0, prisms = 0, others = 0;
+                std::size_t hexahedra = 0, prisms = 0, tetrahedra = 0, others = 0;
                 for (const auto& block : candidate.getElementBlocks()) {
                     if (elementDimension(block.type) != 3) continue;
                     if (block.type == ElementType::Hexahedron8 || block.type == ElementType::Hexahedron20) hexahedra += block.size();
                     else if (block.type == ElementType::Prism6 || block.type == ElementType::Prism15) prisms += block.size();
+                    else if (block.type == ElementType::Tetrahedron4 || block.type == ElementType::Tetrahedron10) tetrahedra += block.size();
                     else others += block.size();
                 }
                 m_diagnostics.push_back("Structured mesh result: " + std::to_string(hexahedra) + " hexahedra, " +
-                                        std::to_string(prisms) + " prisms" +
+                                        std::to_string(prisms) + " prisms, " + std::to_string(tetrahedra) + " tetrahedra" +
                                         (others ? ", " + std::to_string(others) + " other volume elements" : std::string()) + ".");
             }
             trace("Mesh extracted: " + std::to_string(candidate.getNumNodes()) + " nodes, " +

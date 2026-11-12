@@ -20,19 +20,80 @@ enum class MeshStructure {
     /** Tetrahedral mesh of any geometry (the default). */
     Unstructured,
     /**
-     * Hexahedral or prismatic mesh obtained by sweeping the mesh of one end face through the solid in
-     * layers. Possible only for straight prismatic solids (two congruent parallel planar end faces joined by
-     * walls parallel to the sweep direction, e.g. beams and bars); see MeshingOptions::structuredFallback.
+     * Structured mesh built with the structured-meshing tools of Gmsh. Every solid must be one of:
+     *  - a hexahedral block (six four-sided faces, eight corners), meshed with transfinite curves, surfaces
+     *    and volume: a regular grid of hexahedra or of tetrahedra;
+     *  - a straight prism (two congruent parallel planar end faces joined by walls parallel to the sweep
+     *    direction, e.g. beams, bars, cylinders), meshed by sweeping the mesh of one end face in layers.
+     * Anything else cannot be meshed in a structured way; see MeshingOptions::structuredFallback.
      */
     Structured
 };
 
 /** @brief Element family of a structured volume mesh. */
 enum class StructuredElementShape {
-    /** Quadrilateral end-face mesh swept into hexahedra; triangles left by the recombination become prisms. */
+    /**
+     * Only hexahedra: transfinite blocks recombined into hexahedra, and swept end faces recombined with a
+     * full-quad algorithm so that no triangle (hence no prism) is left.
+     */
     Hexahedron,
-    /** Triangular end-face mesh swept into prisms (wedges). */
-    Prism
+    /** Triangular end-face mesh swept into prisms (wedges); a hexahedral block is meshed as a straight prism. */
+    Prism,
+    /** Transfinite blocks meshed with a regular grid of tetrahedra; swept solids are layered into tetrahedra. */
+    Tetrahedron,
+    /**
+     * Hexahedra where the solid allows it; a swept end face is recombined with the standard algorithm and the
+     * triangles it leaves become prisms (hexahedra and prisms in one mesh).
+     */
+    Mixed
+};
+
+/** @brief Distribution of the nodes along a transfinite curve (`gmsh::model::mesh::setTransfiniteCurve`, `meshType`). */
+enum class TransfiniteCurveType {
+    /** Geometric progression with power `coef`: 1 is uniform, above 1 the elements grow along the curve. */
+    Progression,
+    /** Refinement toward both extremities of the curve. */
+    Bump,
+    /** Beta law. */
+    Beta
+};
+
+/** @brief Arrangement of the triangles of an unrecombined transfinite surface (`setTransfiniteSurface`, `arrangement`). */
+enum class TransfiniteArrangement { Left, Right, AlternateLeft, AlternateRight };
+
+/** @brief Values of the Gmsh option `Mesh.RecombinationAlgorithm`. */
+enum class RecombinationAlgorithm {
+    /** Chosen from the element family: BlossomFullQuad (hexahedra only) for Hexahedron, Blossom for Mixed. */
+    Automatic = -1,
+    Simple = 0,
+    Blossom = 1,
+    SimpleFullQuad = 2,
+    BlossomFullQuad = 3
+};
+
+/**
+ * @brief The Gmsh settings that govern a structured mesh, and only those.
+ *
+ * Divisions are not set directly: the number of nodes of every transfinite curve (and the number of layers of a
+ * swept solid) is the one that gives elements no longer than MeshingOptions::maxElementSize.
+ */
+struct StructuredGmshOptions {
+    /** `setTransfiniteCurve` meshType: node distribution on every transfinite curve. */
+    TransfiniteCurveType curveType = TransfiniteCurveType::Progression;
+    /** `setTransfiniteCurve` coef: progression power or bump/beta coefficient; must be positive, 1 is uniform. */
+    double curveCoefficient = 1.0;
+    /** `setTransfiniteSurface` arrangement: how the quadrangles of an unrecombined surface are cut into triangles. */
+    TransfiniteArrangement arrangement = TransfiniteArrangement::Left;
+    /** `Mesh.RecombinationAlgorithm`; Automatic derives it from the element family. */
+    RecombinationAlgorithm recombinationAlgorithm = RecombinationAlgorithm::Automatic;
+    /** `setRecombine` angle in degrees: threshold angle of the simple recombination algorithm, in (0, 180]. */
+    double recombineAngle = 45.0;
+    /** `Mesh.RecombineOptimizeTopology`: number of topological optimisation passes after recombination, 0 or more. */
+    int recombineOptimizeTopology = 5;
+    /** `Mesh.RecombineNodeRepositioning`: reposition the nodes after recombination. */
+    bool recombineNodeRepositioning = true;
+    /** `Mesh.RecombineMinimumQuality`: minimum quality of a quadrangle created by the recombination, in [0, 1]. */
+    double recombineMinimumQuality = 0.01;
 };
 
 struct MeshingOptions {
@@ -55,17 +116,20 @@ struct MeshingOptions {
     double curvaturePointsPerCircle = 12.0; // hint for backends that support it
 
     /**
-     * Gmsh only: volume mesh topology. Structured meshes sweep the end-face mesh in layers of about
-     * maxElementSize (so they have far fewer elements than a tetrahedral mesh of the same size), keep the
-     * order of the nodes of second-order hexahedra and prisms (20 and 15 nodes, no pyramids) and are not
-     * available together with InterfaceMode::Conformal. Ignored for surface meshes.
+     * Gmsh only: volume mesh topology. Structured meshes have elements of about maxElementSize along
+     * transfinite curves and sweep layers (far fewer elements than a tetrahedral mesh of the same size), keep
+     * the order of the nodes of second-order hexahedra and prisms (20 and 15 nodes, no pyramids) and, when
+     * a solid has to be swept, are not available together with InterfaceMode::Conformal and several solids.
+     * Ignored for surface meshes.
      */
     MeshStructure structure = MeshStructure::Unstructured;
     /** Gmsh only: element family of a structured volume mesh. */
     StructuredElementShape structuredShape = StructuredElementShape::Hexahedron;
+    /** Gmsh only: the settings of a structured mesh (transfinite curves and surfaces, recombination). */
+    StructuredGmshOptions structuredGmsh;
     /**
-     * Gmsh only: when a structured mesh is requested but a solid is not a straight prism, fall back to the
-     * unstructured tetrahedral mesh (true, a diagnostic explains why) or fail (false).
+     * Gmsh only: when a structured mesh is requested but a solid is neither a hexahedral block nor a straight
+     * prism, fall back to the unstructured tetrahedral mesh (true, a diagnostic explains why) or fail (false).
      */
     bool structuredFallback = true;
     /**
