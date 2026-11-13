@@ -17,7 +17,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ### Changed
 - Version raised to 0.1.2.
 - Desktop workbench: Gmsh always builds a structured mesh and shows only the Gmsh settings that govern one (element type, transfinite curve distribution and coefficient, surface arrangement, recombination); the unstructured-mesh controls (mesh type, minimum size, curvature and thin-face adaptation) are gone from the Gmsh panel. A solid that cannot be structured is reported instead of being meshed with tetrahedra. The `openmodel_generate_volume` arguments changed accordingly.
-- Desktop workbench: the viewer starts with the light theme and without the edges of the CAD tessellation; the edges (surface) appear automatically when a mesh has been generated or loaded, and are hidden again when a CAD model is imported or retessellated. The ribbon still changes both.
+- Desktop workbench: the viewer starts with the light theme and without the edges of the CAD tessellation; the edges (surface) appear automatically when a mesh has been generated or loaded, and are hidden again when a CAD model is imported or retessellated. The **Viewer theme** button (and the theme button of the viewer itself) now switches the whole window, including the side panel and the ribbon, between a light and a dark palette.
 - `MeshingOptions::verboseLog` is replaced by `MeshingOptions::logLevel`; `verboseLog = true` corresponds to `LogLevel::Debug`. The `openmodel_generate_volume` arguments changed accordingly.
 
 ## [0.1.1] - 2026-11-11
