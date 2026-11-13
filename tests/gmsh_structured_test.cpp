@@ -3,6 +3,7 @@
 
 #include <gmsh.h>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <filesystem>
@@ -98,6 +99,21 @@ int main() {
         const auto sphere = makeStep(temp / "openmodel_structured_sphere.step", [] { gmsh::model::occ::addSphere(0, 0, 0, 1); });
         // A 100 x 2 x 100 plate: its 100 x 2 side faces are thin strips.
         const auto plate = makeStep(temp / "openmodel_structured_plate.step", [] { gmsh::model::occ::addBox(0, 0, 0, 100, 2, 100); });
+        // A cylinder and an L-shaped solid are straight prisms but not hexahedral blocks; a truncated cone is neither.
+        const auto cylinder = makeStep(temp / "openmodel_structured_cylinder.step", [] { gmsh::model::occ::addCylinder(0, 0, 0, 0, 0, 4, 1); });
+        const auto cone = makeStep(temp / "openmodel_structured_cone.step", [] { gmsh::model::occ::addCone(0, 0, 0, 0, 0, 3, 1.0, 0.5); });
+        const auto lsolid = makeStep(temp / "openmodel_structured_lsolid.step", [] {
+            const int a = gmsh::model::occ::addBox(0, 0, 0, 4, 2, 1);
+            const int b = gmsh::model::occ::addBox(0, 0, 1, 2, 2, 2);
+            std::vector<std::pair<int, int>> out;
+            std::vector<std::vector<std::pair<int, int>>> map;
+            gmsh::model::occ::fuse({{3, a}}, {{3, b}}, out, map);
+        });
+        // Two touching 2 x 2 x 2 blocks.
+        const auto twoBlocks = makeStep(temp / "openmodel_structured_two_blocks.step", [] {
+            gmsh::model::occ::addBox(0, 0, 0, 2, 2, 2);
+            gmsh::model::occ::addBox(2, 0, 0, 2, 2, 2);
+        });
         GmshMesher mesher;
         MeshingOptions base;
         base.dimension = MeshDimension::Volume;
@@ -173,6 +189,159 @@ int main() {
             MeshData none;
             require(!mesher.buildMesh(sphere, options, none), "Without the fallback a sphere cannot be meshed in a structured way");
             require(mesher.lastError().find("straight prism") != std::string::npos, "The error must name the reason: " + mesher.lastError());
+        }
+
+        // Transfinite block, every element family. The 2 x 1 x 6 bar at size 1.5 has 2 x 1 x 4 cells.
+        {
+            MeshingOptions options = base;
+            options.structure = MeshStructure::Structured;
+            options.structuredFallback = false;
+            options.structuredShape = StructuredElementShape::Hexahedron;
+            MeshData hexes;
+            require(mesher.buildMesh(bar, options, hexes), "Block hexahedra failed: " + mesher.lastError());
+            require(countType(hexes, ElementType::Hexahedron8) == 8 && countVolumeElements(hexes) == 8,
+                    "A 2 x 1 x 4 block has 8 hexahedra: " + std::to_string(countVolumeElements(hexes)));
+            require(hasDiagnostic(mesher, "1 hexahedral block"), "The block route must be reported");
+
+            options.structuredShape = StructuredElementShape::Mixed;
+            MeshData mixed;
+            require(mesher.buildMesh(bar, options, mixed), "Block, mixed family failed: " + mesher.lastError());
+            require(countType(mixed, ElementType::Hexahedron8) == 8, "A block in the mixed family is hexahedral");
+
+            options.structuredShape = StructuredElementShape::Tetrahedron;
+            MeshData tets;
+            require(mesher.buildMesh(bar, options, tets), "Block tetrahedra failed: " + mesher.lastError());
+            require(countType(tets, ElementType::Tetrahedron4) == 48 && countVolumeElements(tets) == 48,
+                    "Every cell of the block is cut into 6 tetrahedra: " + std::to_string(countVolumeElements(tets)));
+            require(computeMeshQuality(tets).acceptable(), "The structured tetrahedra must have no poor element");
+            for (const auto arrangement : {TransfiniteArrangement::Right, TransfiniteArrangement::AlternateLeft, TransfiniteArrangement::AlternateRight}) {
+                options.structuredGmsh.arrangement = arrangement;
+                MeshData other;
+                require(mesher.buildMesh(bar, options, other), "Block tetrahedra with another arrangement failed: " + mesher.lastError());
+                require(countType(other, ElementType::Tetrahedron4) == countVolumeElements(other) && countVolumeElements(other) > 0,
+                        "Every arrangement gives tetrahedra only");
+            }
+
+            // A hexahedral block is a straight prism too, so the prismatic family still sweeps it.
+            options.structuredShape = StructuredElementShape::Prism;
+            MeshData prisms;
+            require(mesher.buildMesh(bar, options, prisms), "Block swept into prisms failed: " + mesher.lastError());
+            require(countType(prisms, ElementType::Prism6) == countVolumeElements(prisms), "The prismatic family gives prisms only");
+        }
+
+        // A cylinder is not a block: it is swept, and the family decides what is left of the recombined base.
+        {
+            MeshingOptions options = base;
+            options.elementSize = options.maxElementSize = 0.5;
+            options.structure = MeshStructure::Structured;
+            options.structuredFallback = false;
+            options.structuredShape = StructuredElementShape::Hexahedron;
+            MeshData hexes;
+            require(mesher.buildMesh(cylinder, options, hexes), "Swept cylinder (hexahedra) failed: " + mesher.lastError());
+            require(countType(hexes, ElementType::Hexahedron8) == countVolumeElements(hexes) && countVolumeElements(hexes) > 0,
+                    "The full-quad recombination must leave no prism and no tetrahedron: " + std::to_string(countType(hexes, ElementType::Prism6)) +
+                    " prisms");
+            require(hasDiagnostic(mesher, "0 hexahedral block"), "A cylinder is not a block");
+            options.structuredShape = StructuredElementShape::Mixed;
+            MeshData mixed;
+            require(mesher.buildMesh(cylinder, options, mixed), "Swept cylinder (mixed) failed: " + mesher.lastError());
+            require(countType(mixed, ElementType::Hexahedron8) > 0 &&
+                    countType(mixed, ElementType::Hexahedron8) + countType(mixed, ElementType::Prism6) == countVolumeElements(mixed),
+                    "The mixed family has hexahedra and possibly prisms only");
+            options.structuredShape = StructuredElementShape::Prism;
+            MeshData prisms;
+            require(mesher.buildMesh(cylinder, options, prisms), "Swept cylinder (prisms) failed: " + mesher.lastError());
+            require(countType(prisms, ElementType::Prism6) == countVolumeElements(prisms) && countVolumeElements(prisms) > 0, "Prisms only");
+            options.structuredShape = StructuredElementShape::Tetrahedron;
+            MeshData tets;
+            require(mesher.buildMesh(cylinder, options, tets), "Swept cylinder (tetrahedra) failed: " + mesher.lastError());
+            require(countType(tets, ElementType::Tetrahedron4) == countVolumeElements(tets) && countVolumeElements(tets) > 0, "Tetrahedra only");
+        }
+
+        // Curve distribution: opposite sides of a block must be graded the same way, whichever way each curve runs.
+        {
+            MeshingOptions options = base;
+            options.elementSize = options.maxElementSize = 1.0;
+            options.structure = MeshStructure::Structured;
+            options.structuredFallback = false;
+            options.structuredShape = StructuredElementShape::Hexahedron;
+            // z coordinates of the nodes on one vertical edge of the 2 x 1 x 6 bar, sorted.
+            const auto column = [](const MeshData& mesh, double x, double y) {
+                std::vector<double> z;
+                for (std::size_t i = 0; i < mesh.getNumNodes(); ++i) {
+                    const auto p = mesh.nodeCoordinates(i);
+                    if (std::abs(p[0] - x) < 1e-9 && std::abs(p[1] - y) < 1e-9) z.push_back(p[2]);
+                }
+                std::sort(z.begin(), z.end());
+                return z;
+            };
+            options.structuredGmsh.curveType = TransfiniteCurveType::Progression;
+            options.structuredGmsh.curveCoefficient = 1.5;
+            MeshData graded;
+            require(mesher.buildMesh(bar, options, graded), "Graded block failed: " + mesher.lastError());
+            const auto reference = column(graded, 0.0, 0.0);
+            require(reference.size() == 7, "The vertical edge of the bar has 7 nodes: " + std::to_string(reference.size()));
+            for (const auto& corner : {std::pair<double, double>{2.0, 0.0}, {0.0, 1.0}, {2.0, 1.0}}) {
+                const auto z = column(graded, corner.first, corner.second);
+                require(z.size() == reference.size(), "The four parallel edges must have the same node count");
+                for (std::size_t k = 0; k < z.size(); ++k)
+                    require(std::abs(z[k] - reference[k]) < 1e-9, "The four parallel edges must be graded the same way");
+            }
+            const double first = reference[1] - reference[0], last = reference[6] - reference[5];
+            require(std::abs(last / first - std::pow(1.5, 5)) < 1e-6, "A progression of 1.5 grows by 1.5 per element: " + std::to_string(last / first));
+
+            options.structuredGmsh.curveType = TransfiniteCurveType::Bump;
+            options.structuredGmsh.curveCoefficient = 0.3;
+            MeshData bump;
+            require(mesher.buildMesh(bar, options, bump), "Bump block failed: " + mesher.lastError());
+            const auto z = column(bump, 0.0, 0.0);
+            require(z.size() == 7 && (z[1] - z[0]) < (z[4] - z[3]) && (z[6] - z[5]) < (z[4] - z[3]),
+                    "A bump distribution refines both extremities");
+            options.structuredGmsh.curveType = TransfiniteCurveType::Beta;
+            options.structuredGmsh.curveCoefficient = 0.5;
+            MeshData beta;
+            require(mesher.buildMesh(bar, options, beta), "Beta block failed: " + mesher.lastError());
+            require(computeMeshQuality(beta).hasVolumeElements, "The beta block has volume elements");
+        }
+
+        // Touching blocks stay conformal: the shared face has one set of nodes.
+        {
+            MeshingOptions options = base;
+            options.elementSize = options.maxElementSize = 1.0;
+            options.structure = MeshStructure::Structured;
+            options.structuredFallback = false;
+            options.interfaceMode = InterfaceMode::Conformal;
+            MeshData mesh;
+            require(mesher.buildMesh(twoBlocks, options, mesh), "Conformal blocks failed: " + mesher.lastError());
+            require(countType(mesh, ElementType::Hexahedron8) == 16, "Two 2 x 2 x 2 blocks have 16 hexahedra: " + std::to_string(countVolumeElements(mesh)));
+            require(mesh.getNumNodes() == 5 * 3 * 3, "Conformal blocks share the interface nodes: " + std::to_string(mesh.getNumNodes()));
+            options.structuredShape = StructuredElementShape::Prism;
+            MeshData none;
+            require(!mesher.buildMesh(twoBlocks, options, none), "Swept solids cannot share faces conformally");
+        }
+
+        // What cannot be structured is refused with the reason, and invalid settings are rejected.
+        {
+            MeshingOptions options = base;
+            options.structure = MeshStructure::Structured;
+            options.structuredFallback = false;
+            MeshData none;
+            require(!mesher.buildMesh(cone, options, none), "A truncated cone cannot be meshed in a structured way");
+            require(mesher.lastError().find("neither a hexahedral block") != std::string::npos, "The error must explain: " + mesher.lastError());
+            // The L-shaped solid is a prism whose base is not four-sided: it is swept, not rejected.
+            options.elementSize = options.maxElementSize = 1.0;
+            MeshData swept;
+            require(mesher.buildMesh(lsolid, options, swept), "An L-shaped prism must be swept: " + mesher.lastError());
+            require(hasDiagnostic(mesher, "0 hexahedral block") && countType(swept, ElementType::Hexahedron8) > 0,
+                    "The L-shaped prism is swept into hexahedra");
+            MeshingOptions invalid = base;
+            invalid.structure = MeshStructure::Structured;
+            invalid.structuredGmsh.curveCoefficient = -1.0;
+            require(!mesher.buildMesh(bar, invalid, none), "A negative coefficient must be rejected");
+            invalid = base;
+            invalid.structure = MeshStructure::Structured;
+            invalid.structuredGmsh.recombineAngle = 0.0;
+            require(!mesher.buildMesh(bar, invalid, none), "A zero recombination angle must be rejected");
         }
 
         // Thin faces: the 100 x 2 side faces of the plate get needle triangles unless their size is limited.

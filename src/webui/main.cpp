@@ -53,6 +53,7 @@
 #endif
 
 #include <algorithm>
+#include <chrono>
 #include <cctype>
 #include <cmath>
 #include <cstdio>
@@ -514,8 +515,8 @@ std::vector<MesherInfo> meshers() {
 #else
         false,
 #endif
-        "min,order,curv,iface,log,struct,thin",
-        "Reads the STEP/IGES file directly with Gmsh's OpenCASCADE kernel. Does not work with mesh formats imported through Assimp."});
+        "order,iface,log,sgmsh",
+        "Reads the STEP/IGES file directly with Gmsh's OpenCASCADE kernel and always builds a structured mesh. Does not work with mesh formats imported through Assimp."});
     list.push_back({"tetgen", "TetGen",
 #ifdef OPENMODEL_HAS_TETGEN
         true,
@@ -871,51 +872,118 @@ std::string qualityNote(const MeshData& mesh) {
     return note;
 }
 
+/** Elapsed time for the report: milliseconds below one second, seconds above. */
+std::string durationText(double seconds) {
+    char text[32];
+    if (seconds < 1.0) std::snprintf(text, sizeof text, "%.0f ms", seconds * 1000.0);
+    else std::snprintf(text, sizeof text, "%.2f s", seconds);
+    return text;
+}
+
+/** Counts of the volume (dimension 3) or surface (dimension 2) elements of a mesh per type, as "N hexahedra, M prisms". */
+std::string elementCountsText(const MeshData& mesh, int dimension) {
+    std::vector<std::pair<ElementType, std::size_t>> counts;
+    for (const auto& block : mesh.getElementBlocks()) {
+        if (elementDimension(block.type) != dimension) continue;
+        auto found = std::find_if(counts.begin(), counts.end(), [&](const auto& c) { return c.first == block.type; });
+        if (found == counts.end()) counts.emplace_back(block.type, block.size());
+        else found->second += block.size();
+    }
+    std::string text;
+    for (const auto& c : counts) text += (text.empty() ? "" : ", ") + std::to_string(c.second) + " " + qualityTypeName(c.first);
+    return text;
+}
+
+/**
+ * What the user reads when a mesh has been generated: how long it took, how many nodes and elements it has (by
+ * type), and the quality of its elements.
+ */
+std::string meshingReport(const MeshData& mesh, double seconds) {
+    std::string text = "Meshing time: " + durationText(seconds) +
+        "\nNodes: " + std::to_string(mesh.getNumNodes()) +
+        "\nElements: " + std::to_string(mesh.getNumElements());
+    const std::string volume = elementCountsText(mesh, 3), surface = elementCountsText(mesh, 2);
+    if (!volume.empty()) text += "\n  volume: " + volume;
+    if (!surface.empty()) text += "\n  surface: " + surface;
+    const std::string quality = qualityNote(mesh);
+    return text + (quality.empty() ? "\nElement quality: not available for these element types." : quality);
+}
+
 void generateVolume(webui_event_t* e) {
     StateLock lock;
     if (!lock.ok()) { replyBusy(e); return; }
     const std::string mesherId = getStringArg(e, 0);
     const double size = getDoubleArg(e, 1, 1.0);
-    const double minSize = getDoubleArg(e, 2, 0.0);
-    const int order = static_cast<int>(getDoubleArg(e, 3, 1.0));
-    const bool curvature = getStringArg(e, 4) != "0";
-    const bool conformal = getStringArg(e, 5) == "conformal";
-    const bool verbose = getStringArg(e, 6) == "1" && mesherId == "gmsh";
-    const bool structured = getStringArg(e, 7) == "structured" && mesherId == "gmsh";
-    const bool prismShape = getStringArg(e, 8) == "prism";
-    const double thinFactor = mesherId == "gmsh" ? getDoubleArg(e, 9, 0.0) : 0.0;
+    const int order = static_cast<int>(getDoubleArg(e, 2, 1.0));
+    const bool conformal = getStringArg(e, 3) == "conformal";
+    const std::string levelName = getStringArg(e, 4);
+    LogLevel logLevel = LogLevel::Error;
+    if (levelName == "warning") logLevel = LogLevel::Warning;
+    else if (levelName == "info") logLevel = LogLevel::Info;
+    else if (levelName == "debug") logLevel = LogLevel::Debug;
+    else if (levelName != "error") { reply(e, false, "Unknown log level '" + levelName + "'."); return; }
     if (!mesherAvailable(mesherId)) { reply(e, false, "The selected mesher was not built into this version."); return; }
     if (!g.cad) { reply(e, false, "Import a CAD model first."); return; }
-    if (!(size > 0.0) || !std::isfinite(size) || minSize < 0.0 || (minSize > 0.0 && minSize > size) || (order != 1 && order != 2)) {
-        reply(e, false, "Invalid parameters: maximum size > 0, minimum >= 0 and <= maximum, order 1 or 2."); return;
-    }
-    if (!std::isfinite(thinFactor) || thinFactor < 0.0) {
-        reply(e, false, "Invalid parameters: the thin-face factor must be >= 0 (0 = disabled)."); return;
+    if (!(size > 0.0) || !std::isfinite(size) || (order != 1 && order != 2)) {
+        reply(e, false, "Invalid parameters: maximum size > 0, order 1 or 2."); return;
     }
     MeshingOptions options;
     options.dimension = MeshDimension::Volume;
     options.generateTetrahedra = true;
     options.elementSize = size;
     options.maxElementSize = size;
-    options.minElementSize = minSize;
     options.order = order;
-    options.curvatureAdaptation = curvature;
     options.interfaceMode = conformal ? InterfaceMode::Conformal : InterfaceMode::Independent;
     options.importCadGroups = true;
-    options.structure = structured ? MeshStructure::Structured : MeshStructure::Unstructured;
-    options.structuredShape = prismShape ? StructuredElementShape::Prism : StructuredElementShape::Hexahedron;
-    options.thinFaceSizeFactor = thinFactor;
+    if (mesherId == "gmsh") {
+        // Gmsh always builds a structured mesh: nothing falls back to an unstructured one, and only the
+        // settings that govern a structured mesh are read (see StructuredGmshOptions).
+        options.structure = MeshStructure::Structured;
+        options.structuredFallback = false;
+        options.curvatureAdaptation = false;
+        const std::string shape = getStringArg(e, 5);
+        if (shape == "hex") options.structuredShape = StructuredElementShape::Hexahedron;
+        else if (shape == "tet") options.structuredShape = StructuredElementShape::Tetrahedron;
+        else if (shape == "mixed") options.structuredShape = StructuredElementShape::Mixed;
+        else if (shape == "prism") options.structuredShape = StructuredElementShape::Prism;
+        else { reply(e, false, "Unknown structured element type '" + shape + "'."); return; }
+        StructuredGmshOptions& structured = options.structuredGmsh;
+        const std::string curveType = getStringArg(e, 6);
+        if (curveType == "progression") structured.curveType = TransfiniteCurveType::Progression;
+        else if (curveType == "bump") structured.curveType = TransfiniteCurveType::Bump;
+        else if (curveType == "beta") structured.curveType = TransfiniteCurveType::Beta;
+        else { reply(e, false, "Unknown transfinite curve distribution '" + curveType + "'."); return; }
+        structured.curveCoefficient = getDoubleArg(e, 7, 1.0);
+        const std::string arrangement = getStringArg(e, 8);
+        if (arrangement == "left") structured.arrangement = TransfiniteArrangement::Left;
+        else if (arrangement == "right") structured.arrangement = TransfiniteArrangement::Right;
+        else if (arrangement == "alternateleft") structured.arrangement = TransfiniteArrangement::AlternateLeft;
+        else if (arrangement == "alternateright") structured.arrangement = TransfiniteArrangement::AlternateRight;
+        else { reply(e, false, "Unknown transfinite surface arrangement '" + arrangement + "'."); return; }
+        const std::string algorithm = getStringArg(e, 9);
+        if (algorithm == "auto") structured.recombinationAlgorithm = RecombinationAlgorithm::Automatic;
+        else if (algorithm == "0") structured.recombinationAlgorithm = RecombinationAlgorithm::Simple;
+        else if (algorithm == "1") structured.recombinationAlgorithm = RecombinationAlgorithm::Blossom;
+        else if (algorithm == "2") structured.recombinationAlgorithm = RecombinationAlgorithm::SimpleFullQuad;
+        else if (algorithm == "3") structured.recombinationAlgorithm = RecombinationAlgorithm::BlossomFullQuad;
+        else { reply(e, false, "Unknown recombination algorithm '" + algorithm + "'."); return; }
+        structured.recombineAngle = getDoubleArg(e, 10, 45.0);
+        structured.recombineOptimizeTopology = static_cast<int>(getDoubleArg(e, 11, 5.0));
+        structured.recombineNodeRepositioning = getStringArg(e, 12) != "0";
+        structured.recombineMinimumQuality = getDoubleArg(e, 13, 0.01);
+    }
     options.auditAllCadFaces = false;   // map only the requested CAD faces; others on demand after meshing
-    // The verbose Gmsh log goes next to the CAD file (or the temp folder when that is not writable).
+    // Above the Error level the Gmsh log is also saved next to the CAD file (or in the temp folder when that is
+    // not writable); at the Error level it is only shown when something went wrong.
     std::string logPath;
-    if (verbose) {
+    options.logLevel = logLevel;
+    if (mesherId == "gmsh" && logLevel != LogLevel::Error) {
         std::error_code logEc;
         auto base = fs::path(g.cad->getFilePath());
         auto candidatePath = base.parent_path() / (base.stem().string() + "_gmsh.log");
         std::ofstream probe(candidatePath, std::ios::app);
         if (!probe) candidatePath = fs::temp_directory_path(logEc) / (base.stem().string() + "_gmsh.log");
         logPath = candidatePath.string();
-        options.verboseLog = true;
         options.logFile = logPath;
     }
     for (const auto& userGroup : g.cadFaceGroups) {
@@ -931,6 +999,7 @@ void generateVolume(webui_event_t* e) {
     options.linearDeflection = g.linearDeflection;
     options.angularDeflection = g.angularDeflection;
 
+    const auto meshingStart = std::chrono::steady_clock::now();
     MeshData candidate;
     std::string label, failure;
     std::vector<std::string> notes;
@@ -947,9 +1016,11 @@ void generateVolume(webui_event_t* e) {
         if (!built) failure = mesher.lastError();
         notes = mesher.diagnostics();
         label = "Gmsh";
-        if (verbose) {
-            const auto& lines = mesher.log();
-            logNote = "\nVerbose Gmsh log: " + logPath + " (" + std::to_string(lines.size()) + " lines). Last lines:";
+        const auto& lines = mesher.log();
+        if (!lines.empty()) {
+            logNote = "\nGmsh log (" + (levelName.empty() ? std::string("error") : levelName) + " level" +
+                      (logPath.empty() ? std::string() : ", saved in " + logPath) + ", " + std::to_string(lines.size()) +
+                      " lines). Last lines:";
             for (std::size_t i = lines.size() > 15 ? lines.size() - 15 : 0; i < lines.size(); ++i) logNote += "\n  " + lines[i];
         }
 #endif
@@ -1010,6 +1081,8 @@ void generateVolume(webui_event_t* e) {
         }
         reply(e, false, "The generated mesh fails validation:" + details); return;
     }
+    // Meshing, CAD-face mapping and validation; not the preparation of the 3D view.
+    const double meshingSeconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - meshingStart).count();
     clearResults();
     g.mesh = std::move(candidate);
     g.origin = MeshOrigin::Generated;
@@ -1024,12 +1097,15 @@ void generateVolume(webui_event_t* e) {
             cadNodeSetSummary += "\nNode Set " + userGroup.name + "_NODES: " +
                 std::to_string(set->second.size()) + " nodes";
     }
-    reply(e, true, "Volume mesh generated and validated with " + label + ".\n" + meshSummary() + qualityNote(g.mesh) +
+    reply(e, true, "Volume mesh generated and validated with " + label + ".\n" + meshingReport(g.mesh, meshingSeconds) +
         cadNodeSetSummary + "\nOrder: " + std::to_string(order) +
         "\nRequested maximum size: " + std::to_string(size) +
         "\nInterfaces between solids: " + (conformal ? "conformal (shared nodes)" : "independent") +
-        (structured ? std::string("\nRequested structure: structured sweep (") + (prismShape ? "prisms" : "hexahedra") + ")" : std::string()) +
-        (thinFactor > 0.0 ? "\nThin-face factor: " + std::to_string(thinFactor) : std::string()) + noteText + logNote +
+        (mesherId == "gmsh" ? "\nStructured mesh elements: " + std::string(
+            options.structuredShape == StructuredElementShape::Hexahedron ? "hexahedra" :
+            options.structuredShape == StructuredElementShape::Tetrahedron ? "tetrahedra" :
+            options.structuredShape == StructuredElementShape::Prism ? "prisms" : "hexahedra and prisms") : std::string()) +
+        noteText + logNote +
         (g.viewNote.empty() ? "" : "\n" + g.viewNote));
 }
 

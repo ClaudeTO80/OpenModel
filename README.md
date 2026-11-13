@@ -6,7 +6,7 @@ A C++17 library, command-line tool and lightweight desktop workbench for **finit
 import CAD and mesh files, generate and validate meshes, write solver input, run CalculiX or code_aster, and inspect the results in a WebGL viewer
 where you can also pick nodes, elements and faces to build groups, supports and loads. A fatigue-analysis library works on the loaded results.
 
-> **Version 0.1.1 — early.** The project was previously called MeshGen; the notes of that development (phases 8–50) are in
+> **Version 0.1.2 — early.** The project was previously called MeshGen; the notes of that development (phases 8–50) are in
 > [`docs/DEVELOPMENT_LOG.md`](docs/DEVELOPMENT_LOG.md). See [Status and known limits](#status-and-known-limits) before relying on it.
 
 ## Features
@@ -21,7 +21,7 @@ where you can also pick nodes, elements and faces to build groups, supports and 
 | Viewer | Single-file WebGL viewer (**MGWV**): colour fields, deformed shape, modal animation, section plane, GPU picking of nodes / elements / faces |
 | Pre-processing | Selection → node / element / face groups → `fix`, `force`, `pressure` lines in an analysis script |
 | Solver | Analysis script → complete CalculiX input → `ccx` run in the background with live log and cancel → results loaded back into the viewer; the same script can also write and run a **code_aster** case ([`docs/CODE_ASTER.md`](docs/CODE_ASTER.md)) |
-| Fatigue *(library)* | `OpenModel::Fatigue`: stress history from FEM results, Rainflow counting, S–N and strain-life damage, Palmgren–Miner and Wang–Brown, mean-stress corrections, operating spectra, reports and damage maps for the viewer ([manual](docs/fatigue/index.html)). Not exposed by the CLI or the workbench yet |
+| Fatigue *(library and tool)* | `OpenModel::Fatigue` (shared library `OpenModelFatigue`): stress history from FEM results, Rainflow counting, S–N and strain-life damage, Palmgren–Miner and Wang–Brown, mean-stress corrections, operating spectra, reports and damage maps for the viewer ([manual](docs/fatigue/index.html)). The `openmodel-fatigue` tool runs single-position analyses and spectra from JSON files (see below). Not in the workbench yet |
 | Project manifest *(library)* | `OpenModelProject`: an `.omproj` document that indexes CAD, mesh, analysis and result files with relative paths, SHA-256 and size checks ([`docs/PROJECT_PERSISTENCE.md`](docs/PROJECT_PERSISTENCE.md)). Not used by the CLI or the workbench yet |
 | Interfaces | C++ library (`OpenModel::Core`), CLI (`openmodel`), desktop workbench (`openmodel-webui`, **English user interface**) |
 
@@ -110,8 +110,8 @@ The installed package contains the core; optional backends are built from source
 
 ## Version
 
-The current version is **0.1.1** ([`CHANGELOG.md`](CHANGELOG.md)). It is set in one place, the CMake cache option `OPENMODEL_VERSION`
-(`MAJOR.MINOR.PATCH`, default `0.1.1`; minor and patch between 0 and 99, no leading zeros):
+The current version is **0.1.2** ([`CHANGELOG.md`](CHANGELOG.md)). It is set in one place, the CMake cache option `OPENMODEL_VERSION`
+(`MAJOR.MINOR.PATCH`, default `0.1.2`; minor and patch between 0 and 99, no leading zeros):
 
 ```bash
 cmake -S . -B build -DOPENMODEL_VERSION=0.2.0     # override, e.g. from a release script
@@ -123,10 +123,10 @@ major version and at least that version), the CPack file names and the generated
 ```cpp
 #include <OpenModel/Version.hpp>
 
-std::string s = OpenModel::versionString();        // "0.1.1", the version of the linked library
+std::string s = OpenModel::versionString();        // "0.1.2", the version of the linked library
 OpenModel::Version v = OpenModel::version();       // v.major, v.minor, v.patch
-#if OPENMODEL_VERSION_NUMBER >= 101                // major*10000 + minor*100 + patch (0.1.1 -> 101)
-// ... code that needs 0.1.1 or later
+#if OPENMODEL_VERSION_NUMBER >= 102                // major*10000 + minor*100 + patch (0.1.2 -> 102)
+// ... code that needs 0.1.2 or later
 #endif
 ```
 
@@ -172,18 +172,49 @@ Each backend is off by default and needs its native library to be found by CMake
 | `OPENMODEL_BUILD_NETGEN_BACKEND` (+ `OPENMODEL_NETGEN_HAS_OCC`) | Netgen meshing |
 | `OPENMODEL_BUILD_MFEM_BACKEND` | MFEM mesh adapter |
 
-General options: `OPENMODEL_VERSION` (`0.1.1`, see [Version](#version)), `OPENMODEL_BUILD_TESTS` (ON), `OPENMODEL_BUILD_CLI` (ON), `OPENMODEL_BUILD_SHARED` (ON), `OPENMODEL_BUILD_BENCHMARKS` (OFF),
+General options: `OPENMODEL_VERSION` (`0.1.2`, see [Version](#version)), `OPENMODEL_BUILD_TESTS` (ON), `OPENMODEL_BUILD_CLI` (ON), `OPENMODEL_BUILD_SHARED` (ON), `OPENMODEL_BUILD_BENCHMARKS` (OFF),
 `OPENMODEL_BUILD_WEBUI` (OFF), `OPENMODEL_TEST_WEBGL_VIEWER` (OFF, needs Node.js with Playwright).
 
 ### Gmsh meshing controls
 
 `MeshingOptions` (Gmsh backend) controls, besides the element sizes and the order:
 
-- `structure` / `structuredShape`: `Unstructured` (tetrahedra, any solid) or `Structured`, which sweeps the end-face mesh of a
-  straight prismatic solid (beam, bar) in layers into hexahedra (`Hexahedron`: triangles that the recombination leaves become
-  prisms) or prisms (`Prism`). Other solids fall back to tetrahedra with a diagnostic, or fail when `structuredFallback` is
-  false. Second-order structured meshes use 20-node hexahedra and 15-node prisms in Abaqus node order. Conformal interfaces
-  between several solids are not available for structured meshes.
+- `structure` / `structuredShape` / `structuredGmsh`: `Unstructured` (tetrahedra, any solid) or `Structured`. The desktop
+  workbench always asks for `Structured` and never falls back (`structuredFallback = false`). A structured mesh is built with
+  the structured-meshing tools of Gmsh and needs every solid to be one of:
+  - a **hexahedral block** (six four-sided faces, eight corners; curved blocks qualify, the test is topological): transfinite
+    curves, surfaces and volume give a regular grid of hexahedra or of tetrahedra, and touching blocks stay conformal;
+  - a **straight prism** (beam, bar, cylinder, L profile): the mesh of one end face is swept in layers.
+
+  Any other solid is reported with the reason (or, with `structuredFallback = true`, meshed with unstructured tetrahedra and a
+  diagnostic). Element families (`StructuredElementShape`): `Hexahedron` (hexahedra only: transfinite blocks recombined,
+  swept end faces recombined with the blossom full-quad algorithm), `Tetrahedron` (regular grid of tetrahedra; swept solids
+  are layered into tetrahedra), `Prism` (swept triangular end face; a block is swept as a prism) and `Mixed` (hexahedra, plus
+  the prisms that the blossom recombination of a swept end face leaves). Second-order structured meshes use 20-node
+  hexahedra and 15-node prisms in Abaqus node order. Swept solids cannot be combined with conformal interfaces between
+  several solids; blocks can.
+
+  The Gmsh settings that govern a structured mesh, and the only ones the workbench shows (`StructuredGmshOptions`):
+
+  | Setting | Gmsh | Applies to |
+  |---|---|---|
+  | Maximum element size (`maxElementSize`) | sets the number of nodes of every transfinite curve and the number of layers of a sweep | all |
+  | Curve distribution and coefficient (`curveType`, `curveCoefficient`) | `setTransfiniteCurve` `meshType` (`Progression`, `Bump`, `Beta`) and `coef`; a progression is reversed on the sides that run the other way, so opposite sides are graded alike | blocks |
+  | Surface arrangement (`arrangement`) | `setTransfiniteSurface` `arrangement` (`Left`, `Right`, `AlternateLeft`, `AlternateRight`) | tetrahedral blocks |
+  | Recombination algorithm (`recombinationAlgorithm`) | `Mesh.RecombinationAlgorithm` (0 simple, 1 blossom, 2 simple full-quad, 3 blossom full-quad); `Automatic` picks 3 for hexahedra and 1 for mixed | hexahedra, mixed |
+  | Recombination angle (`recombineAngle`) | `setRecombine` `angle` | hexahedra, mixed |
+  | Topology optimisation passes (`recombineOptimizeTopology`) | `Mesh.RecombineOptimizeTopology` | hexahedra, mixed |
+  | Node repositioning (`recombineNodeRepositioning`) | `Mesh.RecombineNodeRepositioning` | hexahedra, mixed |
+  | Minimum quadrangle quality (`recombineMinimumQuality`) | `Mesh.RecombineMinimumQuality` | hexahedra, mixed |
+
+  The unstructured-mesh controls (minimum size, curvature adaptation, thin-face sizing) are not shown for Gmsh because they do
+  not create structure; they stay available through `MeshingOptions`. Not exposed: `setTransfiniteAutomatic` (it hides the node
+  counts, which OpenModel computes itself so that it can grade the curves), `Mesh.SubdivisionAlgorithm` (an all-hexahedra
+  subdivision of an unstructured mesh) and the quasi-structured quad algorithm (not a structured mesh).
+- `logLevel` / `logFile`: Gmsh log detail, `Error` (default), `Warning`, `Info` or `Debug` (`General.Verbosity` 1, 2, 4, 99). From `Info` the
+  log also has an OpenModel line at the start of each phase with its elapsed time. `GmshMesher::log()` returns it, also after a
+  failed run; it is written to `logFile` when it is not empty. The workbench has the same four levels and, after a volume mesh,
+  reports the meshing time, the number of nodes and elements by type and the element quality.
 - `thinFaceSizeFactor`: limits the element size at the corners of each face to the given multiple of the face width
   (2 * area / perimeter). It avoids needle triangles on strips such as the flange edges of a beam; 1 is a good start.
 - `computeMeshQuality(mesh)` (`MeshQuality.hpp`) reports the quality of every element type (1 = ideal; non-positive = inverted).
@@ -191,10 +222,11 @@ General options: `OPENMODEL_VERSION` (`0.1.1`, see [Version](#version)), `OPENMO
 ## Repository layout
 
 ```text
-include/OpenModel/   public headers (include/OpenModel/Fatigue for the fatigue module)
-src/                 library sources; src/fatigue (fatigue module), src/cli (openmodel), src/webui (openmodel-webui + gui.html), src/importers
+include/OpenModel/   public headers of the core library (fatigue headers are in fatigue/include)
+src/                 core library sources, src/cli (openmodel), src/webui (openmodel-webui + gui.html), src/importers
+fatigue/             fatigue library OpenModel::Fatigue (include, src, tests); its own CMakeLists.txt, also buildable alone against an installed OpenModel
 examples/            webgl-fem-viewer (the viewer), webgl-viewer (glTF), cmake-consumer, cmake-assimp-consumer
-tests/               C++ tests, tests/fatigue, tests/support (fixtures, fake ccx / code_aster), tests/webgl (browser and GUI tests)
+tests/               C++ tests of the core, tests/support (fixtures, fake ccx / code_aster), tests/webgl (browser and GUI tests); fatigue tests are in fatigue/tests
 benchmarks/          optional synthetic performance benchmarks
 docs/                format and feature documentation; docs/index.html is the HTML manual
 cmake/               package configuration template, Version.hpp.in (generated version header)
@@ -229,7 +261,7 @@ What is **not** verified:
 - The code_aster export has never been run through a real code_aster (stand-in `tests/support/fake_aster.py`); MED files are not supported. See [`docs/CODE_ASTER.md`](docs/CODE_ASTER.md).
 - The solver runner is POSIX only (Linux, macOS); on Windows it returns an error. The CI workflow also builds the core on Windows (MSVC) and skips the solver tests there; locally only Linux has been built and tested.
 - Gmsh, Open CASCADE, TetGen, Netgen and MFEM backends were not compiled in the latest test environment; the Assimp backend is built by a separate CI job on Linux and Windows.
-- The fatigue module is a library: it has no CLI command or workbench panel. It is covered by unit tests but was not validated against test data of a real component; it applies no safety, size, surface or notch factors, and multiaxial cycle counting is only a contract, not an implementation ([`docs/fatigue/methods.html`](docs/fatigue/methods.html)).
+- The fatigue module has no workbench panel. Its tool `openmodel-fatigue` (`analyze`, `spectrum`) takes JSON material and spectrum files; it was tested with the analytic beam fixture only, not against measured or solver-validated fatigue data. The material unit must equal the unit of the results exactly (no conversion), and CalculiX result files need `--unit SYMBOL:SCALE` (or `resultUnit`) because they do not declare one. It is covered by unit tests but was not validated against test data of a real component; it applies no safety, size, surface or notch factors, and multiaxial cycle counting is only a contract, not an implementation ([`docs/fatigue/methods.html`](docs/fatigue/methods.html)).
 - `OpenModelProject` is a library API only; neither the CLI nor the workbench reads or writes `.omproj` files yet.
 - The workbench CAD face groups need the Open CASCADE backend, and Gmsh for the volume mesh; only face groups are editable (named CAD groups of other dimensions are shown read-only).
 - Nodal forces are shared equally among the selected nodes (not consistent for quadratic elements; use `pressure`); one material and one step per analysis; no contact or nonlinear materials.

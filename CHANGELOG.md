@@ -6,6 +6,27 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+- `openmodel-fatigue` command-line tool: `analyze` (one or more positions of a FEM result, reports in CSV and JSON), `spectrum` (ordered blocks of several result sets with repetitions, reports in CSV and JSON) and `info`. Inputs are JSON: material curves (`stressLifeSN` or `strainLifeEN`, with explicit units), positions (`node:ID`, `element:ID`, `ip:ELEMENT:N`) and spectrum files. Result units are declared with `--unit SYMBOL:SCALE` or `resultUnit`, because CalculiX files do not declare one.
+- `OpenModel::Fatigue::Json`: a strict, small JSON reader used by the fatigue input files.
+
+### Changed
+- The fatigue analysis is a separate shared library, `OpenModel::Fatigue` (`OpenModelFatigue`), with its sources, headers and tests in `fatigue/`. It links the shared core; the core library no longer contains it. Option `OPENMODEL_BUILD_FATIGUE` (default ON, needs `OPENMODEL_BUILD_SHARED`). The same directory builds on its own against an installed OpenModel package (`cmake -S fatigue -B build -DCMAKE_PREFIX_PATH=<prefix>`). Header paths (`<OpenModel/Fatigue/...>`) and test names are unchanged.
+
+## [0.1.2] - 2026-11-13
+
+### Added
+- Gmsh structured meshing for any hexahedral block, not only swept prisms: transfinite curves, surfaces and volume give regular grids of hexahedra or tetrahedra, touching blocks stay conformal, and swept solids support all four families (`StructuredElementShape::Hexahedron`, `Prism`, `Tetrahedron`, `Mixed`). New `MeshingOptions::structuredGmsh` (`StructuredGmshOptions`): transfinite curve distribution and coefficient, surface arrangement and the recombination settings (`Mesh.RecombinationAlgorithm`, `setRecombine` angle, `Mesh.RecombineOptimizeTopology`, `Mesh.RecombineNodeRepositioning`, `Mesh.RecombineMinimumQuality`). Tests in `gmsh_structured_test`.
+- Gmsh log level (`MeshingOptions::logLevel`: `LogLevel::Error`, `Warning`, `Info`, `Debug`, mapped to `General.Verbosity` 1, 2, 4 and 99). Information messages and the OpenModel phase trace start at Info, Gmsh debug messages at Debug; the log is kept after a failed run and written to `logFile` when it is not empty.
+- Desktop workbench: **Gmsh log level** selector (Error, Warning, Info, Debug); above Error the log is also saved as `_gmsh.log` next to the CAD file.
+- Desktop workbench: at the end of a volume mesh the report shows the meshing time (mesher, CAD-face mapping and validation), the number of nodes, the number of elements by type (volume and surface) and the quality of the elements.
+
+### Changed
+- Version raised to 0.1.2.
+- Desktop workbench: Gmsh always builds a structured mesh and shows only the Gmsh settings that govern one (element type, transfinite curve distribution and coefficient, surface arrangement, recombination); the unstructured-mesh controls (mesh type, minimum size, curvature and thin-face adaptation) are gone from the Gmsh panel. A solid that cannot be structured is reported instead of being meshed with tetrahedra. The `openmodel_generate_volume` arguments changed accordingly.
+- Desktop workbench: the viewer starts with the light theme and without the edges of the CAD tessellation; the edges (surface) appear automatically when a mesh has been generated or loaded, and are hidden again when a CAD model is imported or retessellated. The **Viewer theme** button (and the theme button of the viewer itself) now switches the whole window, including the side panel and the ribbon, between a light and a dark palette.
+- `MeshingOptions::verboseLog` is replaced by `MeshingOptions::logLevel`; `verboseLog = true` corresponds to `LogLevel::Debug`. The `openmodel_generate_volume` arguments changed accordingly.
+
 ## [0.1.1] - 2026-11-11
 
 ### Added

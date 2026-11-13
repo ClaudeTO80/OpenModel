@@ -1,0 +1,13 @@
+{
+  "temperatureKelvin": 293.15,
+  "positions": [
+    { "label": "node 1", "position": "node:1",
+      "blocks": [
+        { "label": "first", "repetitions": 2, "results": ["@_fatigue_beam_frd@"],
+          "field": "STRESS", "projection": [1, 0, 0],
+          "resultUnit": { "symbol": "MPa", "scaleToSI": 1e6 } },
+        { "label": "second", "results": ["@_fatigue_beam_frd@"],
+          "field": "STRESS", "projection": [1, 0, 0],
+          "resultUnit": { "symbol": "MPa", "scaleToSI": 1e6 } } ] }
+  ]
+}

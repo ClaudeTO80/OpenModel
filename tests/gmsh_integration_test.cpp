@@ -76,7 +76,7 @@ int main() {
         auto cad = std::make_shared<StepCADModel>(stepPath.string());
         GmshMesher mesher;
 
-        // Verbose log: off by default; when requested it holds Gmsh's own messages plus the OpenModel phase
+        // Log levels: Error by default; at Info and above it holds Gmsh's own messages plus the OpenModel phase
         // traces, and it is also written to the requested file.
         {
             MeshingOptions quiet;
@@ -85,12 +85,20 @@ int main() {
             quiet.maxElementSize = 0.5;
             MeshData quietMesh;
             require(mesher.buildMesh(cad, quiet, quietMesh), "Quiet meshing failed: " + mesher.lastError());
-            require(mesher.log().empty(), "The log must stay empty unless verboseLog is set");
+            require(mesher.log().empty(), "At the default Error level a clean run has an empty log");
+
+            MeshingOptions warning = quiet;
+            warning.logLevel = LogLevel::Warning;
+            MeshData warningMesh;
+            require(mesher.buildMesh(cad, warning, warningMesh), "Warning-level meshing failed: " + mesher.lastError());
+            for (const auto& line : mesher.log())
+                require(line.find("[OpenModel]") == std::string::npos && line.rfind("Info", 0) != 0,
+                        "The Warning level must not record information or trace lines: " + line);
 
             const auto logPath = temp / "openmodel_gmsh_fixture.log";
             std::filesystem::remove(logPath, ec);
             MeshingOptions verbose = quiet;
-            verbose.verboseLog = true;
+            verbose.logLevel = LogLevel::Info;
             verbose.logFile = logPath.string();
             MeshData verboseMesh;
             require(mesher.buildMesh(cad, verbose, verboseMesh), "Verbose meshing failed: " + mesher.lastError());
@@ -107,6 +115,21 @@ int main() {
             require(std::filesystem::is_regular_file(logPath) && std::filesystem::file_size(logPath) > 0,
                     "The verbose log file was not written");
             std::filesystem::remove(logPath, ec);
+
+            // The Debug level adds Gmsh debug messages to the information of the Info level.
+            const auto infoLines = mesher.log().size();
+            const auto debugLines = [&] {
+                std::size_t n = 0;
+                for (const auto& line : mesher.log()) if (line.rfind("Debug", 0) == 0) ++n;
+                return n;
+            };
+            require(debugLines() == 0, "The Info level must not record debug messages");
+            MeshingOptions debug = verbose;
+            debug.logLevel = LogLevel::Debug;
+            debug.logFile.clear();
+            MeshData debugMesh;
+            require(mesher.buildMesh(cad, debug, debugMesh), "Debug-level meshing failed: " + mesher.lastError());
+            require(debugLines() > 0 && mesher.log().size() > infoLines, "The Debug level must record more than the Info level");
 
             // A failed run keeps its log too.
             MeshingOptions broken = verbose;
