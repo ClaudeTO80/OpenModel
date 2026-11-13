@@ -6,7 +6,7 @@ A C++17 library, command-line tool and lightweight desktop workbench for **finit
 import CAD and mesh files, generate and validate meshes, write solver input, run CalculiX or code_aster, and inspect the results in a WebGL viewer
 where you can also pick nodes, elements and faces to build groups, supports and loads. A fatigue-analysis library works on the loaded results.
 
-> **Version 0.1.1 — early.** The project was previously called MeshGen; the notes of that development (phases 8–50) are in
+> **Version 0.1.2 — early.** The project was previously called MeshGen; the notes of that development (phases 8–50) are in
 > [`docs/DEVELOPMENT_LOG.md`](docs/DEVELOPMENT_LOG.md). See [Status and known limits](#status-and-known-limits) before relying on it.
 
 ## Features
@@ -110,8 +110,8 @@ The installed package contains the core; optional backends are built from source
 
 ## Version
 
-The current version is **0.1.1** ([`CHANGELOG.md`](CHANGELOG.md)). It is set in one place, the CMake cache option `OPENMODEL_VERSION`
-(`MAJOR.MINOR.PATCH`, default `0.1.1`; minor and patch between 0 and 99, no leading zeros):
+The current version is **0.1.2** ([`CHANGELOG.md`](CHANGELOG.md)). It is set in one place, the CMake cache option `OPENMODEL_VERSION`
+(`MAJOR.MINOR.PATCH`, default `0.1.2`; minor and patch between 0 and 99, no leading zeros):
 
 ```bash
 cmake -S . -B build -DOPENMODEL_VERSION=0.2.0     # override, e.g. from a release script
@@ -123,10 +123,10 @@ major version and at least that version), the CPack file names and the generated
 ```cpp
 #include <OpenModel/Version.hpp>
 
-std::string s = OpenModel::versionString();        // "0.1.1", the version of the linked library
+std::string s = OpenModel::versionString();        // "0.1.2", the version of the linked library
 OpenModel::Version v = OpenModel::version();       // v.major, v.minor, v.patch
-#if OPENMODEL_VERSION_NUMBER >= 101                // major*10000 + minor*100 + patch (0.1.1 -> 101)
-// ... code that needs 0.1.1 or later
+#if OPENMODEL_VERSION_NUMBER >= 102                // major*10000 + minor*100 + patch (0.1.2 -> 102)
+// ... code that needs 0.1.2 or later
 #endif
 ```
 
@@ -172,7 +172,7 @@ Each backend is off by default and needs its native library to be found by CMake
 | `OPENMODEL_BUILD_NETGEN_BACKEND` (+ `OPENMODEL_NETGEN_HAS_OCC`) | Netgen meshing |
 | `OPENMODEL_BUILD_MFEM_BACKEND` | MFEM mesh adapter |
 
-General options: `OPENMODEL_VERSION` (`0.1.1`, see [Version](#version)), `OPENMODEL_BUILD_TESTS` (ON), `OPENMODEL_BUILD_CLI` (ON), `OPENMODEL_BUILD_SHARED` (ON), `OPENMODEL_BUILD_BENCHMARKS` (OFF),
+General options: `OPENMODEL_VERSION` (`0.1.2`, see [Version](#version)), `OPENMODEL_BUILD_TESTS` (ON), `OPENMODEL_BUILD_CLI` (ON), `OPENMODEL_BUILD_SHARED` (ON), `OPENMODEL_BUILD_BENCHMARKS` (OFF),
 `OPENMODEL_BUILD_WEBUI` (OFF), `OPENMODEL_TEST_WEBGL_VIEWER` (OFF, needs Node.js with Playwright).
 
 ### Gmsh meshing controls
@@ -211,6 +211,10 @@ General options: `OPENMODEL_VERSION` (`0.1.1`, see [Version](#version)), `OPENMO
   not create structure; they stay available through `MeshingOptions`. Not exposed: `setTransfiniteAutomatic` (it hides the node
   counts, which OpenModel computes itself so that it can grade the curves), `Mesh.SubdivisionAlgorithm` (an all-hexahedra
   subdivision of an unstructured mesh) and the quasi-structured quad algorithm (not a structured mesh).
+- `logLevel` / `logFile`: Gmsh log detail, `Error` (default), `Warning`, `Info` or `Debug` (`General.Verbosity` 1, 2, 4, 99). From `Info` the
+  log also has an OpenModel line at the start of each phase with its elapsed time. `GmshMesher::log()` returns it, also after a
+  failed run; it is written to `logFile` when it is not empty. The workbench has the same four levels and, after a volume mesh,
+  reports the meshing time, the number of nodes and elements by type and the element quality.
 - `thinFaceSizeFactor`: limits the element size at the corners of each face to the given multiple of the face width
   (2 * area / perimeter). It avoids needle triangles on strips such as the flange edges of a beam; 1 is a good start.
 - `computeMeshQuality(mesh)` (`MeshQuality.hpp`) reports the quality of every element type (1 = ideal; non-positive = inverted).

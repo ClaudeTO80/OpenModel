@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.20)
 # The single place where the OpenModel version is set. It feeds project(), the installed CMake package,
 # the CPack file names and the generated <OpenModel/Version.hpp> (macros and OpenModel::version()).
 # Override it with -DOPENMODEL_VERSION=x.y.z (for example from a release script).
-set(OPENMODEL_VERSION "0.1.1" CACHE STRING "OpenModel version, MAJOR.MINOR.PATCH (minor and patch 0-99)")
+set(OPENMODEL_VERSION "0.1.2" CACHE STRING "OpenModel version, MAJOR.MINOR.PATCH (minor and patch 0-99)")
 if(NOT OPENMODEL_VERSION MATCHES "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]?)\\.(0|[1-9][0-9]?)$")
     message(FATAL_ERROR "OPENMODEL_VERSION must look like MAJOR.MINOR.PATCH with minor and patch between 0 and 99, no leading zeros (got '${OPENMODEL_VERSION}')")
 endif()
