@@ -449,6 +449,8 @@ iframe{display:block;width:100%;height:100%;border:0;background:#10141b}
 "use strict";
 const $ = (id) => document.getElementById(id);
 let meshers = [], viewVersion = -1, viewAvailable = false, pendingView = false, defaults = {cwd: ""};
+/* Edges drawn by the viewer on the next model load: the CAD tessellation is shown without them, a finished mesh with them. */
+let viewEdges = "none";
 let busy = false, noMesher = false;
 let selectedCadFaceIds = [];
 
@@ -494,6 +496,9 @@ async function act(name, ...args) {
   const r = await call(name, ...args);
   setBusy(false);
   show(r.message || "", r.ok ? "good" : "bad");
+  // A CAD tessellation is shown without its triangle edges; they appear when a mesh has been generated or loaded.
+  if (["openmodel_import_model", "openmodel_retessellate"].includes(name)) viewEdges = "none";
+  else if (r.ok && ["openmodel_generate_volume", "openmodel_load_mesh"].includes(name)) viewEdges = "skin";
   applyView(r);
   if (r.groups) renderGroups(r.groups);
   if (r.cadGroups) renderCADFaceGroups(r.cadGroups);
@@ -521,9 +526,17 @@ function loadView(label) {
       ? "Selected CAD faces: " + ids.join(", ")
       : "CAD faces: none selected.";
   };
-  w.OpenModelViewer.loadUrl("model.mgwv?v=" + viewVersion, label);
+  const edges = viewEdges;
+  Promise.resolve(w.OpenModelViewer.loadUrl("model.mgwv?v=" + viewVersion, label)).then(() => {
+    if (w.OpenModelViewer.state.model) { w.OpenModelViewer.set({wire: edges}); syncRibbon(); }
+  });
 }
-$("viewer").addEventListener("load", () => { if (pendingView || viewVersion >= 0) loadView(); });
+$("viewer").addEventListener("load", () => {
+  // The viewer starts with the light theme; the Viewer theme button still toggles it.
+  const w = $("viewer").contentWindow;
+  if (w && w.document && w.document.documentElement) w.document.documentElement.dataset.theme = "light";
+  if (pendingView || viewVersion >= 0) loadView();
+});
 
 const importModel = () => act("openmodel_import_model", $("cadPath").value.trim(), $("linear").value, $("angular").value);
 const retessellate = () => act("openmodel_retessellate", $("linear").value, $("angular").value);
