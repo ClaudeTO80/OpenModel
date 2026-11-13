@@ -48,6 +48,14 @@ enum class StructuredElementShape {
     Mixed
 };
 
+/** @brief Amount of detail of the Gmsh log; each level includes the ones before it. */
+enum class LogLevel {
+    Error,    ///< Errors only.
+    Warning,  ///< Errors and warnings.
+    Info,     ///< Plus information messages and the OpenModel phase trace.
+    Debug     ///< Plus Gmsh debug messages.
+};
+
 /** @brief Distribution of the nodes along a transfinite curve (`gmsh::model::mesh::setTransfiniteCurve`, `meshType`). */
 enum class TransfiniteCurveType {
     /** Geometric progression with power `coef`: 1 is uniform, above 1 the elements grow along the curve. */
@@ -171,12 +179,13 @@ struct MeshingOptions {
     std::vector<CADGroup> additionalFaceGroups;
 
     /**
-     * Gmsh only: record the verbose (debug level) log of the run, with an OpenModel trace line at the start of
-     * each phase (import, 2D/3D meshing, CAD-face mapping with its progress) and its elapsed time. The log is
-     * also echoed to the terminal when there is one, and is kept after a failed run.
+     * Gmsh only: how much of the Gmsh log is recorded (`General.Verbosity`: 1, 2, 4 and 99). From the Info level up
+     * the log also has an OpenModel trace line at the start of each phase (import, 2D/3D meshing, CAD-face
+     * mapping with its progress) with its elapsed time. Above Error the log is also echoed to the terminal when
+     * there is one. The log is kept after a failed run.
      */
-    bool verboseLog = false;
-    /** Gmsh only: file the verbose log is written to when verboseLog is set; empty keeps it in memory only. */
+    LogLevel logLevel = LogLevel::Error;
+    /** Gmsh only: file the log is written to when it is not empty; empty keeps it in memory only. */
     std::string logFile;
 };
 

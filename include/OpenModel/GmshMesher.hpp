@@ -64,7 +64,7 @@ public:
     static GmshLibraryInfo libraryInfo();
 
     const std::vector<std::string>& diagnostics() const override { return m_diagnostics; }
-    /** Verbose log of the most recent buildMesh call (empty unless MeshingOptions::verboseLog was set). */
+    /** Gmsh log of the most recent buildMesh call, at the level of MeshingOptions::logLevel. */
     const std::vector<std::string>& log() const noexcept { return m_log; }
     /** Audit data from the most recent buildMesh call, one record per meshed CAD surface. */
     const std::vector<CADFaceMappingRecord>& faceMappingReport() const noexcept { return m_faceMappingReport; }
@@ -123,7 +123,7 @@ private:
                       bool importNativeGroups = true,
                       bool auditAllFaces = true);
 
-    /** Writes an OpenModel trace line to the Gmsh log when the verbose log is on. */
+    /** Writes an OpenModel trace line to the Gmsh log when the log level is Info or Debug. */
     void trace(const std::string& message) const;
 
     std::string m_lastError;

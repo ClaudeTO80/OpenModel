@@ -53,6 +53,7 @@
 #endif
 
 #include <algorithm>
+#include <chrono>
 #include <cctype>
 #include <cmath>
 #include <cstdio>
@@ -871,6 +872,43 @@ std::string qualityNote(const MeshData& mesh) {
     return note;
 }
 
+/** Elapsed time for the report: milliseconds below one second, seconds above. */
+std::string durationText(double seconds) {
+    char text[32];
+    if (seconds < 1.0) std::snprintf(text, sizeof text, "%.0f ms", seconds * 1000.0);
+    else std::snprintf(text, sizeof text, "%.2f s", seconds);
+    return text;
+}
+
+/** Counts of the volume (dimension 3) or surface (dimension 2) elements of a mesh per type, as "N hexahedra, M prisms". */
+std::string elementCountsText(const MeshData& mesh, int dimension) {
+    std::vector<std::pair<ElementType, std::size_t>> counts;
+    for (const auto& block : mesh.getElementBlocks()) {
+        if (elementDimension(block.type) != dimension) continue;
+        auto found = std::find_if(counts.begin(), counts.end(), [&](const auto& c) { return c.first == block.type; });
+        if (found == counts.end()) counts.emplace_back(block.type, block.size());
+        else found->second += block.size();
+    }
+    std::string text;
+    for (const auto& c : counts) text += (text.empty() ? "" : ", ") + std::to_string(c.second) + " " + qualityTypeName(c.first);
+    return text;
+}
+
+/**
+ * What the user reads when a mesh has been generated: how long it took, how many nodes and elements it has (by
+ * type), and the quality of its elements.
+ */
+std::string meshingReport(const MeshData& mesh, double seconds) {
+    std::string text = "Meshing time: " + durationText(seconds) +
+        "\nNodes: " + std::to_string(mesh.getNumNodes()) +
+        "\nElements: " + std::to_string(mesh.getNumElements());
+    const std::string volume = elementCountsText(mesh, 3), surface = elementCountsText(mesh, 2);
+    if (!volume.empty()) text += "\n  volume: " + volume;
+    if (!surface.empty()) text += "\n  surface: " + surface;
+    const std::string quality = qualityNote(mesh);
+    return text + (quality.empty() ? "\nElement quality: not available for these element types." : quality);
+}
+
 void generateVolume(webui_event_t* e) {
     StateLock lock;
     if (!lock.ok()) { replyBusy(e); return; }
@@ -878,7 +916,12 @@ void generateVolume(webui_event_t* e) {
     const double size = getDoubleArg(e, 1, 1.0);
     const int order = static_cast<int>(getDoubleArg(e, 2, 1.0));
     const bool conformal = getStringArg(e, 3) == "conformal";
-    const bool verbose = getStringArg(e, 4) == "1" && mesherId == "gmsh";
+    const std::string levelName = getStringArg(e, 4);
+    LogLevel logLevel = LogLevel::Error;
+    if (levelName == "warning") logLevel = LogLevel::Warning;
+    else if (levelName == "info") logLevel = LogLevel::Info;
+    else if (levelName == "debug") logLevel = LogLevel::Debug;
+    else if (levelName != "error") { reply(e, false, "Unknown log level '" + levelName + "'."); return; }
     if (!mesherAvailable(mesherId)) { reply(e, false, "The selected mesher was not built into this version."); return; }
     if (!g.cad) { reply(e, false, "Import a CAD model first."); return; }
     if (!(size > 0.0) || !std::isfinite(size) || (order != 1 && order != 2)) {
@@ -930,16 +973,17 @@ void generateVolume(webui_event_t* e) {
         structured.recombineMinimumQuality = getDoubleArg(e, 13, 0.01);
     }
     options.auditAllCadFaces = false;   // map only the requested CAD faces; others on demand after meshing
-    // The verbose Gmsh log goes next to the CAD file (or the temp folder when that is not writable).
+    // Above the Error level the Gmsh log is also saved next to the CAD file (or in the temp folder when that is
+    // not writable); at the Error level it is only shown when something went wrong.
     std::string logPath;
-    if (verbose) {
+    options.logLevel = logLevel;
+    if (mesherId == "gmsh" && logLevel != LogLevel::Error) {
         std::error_code logEc;
         auto base = fs::path(g.cad->getFilePath());
         auto candidatePath = base.parent_path() / (base.stem().string() + "_gmsh.log");
         std::ofstream probe(candidatePath, std::ios::app);
         if (!probe) candidatePath = fs::temp_directory_path(logEc) / (base.stem().string() + "_gmsh.log");
         logPath = candidatePath.string();
-        options.verboseLog = true;
         options.logFile = logPath;
     }
     for (const auto& userGroup : g.cadFaceGroups) {
@@ -955,6 +999,7 @@ void generateVolume(webui_event_t* e) {
     options.linearDeflection = g.linearDeflection;
     options.angularDeflection = g.angularDeflection;
 
+    const auto meshingStart = std::chrono::steady_clock::now();
     MeshData candidate;
     std::string label, failure;
     std::vector<std::string> notes;
@@ -971,9 +1016,11 @@ void generateVolume(webui_event_t* e) {
         if (!built) failure = mesher.lastError();
         notes = mesher.diagnostics();
         label = "Gmsh";
-        if (verbose) {
-            const auto& lines = mesher.log();
-            logNote = "\nVerbose Gmsh log: " + logPath + " (" + std::to_string(lines.size()) + " lines). Last lines:";
+        const auto& lines = mesher.log();
+        if (!lines.empty()) {
+            logNote = "\nGmsh log (" + (levelName.empty() ? std::string("error") : levelName) + " level" +
+                      (logPath.empty() ? std::string() : ", saved in " + logPath) + ", " + std::to_string(lines.size()) +
+                      " lines). Last lines:";
             for (std::size_t i = lines.size() > 15 ? lines.size() - 15 : 0; i < lines.size(); ++i) logNote += "\n  " + lines[i];
         }
 #endif
@@ -1034,6 +1081,8 @@ void generateVolume(webui_event_t* e) {
         }
         reply(e, false, "The generated mesh fails validation:" + details); return;
     }
+    // Meshing, CAD-face mapping and validation; not the preparation of the 3D view.
+    const double meshingSeconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - meshingStart).count();
     clearResults();
     g.mesh = std::move(candidate);
     g.origin = MeshOrigin::Generated;
@@ -1048,7 +1097,7 @@ void generateVolume(webui_event_t* e) {
             cadNodeSetSummary += "\nNode Set " + userGroup.name + "_NODES: " +
                 std::to_string(set->second.size()) + " nodes";
     }
-    reply(e, true, "Volume mesh generated and validated with " + label + ".\n" + meshSummary() + qualityNote(g.mesh) +
+    reply(e, true, "Volume mesh generated and validated with " + label + ".\n" + meshingReport(g.mesh, meshingSeconds) +
         cadNodeSetSummary + "\nOrder: " + std::to_string(order) +
         "\nRequested maximum size: " + std::to_string(size) +
         "\nInterfaces between solids: " + (conformal ? "conformal (shared nodes)" : "independent") +

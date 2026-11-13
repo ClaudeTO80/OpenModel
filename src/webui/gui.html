@@ -315,7 +315,14 @@ iframe{display:block;width:100%;height:100%;border:0;background:#10141b}
         <option value="independent">Independent meshes (separate nodes)</option>
         <option value="conformal">Conformal mesh (nodes shared on the interface)</option>
       </select></div>
-    <label class="check" data-f="log"><input type="checkbox" id="verbose"> Verbose Gmsh log (<code>_gmsh.log</code> file next to the CAD file)</label>
+    <div data-f="log"><label for="logLevel">Gmsh log level</label>
+      <select id="logLevel">
+        <option value="error">Error</option>
+        <option value="warning">Warning</option>
+        <option value="info">Info</option>
+        <option value="debug">Debug</option>
+      </select>
+      <p class="hint">Above Error the log is also saved as <code>_gmsh.log</code> next to the CAD file; Info adds the phase timings, Debug the internal Gmsh messages.</p></div>
     <button class="primary full" id="btnMesh" onclick="generate()">Generate volume mesh</button>
     <p class="hint" id="mesherHint"></p>
   </section>
@@ -520,7 +527,7 @@ $("viewer").addEventListener("load", () => { if (pendingView || viewVersion >= 0
 
 const importModel = () => act("openmodel_import_model", $("cadPath").value.trim(), $("linear").value, $("angular").value);
 const retessellate = () => act("openmodel_retessellate", $("linear").value, $("angular").value);
-const generate = () => act("openmodel_generate_volume", $("mesher").value, $("size").value, $("order").value, $("iface").value, $("verbose").checked ? "1" : "0",
+const generate = () => act("openmodel_generate_volume", $("mesher").value, $("size").value, $("order").value, $("iface").value, $("logLevel").value,
   $("shape").value, $("tcType").value, $("tcCoef").value, $("tsArr").value, $("recAlg").value, $("recAngle").value, $("recOpt").value, $("recMove").checked ? "1" : "0", $("recMinQ").value);
 const loadMesh = () => act("openmodel_load_mesh", $("loadPath").value.trim());
 const loadResults = () => act("openmodel_load_results", $("resPath").value.trim(), $("resStep").value.trim());

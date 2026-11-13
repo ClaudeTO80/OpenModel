@@ -478,24 +478,32 @@ bool GmshMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Mesh
                         gmsh::logger::get(captured);
                         gmsh::logger::stop();
                         lines = std::move(captured);
-                        if (!file.empty()) {
+                        if (!file.empty() && !lines.empty()) {
                             std::ofstream out(file, std::ios::trunc);
                             for (const auto& line : lines) out << line << '\n';
                         }
                     } catch (...) { /* the log is best effort */ }
                 }
-            } logCapture{options.verboseLog, m_log, options.logFile};
-            if (options.verboseLog) {
-                gmsh::logger::start();
-                m_trace = true;
-            }
+            } logCapture{true, m_log, options.logFile};
+            gmsh::logger::start();
+            // The OpenModel trace lines are information, so they appear from the Info level up.
+            m_trace = options.logLevel == LogLevel::Info || options.logLevel == LogLevel::Debug;
             const auto startTime = std::chrono::steady_clock::now();
             const auto elapsed = [&] {
                 return std::to_string(std::chrono::duration<double>(std::chrono::steady_clock::now() - startTime).count());
             };
 
-            gmsh::option::setNumber("General.Terminal", options.verboseLog ? 1 : 0);
-            if (options.verboseLog) gmsh::option::setNumber("General.Verbosity", 99);
+            // General.Verbosity: 1 errors, 2 + warnings, 4 + information, 99 + debug. Messages above the
+            // level are neither captured nor echoed. The terminal echo starts at the Warning level.
+            int verbosity = 1;
+            switch (options.logLevel) {
+                case LogLevel::Error: verbosity = 1; break;
+                case LogLevel::Warning: verbosity = 2; break;
+                case LogLevel::Info: verbosity = 4; break;
+                case LogLevel::Debug: verbosity = 99; break;
+            }
+            gmsh::option::setNumber("General.Terminal", options.logLevel == LogLevel::Error ? 0 : 1);
+            gmsh::option::setNumber("General.Verbosity", verbosity);
             trace("Start: " + std::string(options.dimension == MeshDimension::Volume ? "volume" : "surface") +
                   " mesh of " + cadModel->getFilePath() + ", max size " + std::to_string(baseSize) + ", min size " +
                   std::to_string(options.minElementSize) + ", order " + std::to_string(options.order) +
