@@ -23,6 +23,8 @@ else()
 endif()
 
 set(OPENMODEL_FATIGUE_SOURCES
+    src/FatigueSpecification.cpp
+    src/Json.cpp
     src/CycleCounting.cpp
     src/FatigueAnalysis.cpp
     src/FatigueDamageMap.cpp
@@ -63,6 +65,13 @@ set_target_properties(openmodel_fatigue PROPERTIES
     WINDOWS_EXPORT_ALL_SYMBOLS ON
     EXPORT_NAME Fatigue)
 
+if(OPENMODEL_BUILD_CLI)
+    add_executable(openmodel-fatigue cli/main.cpp)
+    target_link_libraries(openmodel-fatigue PRIVATE openmodel_fatigue)
+    target_compile_features(openmodel-fatigue PRIVATE cxx_std_17)
+    set_target_properties(openmodel-fatigue PROPERTIES CXX_EXTENSIONS OFF)
+endif()
+
 if(NOT OPENMODEL_FATIGUE_STANDALONE)
     install(TARGETS openmodel_fatigue
         EXPORT OpenModelTargets
@@ -87,6 +96,8 @@ if(OPENMODEL_BUILD_TESTS)
         add_test(NAME ${target} COMMAND ${target})
         set_tests_properties(${target} PROPERTIES LABELS "fatigue")
     endfunction()
+    openmodel_fatigue_add_test(fatigue_json_test tests/json_test.cpp)
+    openmodel_fatigue_add_test(fatigue_specification_test tests/fatigue_specification_test.cpp)
     openmodel_fatigue_add_test(fatigue_result_source_test tests/openmodel_fem_results_source_test.cpp)
     openmodel_fatigue_add_test(fatigue_tensor_normalizer_test tests/tensor_normalizer_test.cpp)
     openmodel_fatigue_add_test(fatigue_sample_preparer_test tests/fatigue_sample_preparer_test.cpp)
@@ -108,4 +119,34 @@ if(OPENMODEL_BUILD_TESTS)
     openmodel_fatigue_add_test(fatigue_damage_map_test tests/fatigue_damage_map_test.cpp)
     openmodel_fatigue_add_test(fatigue_damage_map_writer_test tests/fatigue_damage_map_writer_test.cpp)
     openmodel_fatigue_add_test(fatigue_damage_map_webview_adapter_test tests/fatigue_damage_map_webview_adapter_test.cpp)
+endif()
+
+# Command-line checks. They read the solver-results fixture of the core tests (beam_fixture), so they exist only
+# inside OpenModel where that fixture is generated.
+if(OPENMODEL_BUILD_TESTS AND OPENMODEL_BUILD_CLI AND NOT OPENMODEL_FATIGUE_STANDALONE)
+    find_package(Python3 COMPONENTS Interpreter QUIET)
+    if(Python3_FOUND)
+        set(_fatigue_beam_frd "${CMAKE_BINARY_DIR}/beam_fixture/beam.frd")
+        set(_fatigue_data "${CMAKE_CURRENT_BINARY_DIR}/cli_data")
+        file(MAKE_DIRECTORY "${_fatigue_data}")
+        file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/tests/data/material.json" DESTINATION "${_fatigue_data}")
+        file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/tests/data/bad_material.json" DESTINATION "${_fatigue_data}")
+        configure_file("${CMAKE_CURRENT_SOURCE_DIR}/tests/data/spectrum.json.in" "${_fatigue_data}/spectrum.json" @ONLY)
+        add_test(NAME fatigue_cli_info COMMAND openmodel-fatigue info)
+        add_test(NAME fatigue_cli_analyze COMMAND openmodel-fatigue analyze
+            --material "${_fatigue_data}/material.json" --field STRESS --position node:1
+            --results "${_fatigue_beam_frd}" --unit MPa:1e6 --out "${_fatigue_data}/analyze")
+        add_test(NAME fatigue_cli_spectrum COMMAND openmodel-fatigue spectrum
+            --spectrum "${_fatigue_data}/spectrum.json" --material "${_fatigue_data}/material.json"
+            --out "${_fatigue_data}/spectrum")
+        add_test(NAME fatigue_cli_bad_material COMMAND openmodel-fatigue analyze
+            --material "${_fatigue_data}/bad_material.json" --field STRESS --position node:1
+            --results "${_fatigue_beam_frd}")
+        set_tests_properties(fatigue_cli_bad_material PROPERTIES PASS_REGULAR_EXPRESSION "unknown kind 'sn'")
+        set_tests_properties(fatigue_cli_analyze PROPERTIES PASS_REGULAR_EXPRESSION "STRESS, 1 position\\(s\\): success")
+        set_tests_properties(fatigue_cli_spectrum PROPERTIES PASS_REGULAR_EXPRESSION "spectrum: success")
+        set_tests_properties(fatigue_cli_analyze fatigue_cli_spectrum PROPERTIES FIXTURES_REQUIRED beam_fixture)
+        set_tests_properties(fatigue_cli_info fatigue_cli_analyze fatigue_cli_spectrum fatigue_cli_bad_material
+            PROPERTIES LABELS "fatigue")
+    endif()
 endif()

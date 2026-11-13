@@ -1,0 +1,16 @@
+{
+  "name": "test steel",
+  "materialId": "TEST-STEEL",
+  "source": "fatigue_cli test",
+  "curves": [
+    {
+      "kind": "sn",
+      "amplitudeUnit": { "symbol": "MPa", "scaleToSI": 1e6, "dimension": { "mass": 1, "length": -1, "time": -2 } },
+      "slices": [
+        { "temperatureKelvin": 293.15,
+          "points": [ { "amplitude": 1, "cyclesToFailure": 1e12 },
+                      { "amplitude": 1000, "cyclesToFailure": 1e3 } ] }
+      ]
+    }
+  ]
+}

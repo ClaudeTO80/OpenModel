@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+- `openmodel-fatigue` command-line tool: `analyze` (one or more positions of a FEM result, reports in CSV and JSON), `spectrum` (ordered blocks of several result sets with repetitions, reports in CSV and JSON) and `info`. Inputs are JSON: material curves (`stressLifeSN` or `strainLifeEN`, with explicit units), positions (`node:ID`, `element:ID`, `ip:ELEMENT:N`) and spectrum files. Result units are declared with `--unit SYMBOL:SCALE` or `resultUnit`, because CalculiX files do not declare one.
+- `OpenModel::Fatigue::Json`: a strict, small JSON reader used by the fatigue input files.
+
 ### Changed
 - The fatigue analysis is a separate shared library, `OpenModel::Fatigue` (`OpenModelFatigue`), with its sources, headers and tests in `fatigue/`. It links the shared core; the core library no longer contains it. Option `OPENMODEL_BUILD_FATIGUE` (default ON, needs `OPENMODEL_BUILD_SHARED`). The same directory builds on its own against an installed OpenModel package (`cmake -S fatigue -B build -DCMAKE_PREFIX_PATH=<prefix>`). Header paths (`<OpenModel/Fatigue/...>`) and test names are unchanged.
 
