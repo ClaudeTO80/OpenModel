@@ -6,6 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Changed
+- The fatigue analysis is a separate shared library, `OpenModel::Fatigue` (`OpenModelFatigue`), with its sources, headers and tests in `fatigue/`. It links the shared core; the core library no longer contains it. Option `OPENMODEL_BUILD_FATIGUE` (default ON, needs `OPENMODEL_BUILD_SHARED`). The same directory builds on its own against an installed OpenModel package (`cmake -S fatigue -B build -DCMAKE_PREFIX_PATH=<prefix>`). Header paths (`<OpenModel/Fatigue/...>`) and test names are unchanged.
+
 ## [0.1.2] - 2026-11-13
 
 ### Added

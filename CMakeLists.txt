@@ -21,6 +21,7 @@ option(OPENMODEL_BUILD_TESTS "Build dependency-free core tests" ON)
 option(OPENMODEL_BUILD_BENCHMARKS "Build optional synthetic mesh performance benchmarks" OFF)
 option(OPENMODEL_BUILD_CLI "Build the OpenModel command-line application" ON)
 option(OPENMODEL_BUILD_SHARED "Build the shared library in addition to the static library" ON)
+option(OPENMODEL_BUILD_FATIGUE "Build the fatigue analysis shared library OpenModel::Fatigue, its tests and the openmodel-fatigue tool (needs OPENMODEL_BUILD_SHARED)" ON)
 option(OPENMODEL_TEST_WEBGL_VIEWER "Run the headless WebGL viewer smoke test (needs Node.js with Playwright; set NODE_PATH)" OFF)
 option(OPENMODEL_BUILD_WEBUI "Build the optional WebUI desktop application" OFF)
 set(OPENMODEL_WEBUI_ROOT "" CACHE PATH "Root directory of the WebUI SDK")
@@ -45,7 +46,7 @@ set(OPENMODEL_NETGEN_TEST_STEP "" CACHE FILEPATH "Optional STEP/IGES/BREP fixtur
 # options that select modules and backends. It is generated here, after the options above exist.
 set(_openmodel_build_info_options "")
 foreach(_openmodel_option
-        OPENMODEL_BUILD_TESTS OPENMODEL_BUILD_BENCHMARKS OPENMODEL_BUILD_CLI OPENMODEL_BUILD_SHARED
+        OPENMODEL_BUILD_TESTS OPENMODEL_BUILD_BENCHMARKS OPENMODEL_BUILD_CLI OPENMODEL_BUILD_SHARED OPENMODEL_BUILD_FATIGUE
         OPENMODEL_BUILD_WEBUI OPENMODEL_BUILD_GMSH_BACKEND OPENMODEL_BUILD_OCC_BACKEND
         OPENMODEL_BUILD_NETGEN_BACKEND OPENMODEL_BUILD_MFEM_BACKEND OPENMODEL_BUILD_ASSIMP_BACKEND
         OPENMODEL_BUILD_TETGEN_BACKEND OPENMODEL_NETGEN_HAS_OCC)
@@ -87,29 +88,7 @@ set(OPENMODEL_CORE_SOURCES
     src/FemResults.cpp
     src/ResultBinding.cpp
     src/CodeAster.cpp
-    src/CodeAsterResults.cpp
-    src/fatigue/OpenModelFemResultsSource.cpp
-    src/fatigue/TensorNormalizer.cpp
-    src/fatigue/FatigueSamplePreparer.cpp
-    src/fatigue/StressHistory.cpp
-    src/fatigue/CycleCounting.cpp
-    src/fatigue/MultiaxialCycleCounting.cpp
-    src/fatigue/FatigueMaterial.cpp
-    src/fatigue/MeanStressCorrection.cpp
-    src/fatigue/FatigueDamageModel.cpp
-    src/fatigue/StrainLifeDamageModel.cpp
-    src/fatigue/WangBrownDamageModel.cpp
-    src/fatigue/WangBrownRelativeStrain.cpp
-    src/fatigue/StrainLifeAnalysis.cpp
-    src/fatigue/LocalStrainCorrection.cpp
-    src/fatigue/FatigueAnalysis.cpp
-    src/fatigue/FatigueReport.cpp
-    src/fatigue/FatigueReportWriter.cpp
-    src/fatigue/FatigueSpectrumReport.cpp
-    src/fatigue/FatigueSpectrumReportWriter.cpp
-    src/fatigue/FatigueDamageMap.cpp
-    src/fatigue/FatigueDamageMapWriter.cpp
-    src/fatigue/FatigueDamageMapWebViewAdapter.cpp)
+    src/CodeAsterResults.cpp)
 
 function(openmodel_configure_core_target target export_name)
     target_include_directories(${target} PUBLIC
@@ -140,6 +119,14 @@ if(OPENMODEL_BUILD_SHARED)
         OUTPUT_NAME OpenModel
         WINDOWS_EXPORT_ALL_SYMBOLS ON)
     openmodel_configure_core_target(openmodel_shared Shared)
+endif()
+
+if(OPENMODEL_BUILD_FATIGUE)
+    # The fatigue library links the shared core: one copy of the core in a process.
+    if(NOT OPENMODEL_BUILD_SHARED)
+        message(FATAL_ERROR "OPENMODEL_BUILD_FATIGUE requires OPENMODEL_BUILD_SHARED=ON (the fatigue library and the core must share one copy of the core).")
+    endif()
+    add_subdirectory(fatigue)
 endif()
 
 if(OPENMODEL_BUILD_CLI)
@@ -241,27 +228,6 @@ if(OPENMODEL_BUILD_TESTS)
     openmodel_add_test(surface_refiner_test tests/surface_refiner_test.cpp)
     openmodel_add_test(web_view_writer_test tests/web_view_writer_test.cpp)
     openmodel_add_test(fem_results_test tests/fem_results_test.cpp)
-    openmodel_add_test(fatigue_result_source_test tests/fatigue/openmodel_fem_results_source_test.cpp)
-    openmodel_add_test(fatigue_tensor_normalizer_test tests/fatigue/tensor_normalizer_test.cpp)
-    openmodel_add_test(fatigue_sample_preparer_test tests/fatigue/fatigue_sample_preparer_test.cpp)
-    openmodel_add_test(fatigue_stress_history_test tests/fatigue/stress_history_test.cpp)
-    openmodel_add_test(fatigue_cycle_counting_test tests/fatigue/cycle_counting_test.cpp)
-    openmodel_add_test(fatigue_multiaxial_cycle_contract_test tests/fatigue/multiaxial_cycle_contract_test.cpp)
-    openmodel_add_test(fatigue_material_test tests/fatigue/fatigue_material_test.cpp)
-    openmodel_add_test(fatigue_mean_stress_correction_test tests/fatigue/mean_stress_correction_test.cpp)
-    openmodel_add_test(fatigue_damage_model_test tests/fatigue/fatigue_damage_model_test.cpp)
-    openmodel_add_test(fatigue_strain_life_damage_model_test tests/fatigue/strain_life_damage_model_test.cpp)
-    openmodel_add_test(fatigue_wang_brown_damage_model_test tests/fatigue/wang_brown_damage_model_test.cpp)
-    openmodel_add_test(fatigue_wang_brown_relative_strain_test tests/fatigue/wang_brown_relative_strain_test.cpp)
-    openmodel_add_test(fatigue_strain_life_analysis_test tests/fatigue/strain_life_analysis_test.cpp)
-    openmodel_add_test(fatigue_local_strain_correction_test tests/fatigue/local_strain_correction_test.cpp)
-    openmodel_add_test(fatigue_analysis_test tests/fatigue/fatigue_analysis_test.cpp)
-    openmodel_add_test(fatigue_report_test tests/fatigue/fatigue_report_test.cpp)
-    openmodel_add_test(fatigue_report_writer_test tests/fatigue/fatigue_report_writer_test.cpp)
-    openmodel_add_test(fatigue_spectrum_report_test tests/fatigue/fatigue_spectrum_report_test.cpp)
-    openmodel_add_test(fatigue_damage_map_test tests/fatigue/fatigue_damage_map_test.cpp)
-    openmodel_add_test(fatigue_damage_map_writer_test tests/fatigue/fatigue_damage_map_writer_test.cpp)
-    openmodel_add_test(fatigue_damage_map_webview_adapter_test tests/fatigue/fatigue_damage_map_webview_adapter_test.cpp)
     openmodel_add_test(analysis_setup_test tests/analysis_setup_test.cpp)
     openmodel_add_test(mesh_selection_test tests/mesh_selection_test.cpp)
     openmodel_add_test(code_aster_test tests/code_aster_test.cpp)
@@ -269,7 +235,7 @@ if(OPENMODEL_BUILD_TESTS)
     openmodel_add_test(cad_face_mapper_test tests/cad_face_mapper_test.cpp)
     set(_openmodel_core_test_names core_smoke_test mesh_validation_test abaqus_writer_test physical_groups_test
         mesh_topology_test surface_mesher_test gltf_writer_test surface_refiner_test
-        web_view_writer_test mesh_binary_io_test openmodel_project_test mesh_importer_test fem_results_test fatigue_result_source_test fatigue_tensor_normalizer_test fatigue_sample_preparer_test fatigue_stress_history_test fatigue_cycle_counting_test fatigue_multiaxial_cycle_contract_test fatigue_material_test fatigue_mean_stress_correction_test fatigue_damage_model_test fatigue_strain_life_damage_model_test fatigue_wang_brown_damage_model_test fatigue_analysis_test fatigue_report_test fatigue_report_writer_test fatigue_spectrum_report_test fatigue_damage_map_test fatigue_damage_map_writer_test fatigue_damage_map_webview_adapter_test analysis_setup_test mesh_selection_test code_aster_test mesh_quality_test cad_face_mapper_test)
+        web_view_writer_test mesh_binary_io_test openmodel_project_test mesh_importer_test fem_results_test analysis_setup_test mesh_selection_test code_aster_test mesh_quality_test cad_face_mapper_test)
     if(OPENMODEL_BUILD_CLI)
         list(APPEND _openmodel_core_test_names openmodel_cli_info openmodel_cli_validate_demo)
     endif()

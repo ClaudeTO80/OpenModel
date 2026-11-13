@@ -222,10 +222,11 @@ General options: `OPENMODEL_VERSION` (`0.1.2`, see [Version](#version)), `OPENMO
 ## Repository layout
 
 ```text
-include/OpenModel/   public headers (include/OpenModel/Fatigue for the fatigue module)
-src/                 library sources; src/fatigue (fatigue module), src/cli (openmodel), src/webui (openmodel-webui + gui.html), src/importers
+include/OpenModel/   public headers of the core library (fatigue headers are in fatigue/include)
+src/                 core library sources, src/cli (openmodel), src/webui (openmodel-webui + gui.html), src/importers
+fatigue/             fatigue library OpenModel::Fatigue (include, src, tests); its own CMakeLists.txt, also buildable alone against an installed OpenModel
 examples/            webgl-fem-viewer (the viewer), webgl-viewer (glTF), cmake-consumer, cmake-assimp-consumer
-tests/               C++ tests, tests/fatigue, tests/support (fixtures, fake ccx / code_aster), tests/webgl (browser and GUI tests)
+tests/               C++ tests of the core, tests/support (fixtures, fake ccx / code_aster), tests/webgl (browser and GUI tests); fatigue tests are in fatigue/tests
 benchmarks/          optional synthetic performance benchmarks
 docs/                format and feature documentation; docs/index.html is the HTML manual
 cmake/               package configuration template, Version.hpp.in (generated version header)
