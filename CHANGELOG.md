@@ -11,6 +11,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - `OpenModel::Fatigue::Json`: a strict, small JSON reader used by the fatigue input files.
 
 ### Changed
+- Face selection in the viewer and in the GUI: a click on a face now also selects the connected faces on the same plane (`Face angle`, default 1 degree instead of 0), so a whole planar face of the model is picked with one click, to apply constraints or other bulk operations to its nodes. The angle is the angle between the planes of two faces (0 to 90 degrees; 0 selects only the clicked face), and it no longer depends on the winding of the skin triangles, which the faces of a tetrahedron mix.
+- New `Face growth` option (`OpenModelViewer.pick.setGrowth`): `Same normal` (default) measures the angle against the clicked face, so the selection stops where a curved surface bends away from it; `Smooth surface` keeps the previous behaviour (angle against the face it is reached from), which follows a curved surface. On a CAD surface mesh the selection stays inside the clicked CAD face in `Same normal` mode.
 - The fatigue analysis is a separate shared library, `OpenModel::Fatigue` (`OpenModelFatigue`), with its sources, headers and tests in `fatigue/`. It links the shared core; the core library no longer contains it. Option `OPENMODEL_BUILD_FATIGUE` (default ON, needs `OPENMODEL_BUILD_SHARED`). The same directory builds on its own against an installed OpenModel package (`cmake -S fatigue -B build -DCMAKE_PREFIX_PATH=<prefix>`). Header paths (`<OpenModel/Fatigue/...>`) and test names are unchanged.
 
 ## [0.1.2] - 2026-11-13

@@ -367,6 +367,25 @@ if(OPENMODEL_BUILD_TESTS AND OPENMODEL_TEST_WEBGL_VIEWER AND OPENMODEL_BUILD_CLI
                     "${CMAKE_CURRENT_BINARY_DIR}/beam_fixture/beam_pick.mgwv" "${CMAKE_CURRENT_BINARY_DIR}/beam_fixture/beam.inp")
         set_tests_properties(webgl_pick_data PROPERTIES FIXTURES_REQUIRED beam_fixture FIXTURES_SETUP pick_data LABELS "webgl;pick")
         set_tests_properties(webgl_pick_smoke PROPERTIES FIXTURES_REQUIRED "beam_fixture;pick_data" LABELS "webgl;pick" TIMEOUT 240)
+        # Growth of a face selection on a curved surface (exact sizes known from the construction of the mesh).
+        set(_arch_dir "${CMAKE_CURRENT_BINARY_DIR}/arch_fixture")
+        add_test(NAME webgl_face_growth_fixture
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/support/make_arch_mesh.py" "${_arch_dir}")
+        add_test(NAME webgl_face_growth_data_hex COMMAND openmodel-cli export-web "${_arch_dir}/arch.inp" "${_arch_dir}/arch.mgwv")
+        add_test(NAME webgl_face_growth_data_tet COMMAND openmodel-cli export-web "${_arch_dir}/arch_tet.inp" "${_arch_dir}/arch_tet.mgwv")
+        set_tests_properties(webgl_face_growth_fixture PROPERTIES FIXTURES_SETUP arch_mesh LABELS "webgl;pick")
+        set_tests_properties(webgl_face_growth_data_hex webgl_face_growth_data_tet PROPERTIES
+            FIXTURES_REQUIRED arch_mesh FIXTURES_SETUP arch_data LABELS "webgl;pick")
+        foreach(_arch IN ITEMS "arch;1" "arch_tet;2")
+            list(GET _arch 0 _arch_name)
+            list(GET _arch 1 _arch_per_quad)
+            add_test(NAME webgl_face_growth_${_arch_name}
+                COMMAND "${OPENMODEL_NODE_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/webgl/viewer_face_growth_smoke.js"
+                        "${CMAKE_CURRENT_SOURCE_DIR}/examples/webgl-fem-viewer/index.html"
+                        "${CMAKE_CURRENT_BINARY_DIR}/arch_fixture/${_arch_name}.mgwv" "${CMAKE_CURRENT_BINARY_DIR}/arch_fixture/${_arch_name}.inp"
+                        ${_arch_per_quad})
+            set_tests_properties(webgl_face_growth_${_arch_name} PROPERTIES FIXTURES_REQUIRED arch_data LABELS "webgl;pick" TIMEOUT 240)
+        endforeach()
         add_test(NAME webgl_modal_smoke
             COMMAND "${OPENMODEL_NODE_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/webgl/viewer_modal_smoke.js"
                     "${CMAKE_CURRENT_SOURCE_DIR}/examples/webgl-fem-viewer/index.html"

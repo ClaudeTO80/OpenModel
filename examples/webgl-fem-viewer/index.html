@@ -148,7 +148,12 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
         <option value="element">Elements</option>
         <option value="face">Faces</option>
       </select></label>
-    <label class="row"><span>Angle</span><input type="number" id="pickAngle" min="0" max="180" step="1" value="0" title="Faces: extends the selection to connected faces whose normal deviates by less than this angle (0 = single face)"> <span style="flex:1;color:var(--text)">° (faces)</span></label>
+    <label class="row"><span>Angle</span><input type="number" id="pickAngle" min="0" max="180" step="0.5" value="1" title="Faces: a click also selects the connected faces whose plane is within this angle of the clicked one (0 = only the clicked face; 90 or more = every connected face)"> <span style="flex:1;color:var(--text)">° (faces)</span></label>
+    <label class="row"><span>Growth</span>
+      <select id="pickGrowth" title="Same normal: the angle is measured against the clicked face, so a curved surface is not followed. Smooth surface: the angle is measured between neighbouring faces, so the selection follows a curved surface.">
+        <option value="same-normal">Same normal</option>
+        <option value="smooth">Smooth surface</option>
+      </select></label>
     <label class="row"><span>Box</span><input type="checkbox" id="pickBox"> <span style="flex:1;color:var(--text)">drag to select</span></label>
     <div class="row"><span>Selected</span><span id="pickCount" style="flex:1;text-align:right">none</span></div>
     <div class="row"><button id="pickClear" style="flex:1">Clear selection</button></div>
@@ -384,7 +389,7 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     fieldIndex: 0, range: [0, 1], dirty: true,
     defOn: true, defFactor: 1, defSuggested: 1,
     modeIndex: 0, animate: false, phase: 0, lastTick: 0,
-    pickMode: "off", pickAngle: 0, pickBox: false, sel: { node: new Set(), element: new Set(), face: new Set() },
+    pickMode: "off", pickAngle: 1, pickGrowth: "same-normal", pickBox: false, sel: { node: new Set(), element: new Set(), face: new Set() },
     rot: [1, 0, 0, 0, 1, 0, 0, 0, 1], target: [0, 0, 0], dist: 3, radius: 1,
   };
 
@@ -1056,17 +1061,52 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     S.faceInfo = { first, count, normals, neighbours, skinFaces: new Set(Object.keys(first).map(Number).filter((f) => first[f] < nSkin)) };
     return S.faceInfo;
   }
-  // Faces connected to `face` through edges where consecutive normals differ by at most `angle` degrees.
-  function connectedFaces(face, angle) {
+  /**
+   * @brief B-Rep face id carried by a face of a CAD surface mesh.
+   * @param face Face index (the `triFace` value shared by the triangles of the face).
+   * @return The CAD face id, or -1 when the face does not belong to a CAD face (every FEM mesh).
+   */
+  function cadFaceOf(face) {
+    const m = S.model, t = buildFaceInfo().first[face];
+    const region = t === undefined || !m.triRegion ? 0 : m.triRegion[t];
+    const group = region > 0 ? m.meta.groups[region - 1] : null;
+    const match = group && /^__openmodel_cad_face_(\d+)$/.exec(group.name);
+    return match ? Number(match[1]) : -1;
+  }
+  /**
+   * @brief Faces selected by one click: the clicked face plus the skin faces connected to it through shared edges.
+   *
+   * The angle is the angle between the planes of two faces, 0 to 90 degrees (a value of 90 or more accepts every
+   * connected face). The sign of a normal is ignored on purpose: the exported skin triangles do not have a common
+   * winding (the face table of a tetrahedron mixes outward and inward faces), so two coplanar neighbours can have
+   * opposite normals, and comparing directions would stop the selection at the first one.
+   *
+   * With `growth` "same-normal" a face joins when its plane is within `angle` degrees of the plane of the
+   * clicked face, so the selection stops where the surface bends away from it, however slowly (a cylinder made
+   * of 2 degree facets gives a few facets, not the whole cylinder). On a CAD surface mesh the selection also
+   * stays inside the clicked B-Rep face, because the viewer reports the selected CAD face ids.
+   * With `growth` "smooth" a face joins when its plane is within `angle` degrees of the plane of the face
+   * it is reached from, so the selection follows a curved surface for as long as it bends gently.
+   *
+   * @param face   Face index of the clicked face.
+   * @param angle  Tolerance in degrees; 0 (or less) selects only the clicked face.
+   * @param growth "same-normal" or "smooth".
+   * @return Face indices, the clicked face included. Interior faces have no neighbours and give only themselves.
+   */
+  function connectedFaces(face, angle, growth) {
     const info = buildFaceInfo();
     if (!info.skinFaces.has(face) || !(angle > 0)) return [face];
-    const limit = Math.cos(angle * Math.PI / 180), seen = new Set([face]), queue = [face];
+    const limit = Math.cos(angle * Math.PI / 180), seed = info.normals.get(face), chained = growth === "smooth";
+    const cad = chained ? -1 : cadFaceOf(face);
+    const seen = new Set([face]), queue = [face];
     while (queue.length) {
-      const f = queue.pop(), nf = info.normals.get(f);
+      const f = queue.pop(), reference = chained ? info.normals.get(f) : seed;
       for (const g of info.neighbours.get(f) || []) {
         if (seen.has(g)) continue;
         const ng = info.normals.get(g);
-        if (nf[0] * ng[0] + nf[1] * ng[1] + nf[2] * ng[2] >= limit) { seen.add(g); queue.push(g); }
+        if (Math.abs(reference[0] * ng[0] + reference[1] * ng[1] + reference[2] * ng[2]) < limit) continue;
+        if (cad >= 0 && cadFaceOf(g) !== cad) continue;
+        seen.add(g); queue.push(g);
       }
     }
     return [...seen];
@@ -1109,10 +1149,8 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
         };
         // CAD surface meshes carry a reserved physical-group name for each source B-Rep face.
         // Keep the original FEM face-selection contract and add CAD provenance only when present.
-        const region = m.triRegion[t];
-        const group = region > 0 ? m.meta.groups[region - 1] : null;
-        const match = group && /^__openmodel_cad_face_(\d+)$/.exec(group.name);
-        if (match) selectedFace.cadFaceId = Number(match[1]);
+        const cadFaceId = cadFaceOf(f);
+        if (cadFaceId >= 0) selectedFace.cadFaceId = cadFaceId;
         out.faces.push(selectedFace);
       }
     }
@@ -1170,7 +1208,7 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
       for (const t of hit.tris || []) sel.element.add(m.triElementId[t]);
     } else if (mode === "face") {
       if (hit.tri >= 0) {
-        const faces = connectedFaces(m.triFace[hit.tri], S.pickAngle);
+        const faces = connectedFaces(m.triFace[hit.tri], S.pickAngle, S.pickGrowth);
         const removing = additive && !hit.add && sel.face.has(m.triFace[hit.tri]);
         for (const f of faces) { if (removing) sel.face.delete(f); else sel.face.add(f); }
       }
@@ -1260,6 +1298,7 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
   }
   $("pickMode").addEventListener("change", (e) => setPickMode(e.target.value));
   $("pickAngle").addEventListener("change", (e) => { S.pickAngle = Math.max(0, Math.min(180, Number(e.target.value) || 0)); });
+  $("pickGrowth").addEventListener("change", (e) => { S.pickGrowth = e.target.value === "smooth" ? "smooth" : "same-normal"; });
   $("pickBox").addEventListener("change", (e) => { S.pickBox = e.target.checked; });
   $("pickClear").addEventListener("click", clearSelection);
   window.OpenModelViewer = {
@@ -1267,6 +1306,8 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     pick: {
       setMode: setPickMode, clear: clearSelection, get: getSelection, set: setSelection,
       setAngle(a) { S.pickAngle = Math.max(0, Math.min(180, Number(a) || 0)); $("pickAngle").value = S.pickAngle; },
+      /** "same-normal" (angle against the clicked face) or "smooth" (angle between neighbouring faces). */
+      setGrowth(g) { S.pickGrowth = g === "smooth" ? "smooth" : "same-normal"; $("pickGrowth").value = S.pickGrowth; },
       setBox(on) { S.pickBox = !!on; $("pickBox").checked = S.pickBox; },
       available() { return !!(S.model && S.model.canPick); },
       // Test helpers: what is under a client-space point, and where a vertex / node id appears on screen.

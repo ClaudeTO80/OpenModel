@@ -161,8 +161,12 @@ function parseInp(file) {
   }, c0);
   check(px[0] > px[2] + 60, 'the selected element is highlighted: rgb(' + px.slice(0, 3) + ')');
 
-  // 6. Faces.
+  // 6. Faces. The default tolerance is 1 degree, so a plain click already selects the whole planar face; angle 0 gives a single face.
   await P('setMode', 'face');
+  await page.mouse.click(c0[0], c0[1]);
+  s = await sel();
+  check(s.faces.length === 80, 'default click: the whole top face (80 triangles) without touching the angle (' + s.faces.length + ')');
+  await P('setAngle', 0);
   await page.mouse.click(c0[0], c0[1]);
   s = await sel();
   check(s.faces.length === 1 && s.faces[0].element === face0.element && [...s.faces[0].nodes].sort((a, b) => a - b).join() === face0.nodes.join(),
@@ -176,10 +180,21 @@ function parseInp(file) {
   // each returned face is one of the oracle's top faces (3 corner ids of a triangle of the face, here exactly the face)
   check(s.faces.every((f) => expectTop.has(keyOf(f)) && model.skin.some((q) => q.element === f.element && q.nodes.join() === keyOf(f))), 'every selected face is an oracle top face with the right element');
   await shot('pick_face_angle.png');
-  await P('setAngle', 100);
+  // The angle is between planes: the sides of the beam are exactly 90 degrees from the top, so 89 keeps only the top and 91 takes all.
+  await P('setAngle', 89);
   await page.mouse.click(c0[0], c0[1]);
   s = await sel();
-  check(s.faces.length === model.skin.length, 'angle 100 deg: all ' + model.skin.length + ' skin triangles (' + s.faces.length + ')');
+  check(s.faces.length === 80, 'same normal, angle 89 deg: only the top face (' + s.faces.length + ')');
+  await P('setAngle', 91);
+  await page.mouse.click(c0[0], c0[1]);
+  s = await sel();
+  check(s.faces.length === model.skin.length, 'same normal, angle 91 deg: all ' + model.skin.length + ' skin triangles (' + s.faces.length + ')');
+  await P('setAngle', 100);
+  await P('setGrowth', 'smooth');
+  await page.mouse.click(c0[0], c0[1]);
+  s = await sel();
+  check(s.faces.length === model.skin.length, 'smooth, angle 100 deg: all ' + model.skin.length + ' skin triangles (' + s.faces.length + ')');
+  await P('setGrowth', 'same-normal');
   // Ctrl+click removes a face from the selection
   await P('setAngle', 0);
   await page.keyboard.down('Control'); await page.mouse.click(c0[0], c0[1]); await page.keyboard.up('Control');

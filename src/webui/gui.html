@@ -150,7 +150,7 @@ iframe{display:block;width:100%;height:100%;border:0;background:var(--viewport)}
     <div class="group"><div class="items">
       <button class="rb" data-act="pick-node" data-on="pick:node" data-need="pick" title="Select nodes in the viewer (click; Ctrl+click adds; Alt+drag = box)"><span class="ic">•</span>Nodes</button>
       <button class="rb" data-act="pick-element" data-on="pick:element" data-need="pick" title="Select elements (those with a visible face are shown)"><span class="ic">▣</span>Elements</button>
-      <button class="rb" data-act="pick-face" data-on="pick:face" data-need="pick" title="Select faces; with angle > 0 the selection extends to connected faces"><span class="ic">◩</span>Faces</button>
+      <button class="rb" data-act="pick-face" data-on="pick:face" data-need="pick" title="Select faces; a click also selects the connected faces with the same normal (see Face angle, section 7)"><span class="ic">◩</span>Faces</button>
       <button class="rb" data-act="sel-clear" data-need="sel" title="Clear the selection"><span class="ic">✖</span>None</button>
     </div><div class="gname">Selection</div></div>
     <div class="group"><div class="items">
@@ -389,8 +389,12 @@ iframe{display:block;width:100%;height:100%;border:0;background:var(--viewport)}
     <select id="selMode" onchange="setPickMode(this.value)">
       <option value="off">Off</option><option value="node">Nodes</option><option value="element">Elements</option><option value="face">Faces</option>
     </select>
-    <div class="grid2"><div><label for="selAngle">Face angle (°)</label><input id="selAngle" type="number" min="0" max="180" step="1" value="0" onchange="setPickAngle(this.value)"></div>
+    <div class="grid2"><div><label for="selAngle">Face angle (°)</label><input id="selAngle" type="number" min="0" max="180" step="0.5" value="1" title="A click on a face also selects the connected faces whose plane is within this angle of the clicked one (0 = only the clicked face; 90 or more = every connected face)" onchange="setPickAngle(this.value)"></div>
       <div><label for="selBoxOn">Box</label><input id="selBoxOn" type="checkbox" onchange="setPickBox(this.checked)"></div></div>
+    <label for="selGrowth">Face growth</label>
+    <select id="selGrowth" title="Same normal: the angle is measured against the clicked face, so a curved surface is not followed. Smooth surface: the angle is measured between neighbouring faces, so the selection follows a curved surface." onchange="setPickGrowth(this.value)">
+      <option value="same-normal">Same normal</option><option value="smooth">Smooth surface</option>
+    </select>
     <p class="hint" id="selInfo">Selection: none.</p>
     <p class="hint" id="cadFaceInfo">CAD faces: none selected.</p>
     <label>Named groups imported from the CAD file</label>
@@ -803,6 +807,7 @@ Object.assign(RIBBON_EXTRA, {
 const pickApi = () => { const w = viewerApi(); return w && w.OpenModelViewer && w.OpenModelViewer.pick && w.OpenModelViewer.pick.available() ? w.OpenModelViewer.pick : null; };
 function setPickMode(mode) { const pk = pickApi(); if (pk) pk.setMode(mode); syncRibbon(); }
 function setPickAngle(v) { const pk = pickApi(); if (pk) pk.setAngle(v); }
+function setPickGrowth(v) { const pk = pickApi(); if (pk) pk.setGrowth(v); }
 function setPickBox(on) { const pk = pickApi(); if (pk) pk.setBox(on); }
 function selectionText(sel) {
   if (sel.mode === "node") return sel.nodes.join(",");
