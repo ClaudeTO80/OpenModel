@@ -537,8 +537,18 @@ function loadView(label) {
       : "CAD faces: none selected.";
   };
   const edges = viewEdges;
+  // A reload of the same geometry (the supports of the analysis changed, say) keeps the camera where the user left it.
+  const before = w.OpenModelViewer.state;
+  const camera = before.model ? {rot: [...before.rot], target: [...before.target], dist: before.dist, bbox: JSON.stringify(before.model.meta.bbox)} : null;
   Promise.resolve(w.OpenModelViewer.loadUrl("model.mgwv?v=" + viewVersion, label)).then(() => {
-    if (w.OpenModelViewer.state.model) { w.OpenModelViewer.set({wire: edges}); syncRibbon(); }
+    const now = w.OpenModelViewer.state;
+    if (now.model) {
+      w.OpenModelViewer.set({wire: edges});
+      if (camera && camera.bbox === JSON.stringify(now.model.meta.bbox)) {
+        now.rot = camera.rot; now.target = camera.target; now.dist = camera.dist; now.dirty = true;
+      }
+      syncRibbon();
+    }
   });
 }
 $("viewer").addEventListener("load", () => {

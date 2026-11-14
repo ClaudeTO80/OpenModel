@@ -230,12 +230,13 @@ if(OPENMODEL_BUILD_TESTS)
     openmodel_add_test(fem_results_test tests/fem_results_test.cpp)
     openmodel_add_test(analysis_setup_test tests/analysis_setup_test.cpp)
     openmodel_add_test(mesh_selection_test tests/mesh_selection_test.cpp)
+    openmodel_add_test(mesh_constraints_test tests/mesh_constraints_test.cpp)
     openmodel_add_test(code_aster_test tests/code_aster_test.cpp)
     openmodel_add_test(mesh_quality_test tests/mesh_quality_test.cpp)
     openmodel_add_test(cad_face_mapper_test tests/cad_face_mapper_test.cpp)
     set(_openmodel_core_test_names core_smoke_test mesh_validation_test abaqus_writer_test physical_groups_test
         mesh_topology_test surface_mesher_test gltf_writer_test surface_refiner_test
-        web_view_writer_test mesh_binary_io_test openmodel_project_test mesh_importer_test fem_results_test analysis_setup_test mesh_selection_test code_aster_test mesh_quality_test cad_face_mapper_test)
+        web_view_writer_test mesh_binary_io_test openmodel_project_test mesh_importer_test fem_results_test analysis_setup_test mesh_selection_test mesh_constraints_test code_aster_test mesh_quality_test cad_face_mapper_test)
     if(OPENMODEL_BUILD_CLI)
         list(APPEND _openmodel_core_test_names openmodel_cli_info openmodel_cli_validate_demo)
     endif()
@@ -405,6 +406,19 @@ if(OPENMODEL_BUILD_TESTS AND OPENMODEL_TEST_WEBGL_VIEWER AND OPENMODEL_BUILD_CLI
                         "${_washer_dir}/${_washer_name}.mgwv" "${_washer_dir}/${_washer_name}.inp" ${_washer_per_quad} ${_washer_kind})
             set_tests_properties(webgl_hole_${_washer_name} PROPERTIES FIXTURES_REQUIRED washer_data LABELS "webgl;pick" TIMEOUT 240)
         endforeach()
+        # Constraints on the degrees of freedom: the washer with *BOUNDARY blocks, through the CLI importer, into the viewer.
+        add_test(NAME webgl_constraints_fixture
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/support/make_constrained_washer.py"
+                    "${_washer_dir}/washer.inp" "${_washer_dir}/washer_bc.inp" "${_washer_dir}/washer_bc.json")
+        set_tests_properties(webgl_constraints_fixture PROPERTIES FIXTURES_REQUIRED washer_mesh FIXTURES_SETUP washer_bc_inp LABELS "webgl")
+        add_test(NAME webgl_constraints_data
+            COMMAND openmodel-cli export-web "${_washer_dir}/washer_bc.inp" "${_washer_dir}/washer_bc.mgwv")
+        set_tests_properties(webgl_constraints_data PROPERTIES FIXTURES_REQUIRED washer_bc_inp FIXTURES_SETUP washer_bc_data LABELS "webgl")
+        add_test(NAME webgl_constraints
+            COMMAND "${OPENMODEL_NODE_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/webgl/viewer_constraints_smoke.js"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/examples/webgl-fem-viewer/index.html"
+                    "${_washer_dir}/washer_bc.mgwv" "${_washer_dir}/washer_bc.json" "${_washer_dir}/washer.mgwv")
+        set_tests_properties(webgl_constraints PROPERTIES FIXTURES_REQUIRED "washer_bc_data;washer_data" LABELS "webgl" TIMEOUT 240)
         # Axes triad: its arrows against the screen directions of real nodes, in the standard views and after rotating.
         add_test(NAME webgl_axes
             COMMAND "${OPENMODEL_NODE_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/webgl/viewer_axes_smoke.js"

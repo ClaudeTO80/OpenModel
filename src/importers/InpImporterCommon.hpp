@@ -1,6 +1,8 @@
 #pragma once
 #include <OpenModel/MeshImporter.hpp>
 #include <algorithm>
+#include <array>
+#include <cmath>
 #include <cctype>
 #include <fstream>
 #include <sstream>
@@ -67,18 +69,60 @@ inline bool elementType(const std::string& raw, ElementType& type) {
     else return false;
     return true;
 }
+/** One data line of a `*BOUNDARY` block, resolved after the node sets are known. */
+struct InpBoundaryRecord {
+    bool clearBefore = false;                ///< `OP=NEW`: forget the earlier records.
+    std::string target;                      ///< Node ID or node set name, as written.
+    DofMask dofs = 0;
+    std::array<double, 6> values{};
+    std::size_t line = 0;
+};
+
+/**
+ * Reads the data line of a `*BOUNDARY` block: `node-or-nset, first-dof [, last-dof [, value]]` or `node-or-nset, TYPE`
+ * with TYPE one of ENCASTRE, PINNED, XSYMM, YSYMM, ZSYMM, XASYMM, YASYMM, ZASYMM. Degrees of freedom above 6 (temperature,
+ * pore pressure) are not structural constraints and are left out. Returns an empty string when the line was understood, or
+ * the reason it was not.
+ */
+inline std::string parseBoundaryLine(const std::vector<std::string>& fields, InpBoundaryRecord& record) {
+    if (fields.size() < 2 || fields[0].empty()) return "a boundary record needs a node or node set and a degree of freedom";
+    record.target = fields[0];
+    const auto kind = upper(fields[1]);
+    struct Named { const char* name; DofMask dofs; };
+    static const Named named[] = {
+        {"ENCASTRE", kDofAll}, {"PINNED", kDofTranslations},
+        {"XSYMM", static_cast<DofMask>(DofUx | DofRy | DofRz)}, {"YSYMM", static_cast<DofMask>(DofUy | DofRx | DofRz)}, {"ZSYMM", static_cast<DofMask>(DofUz | DofRx | DofRy)},
+        {"XASYMM", static_cast<DofMask>(DofUy | DofUz | DofRx)}, {"YASYMM", static_cast<DofMask>(DofUx | DofUz | DofRy)}, {"ZASYMM", static_cast<DofMask>(DofUx | DofUy | DofRz)}};
+    for (const auto& n : named)
+        if (kind == n.name) { record.dofs = n.dofs; return {}; }
+    std::uint64_t first = 0, last = 0;
+    if (!parseU64(fields[1], first) || first == 0) return "invalid degree of freedom '" + fields[1] + "'";
+    last = first;
+    if (fields.size() > 2 && !fields[2].empty() && (!parseU64(fields[2], last) || last < first)) return "invalid last degree of freedom '" + fields[2] + "'";
+    double value = 0.0;
+    if (fields.size() > 3 && !fields[3].empty() && !parseDouble(fields[3], value)) return "invalid prescribed value '" + fields[3] + "'";
+    if (!std::isfinite(value)) return "non-finite prescribed value";
+    for (std::uint64_t d = first; d <= last && d <= 6; ++d) {
+        record.dofs = static_cast<DofMask>(record.dofs | (1u << (d - 1)));
+        record.values[d - 1] = value;
+    }
+    return {};
+}
+
 inline MeshImportResult readInp(const std::filesystem::path& path, MeshData& destination,
                                 const MeshImportOptions& options, const std::string& dialect) {
     MeshImportResult result;
     std::ifstream in(path);
     if (!in) { result.addError(ImportStatus::IoError, "IO_OPEN", "Cannot open input file: " + path.string()); return result; }
     MeshData temporary;
-    enum class Section { None, Nodes, Elements, NodeSet, ElementSet, Other } section = Section::None;
+    enum class Section { None, Nodes, Elements, NodeSet, ElementSet, Boundary, Other } section = Section::None;
     std::string activeSet, activeBlock;
     ElementType activeType = ElementType::Unknown;
     bool generate = false;
     std::unordered_map<std::string, std::vector<std::uint64_t>> pendingNodeSets, pendingElementSets;
     std::unordered_map<std::uint64_t, int> elementDimensions;
+    std::vector<InpBoundaryRecord> boundaryRecords;
+    bool boundaryNew = false, boundaryIgnored = false;
     std::string line;
     std::size_t lineNo = 0;
     while (std::getline(in, line)) {
@@ -90,6 +134,16 @@ inline MeshImportResult readInp(const std::filesystem::path& path, MeshData& des
             const auto keyword = upper(trim(line.substr(0, keyEnd)));
             const auto opts = keywordOptions(line);
             section = Section::Other; activeSet.clear(); activeBlock.clear(); generate = false;
+            if (keyword == "*BOUNDARY" && options.importConstraints) {
+                // Only prescribed displacements and rotations are constraints; velocities, accelerations and user
+                // subroutines are loads of a dynamic step and are not part of the mesh.
+                const auto type = opts.find("TYPE");
+                boundaryIgnored = opts.count("USER") != 0 || (type != opts.end() && upper(type->second) != "DISPLACEMENT");
+                boundaryNew = opts.count("OP") != 0 && upper(opts.at("OP")) == "NEW";
+                if (boundaryIgnored) result.addWarning("BOUNDARY_TYPE", "*BOUNDARY of a type other than displacement is not imported", lineNo);
+                section = Section::Boundary;
+                continue;
+            }
             if (keyword == "*NODE") section = Section::Nodes;
             else if (keyword == "*ELEMENT") {
                 const auto it = opts.find("TYPE");
@@ -135,6 +189,16 @@ inline MeshImportResult readInp(const std::filesystem::path& path, MeshData& des
                 temporary.addElement(activeBlock, activeType, id, conn);
                 elementDimensions[id] = elementDimension(activeType);
             } catch (const std::exception& e) { result.addError(ImportStatus::InvalidInput, "ELEMENT_RECORD", e.what(), lineNo); break; }
+        } else if (section == Section::Boundary) {
+            if (boundaryIgnored) continue;
+            InpBoundaryRecord record;
+            record.line = lineNo;
+            record.clearBefore = boundaryNew;
+            boundaryNew = false;
+            const auto problem = parseBoundaryLine(fields, record);
+            if (!problem.empty()) { result.addError(ImportStatus::InvalidInput, "BOUNDARY_RECORD", "Invalid *BOUNDARY record: " + problem, lineNo); break; }
+            if (record.dofs == 0) result.addWarning("BOUNDARY_DOF", "*BOUNDARY record on degrees of freedom above 6 is not imported", lineNo);
+            else boundaryRecords.push_back(std::move(record));
         } else if (section == Section::NodeSet || section == Section::ElementSet) {
             std::vector<std::uint64_t> ids;
             for (const auto& field : fields) {
@@ -167,6 +231,31 @@ inline MeshImportResult readInp(const std::filesystem::path& path, MeshData& des
         }
         temporary.addNodeSet(set.first, indices);
     }
+    // Constraints, in file order: a later record sets the value of a degree of freedom again, `OP=NEW` starts afresh.
+    // Node set names are case-insensitive, as in Abaqus and CalculiX.
+    {
+        std::unordered_map<std::string, const std::vector<std::uint64_t>*> nodeSetByName;
+        for (const auto& set : pendingNodeSets) nodeSetByName.emplace(upper(set.first), &set.second);
+        for (const auto& record : boundaryRecords) {
+            if (record.clearBefore) temporary.clearConstraints();
+            std::vector<NodeIndex> targets;
+            std::uint64_t nodeId = 0;
+            if (parseU64(record.target, nodeId)) {
+                if (!temporary.hasNodeId(nodeId)) { result.addError(ImportStatus::InvalidInput, "BOUNDARY_NODE_REF", "*BOUNDARY references unknown node ID " + std::to_string(nodeId), record.line); return result; }
+                targets.push_back(temporary.nodeIndex(nodeId));
+            } else {
+                const auto it = nodeSetByName.find(upper(record.target));
+                if (it == nodeSetByName.end()) {
+                    if (options.importNodeSets) { result.addError(ImportStatus::InvalidInput, "BOUNDARY_NSET_REF", "*BOUNDARY references unknown node set '" + record.target + "'", record.line); return result; }
+                    result.addWarning("BOUNDARY_NSET_SKIPPED", "*BOUNDARY on node set '" + record.target + "' is not imported because node sets are not imported", record.line);
+                    continue;
+                }
+                for (const auto id : *it->second) targets.push_back(temporary.nodeIndex(id));
+            }
+            try { temporary.constrainNodes(targets, record.dofs, record.values); }
+            catch (const std::exception& e) { result.addError(ImportStatus::InvalidInput, "BOUNDARY_RECORD", e.what(), record.line); return result; }
+        }
+    }
     int physicalGroupTag = 1;
     for (const auto& set : pendingElementSets) {
         std::vector<ElementId> ids; ids.reserve(set.second.size());
@@ -195,7 +284,7 @@ inline MeshImportResult readInp(const std::filesystem::path& path, MeshData& des
     const auto validation = temporary.validate();
     if (!validation.empty()) { result.addError(ImportStatus::InvalidInput, "MESH_VALIDATION", validation.front()); return result; }
     result.nodesRead = temporary.getNumNodes(); result.elementsRead = temporary.getNumElements();
-    result.nodeSetsRead = pendingNodeSets.size(); result.elementSetsRead = pendingElementSets.size();
+    result.constrainedNodesRead = temporary.constrainedNodeCount(); result.nodeSetsRead = pendingNodeSets.size(); result.elementSetsRead = pendingElementSets.size();
     destination = std::move(temporary);
     return result;
 }

@@ -18,14 +18,16 @@
 namespace {
 constexpr std::array<char, 8> kMagic{{'M','G','M','B','\r','\n',0x1a,'\n'}};
 constexpr std::uint16_t kMajor = 1;
-constexpr std::uint16_t kMinor = 1;
+constexpr std::uint16_t kMinor = 2;   // highest minor version this code reads and writes
 constexpr std::uint32_t kEndianMarker = 0x01020304u;
 constexpr std::uint64_t kHeaderSize = 64;
 constexpr std::uint64_t kDirectoryRecordSize = 48;
 constexpr std::uint32_t kLegacySectionCount = 5;
-constexpr std::uint32_t kSectionCount = 6;
+constexpr std::uint32_t kSectionCount = 6;                  // MGMB 1.1
+constexpr std::uint32_t kConstraintSectionCount = 7;        // MGMB 1.2: adds the node constraints
+constexpr std::uint64_t kConstraintRecordSize = 8 + 1 + 7 + 6 * 8;
 
-enum SectionId : std::uint32_t { NodeIds = 1, Coordinates = 2, Blocks = 3, NodeSets = 4, PhysicalGroups = 5, MeshGroups = 6 };
+enum SectionId : std::uint32_t { NodeIds = 1, Coordinates = 2, Blocks = 3, NodeSets = 4, PhysicalGroups = 5, MeshGroups = 6, Constraints = 7 };
 struct DirectoryEntry {
     std::uint32_t id = 0;
     std::uint32_t flags = 0;
@@ -181,12 +183,13 @@ ElementType decodeType(std::uint32_t code) {
 }
 
 void writeHeader(std::ostream& out, std::uint64_t nodes, std::uint64_t elements,
-                 std::uint32_t blocks, std::uint64_t directoryOffset, std::uint64_t fileSize) {
+                 std::uint32_t blocks, std::uint64_t directoryOffset, std::uint64_t fileSize, bool constraints) {
     out.write(kMagic.data(), static_cast<std::streamsize>(kMagic.size()));
-    writeLE(out, kMajor); writeLE(out, kMinor); writeLE(out, kEndianMarker);
+    // A file without constraints stays a 1.1 file, so it remains readable by readers that predate 1.2.
+    writeLE(out, kMajor); writeLE(out, static_cast<std::uint16_t>(constraints ? 2 : 1)); writeLE(out, kEndianMarker);
     writeLE(out, std::uint64_t{0}); // feature flags; v1 requires zero
     writeLE(out, nodes); writeLE(out, elements); writeLE(out, blocks);
-    writeLE(out, kSectionCount); writeLE(out, directoryOffset); writeLE(out, fileSize);
+    writeLE(out, constraints ? kConstraintSectionCount : kSectionCount); writeLE(out, directoryOffset); writeLE(out, fileSize);
     if (!out) throw MeshBinaryIO::Error("MGMB: failed writing header");
 }
 void writeDirectoryEntry(std::ostream& out, const DirectoryEntry& e) {
@@ -260,7 +263,7 @@ FileLayout parseFileLayout(std::istream& in, std::uint64_t actualSize) {
 
     if (major != kMajor || minor > kMinor) throw MeshBinaryIO::Error("MGMB: unsupported format version");
     if (endian != kEndianMarker || flags != 0) throw MeshBinaryIO::Error("MGMB: unsupported endian marker or feature flags");
-    const auto expectedSectionCount = minor == 0 ? kLegacySectionCount : kSectionCount;
+    const auto expectedSectionCount = minor == 0 ? kLegacySectionCount : (minor == 1 ? kSectionCount : kConstraintSectionCount);
     if (sectionCount != expectedSectionCount) throw MeshBinaryIO::Error("MGMB: invalid section count for format version");
     if (declaredFileSize != actualSize) throw MeshBinaryIO::Error("MGMB: declared file size does not match actual size");
     if (directoryOffset < kHeaderSize || directoryOffset > actualSize ||
@@ -279,7 +282,7 @@ FileLayout parseFileLayout(std::istream& in, std::uint64_t actualSize) {
     ranges.reserve(sectionCount);
     for (std::uint32_t i = 0; i < sectionCount; ++i) {
         auto entry = readDirectoryEntry(in);
-        if (entry.id < NodeIds || entry.id > (minor == 0 ? PhysicalGroups : MeshGroups) || !layout.sections.emplace(entry.id, entry).second)
+        if (entry.id < NodeIds || entry.id > (minor == 0 ? PhysicalGroups : (minor == 1 ? MeshGroups : Constraints)) || !layout.sections.emplace(entry.id, entry).second)
             throw MeshBinaryIO::Error("MGMB: unknown or duplicate section ID");
         ensureSection(entry, actualSize, directoryOffset);
         ranges.emplace_back(entry.offset, entry.offset + entry.storedSize);
@@ -308,9 +311,10 @@ void MeshBinaryIO::write(const std::filesystem::path& path, const MeshData& mesh
     try {
         std::ofstream out(temporary, std::ios::binary | std::ios::trunc);
         if (!out) throw Error("MGMB: cannot open output file");
-        writeHeader(out, mesh.m_nodeIds.size(), mesh.getNumElements(), static_cast<std::uint32_t>(mesh.m_blocks.size()), 0, 0);
+        const bool hasConstraints = !mesh.m_constraints.empty();
+        writeHeader(out, mesh.m_nodeIds.size(), mesh.getNumElements(), static_cast<std::uint32_t>(mesh.m_blocks.size()), 0, 0, hasConstraints);
         std::vector<DirectoryEntry> directory;
-        directory.reserve(kSectionCount);
+        directory.reserve(kConstraintSectionCount);
         auto beginSection = [&](std::uint32_t id, std::uint64_t count) {
             DirectoryEntry e; e.id = id; e.offset = tell(out); e.count = count; return e;
         };
@@ -383,11 +387,30 @@ void MeshBinaryIO::write(const std::filesystem::path& path, const MeshData& mesh
         }
         endSection(e);
 
+        // MGMB 1.2: constraints on the degrees of freedom of the nodes, written only when there are some.
+        // Record (64 bytes): node index u64, mask u8, seven reserved zero bytes, six f64 prescribed values.
+        if (hasConstraints) {
+            e = beginSection(Constraints, mesh.m_constraints.size());
+            writeLE(out, static_cast<std::uint32_t>(mesh.m_constraints.size()));
+            for (const auto& entry : mesh.m_constraints) {
+                const auto& c = entry.second;
+                writeLE(out, static_cast<std::uint64_t>(c.node));
+                writeLE(out, static_cast<std::uint8_t>(c.dofs));
+                for (int r = 0; r < 7; ++r) writeLE(out, std::uint8_t{0});
+                for (const double v : c.values) {
+                    std::uint64_t bits = 0;
+                    std::memcpy(&bits, &v, sizeof(bits));
+                    writeLE(out, bits);
+                }
+            }
+            endSection(e);
+        }
+
         const auto directoryOffset = tell(out);
         for (const auto& entry : directory) writeDirectoryEntry(out, entry);
         const auto finalSize = tell(out);
         out.seekp(0, std::ios::beg);
-        writeHeader(out, mesh.m_nodeIds.size(), mesh.getNumElements(), static_cast<std::uint32_t>(mesh.m_blocks.size()), directoryOffset, finalSize);
+        writeHeader(out, mesh.m_nodeIds.size(), mesh.getNumElements(), static_cast<std::uint32_t>(mesh.m_blocks.size()), directoryOffset, finalSize, hasConstraints);
         out.flush();
         if (!out) throw Error("MGMB: failed flushing output file");
         out.close();
@@ -587,6 +610,32 @@ MeshData MeshBinaryIO::read(const std::filesystem::path& path, const Options& op
             readU64Vector(in, group.nodeIndices);
             try { mesh.addMeshGroup(std::move(group)); }
             catch (const std::exception& ex) { throw Error(std::string("MGMB: invalid mesh group: ") + ex.what()); }
+        }
+        requireConsumed(in, s);
+    }
+    if (layout.minorVersion >= 2) {
+        const auto& s = openSection(Constraints);
+        const auto count = readLE<std::uint32_t>(in);
+        if (count != s.count || s.rawSize < 4 || (s.rawSize - 4) % kConstraintRecordSize != 0 || (s.rawSize - 4) / kConstraintRecordSize != count)
+            throw Error("MGMB: constraint count mismatch or section size does not match it");
+        for (std::uint32_t i = 0; i < count; ++i) {
+            const auto node = readLE<std::uint64_t>(in);
+            const auto dofs = readLE<std::uint8_t>(in);
+            for (int r = 0; r < 7; ++r)
+                if (readLE<std::uint8_t>(in) != 0) throw Error("MGMB: nonzero reserved constraint byte");
+            std::array<double, 6> values{};
+            for (auto& v : values) {
+                const auto bits = readLE<std::uint64_t>(in);
+                std::memcpy(&v, &bits, sizeof(v));
+            }
+            if (node >= nodeCount) throw Error("MGMB: constraint node index out of range");
+            if (dofs == 0 || (dofs & ~kDofAll) != 0) throw Error("MGMB: invalid constraint degree-of-freedom mask");
+            if (mesh.constraintOf(node)) throw Error("MGMB: duplicate constraint for one node");
+            try { mesh.constrainNode(node, dofs, values); }
+            catch (const std::exception& ex) { throw Error(std::string("MGMB: invalid constraint: ") + ex.what()); }
+            // A free degree of freedom must carry no value; constrainNode ignores it, so compare to be strict.
+            for (std::size_t d = 0; d < 6; ++d)
+                if (!((dofs >> d) & 1u) && values[d] != 0.0) throw Error("MGMB: constraint value on a free degree of freedom");
         }
         requireConsumed(in, s);
     }

@@ -21,7 +21,7 @@ The file size must equal `24 + jsonLength + payloadLength`. The payload starts a
 - `format`, `version`.
 - `origin`: model-space point subtracted from every stored position (the centre of the bounding box).
 - `bbox.min`, `bbox.max`: bounds in model space (not relative to `origin`).
-- `counts`: `nodes` and `elements` of the source mesh; `vertices`, `triangles`, `boundaryTriangles`, `edges`, `boundaryEdges` of the exported data.
+- `counts`: `nodes` and `elements` of the source mesh; `vertices`, `triangles`, `boundaryTriangles`, `edges`, `boundaryEdges` of the exported data; `constrainedNodes` (nodes with a constrained degree of freedom) and `constraintVertices` (of those, the ones that are drawn). The last two are absent from files written before 0.1.3, which have no constraints.
 - `blocks`: `[{name, type, dimension, elements}]`, in `MeshData` block order.
 - `groups`: `[{name, dimension, tag, material}]`, in `MeshData` physical-group order.
 - `chunks`: `{offset, count}` of each array; offsets are relative to the payload start, `count` is the number of 32-bit words.
@@ -45,6 +45,7 @@ The file size must equal `24 + jsonLength + payloadLength`. The payload starts a
 | `vertexNodeId` | u32 × vertices | optional (picking): external node id of each stored vertex |
 | `triElementId` | u32 × triangles | optional (picking): external id of the element that owns the face (of the 2D element for faces without a volume element) |
 | `triFace` | u32 × triangles | optional (picking): running index of the geometric face; the two triangles of a quadrilateral share it. Skin faces come first |
+| `constraints` | u32 × 2·constraintVertices | optional: pairs `(vertex, mask)` for the constrained nodes that have a vertex, ordered by node. `mask` bit *i* (0..5) is the degree of freedom *i*+1 (ux, uy, uz, rx, ry, rz) and bit 8 says that a non-zero value is prescribed on at least one of them. The mesh's constraints and `WebViewOptions::extraConstraints` (for example the supports of an analysis) are merged. Nodes that are on no exported face or edge are counted in `constrainedNodes` but not stored. The viewer draws a double cone along each fixed translation (X red, Y green, Z blue), a ring around each fixed rotation and an orange dot where a value is prescribed |
 | `displacement` | f32 × 3·vertices | optional: nodal displacement `(ux, uy, uz)` of each stored vertex, model units; the viewer adds `scale × displacement` to the stored position to draw the deformed shape |
 | field `k` | f32 × vertices | nodal values of field `k` |
 

@@ -216,6 +216,24 @@ AbaqusWriteResult AbaqusInpWriter::writeFile(const std::string& path,
             ++result.elementSetsWritten;
         }
 
+        // Constraints on the degrees of freedom: one data line per node and run of degrees of freedom with the same value.
+        if (mesh.constrainedNodeCount() > 0) {
+            content << "*BOUNDARY\n";
+            for (const auto& entry : mesh.getConstraints()) {
+                const auto& c = entry.second;
+                for (std::size_t first = 0; first < 6;) {
+                    if (!((c.dofs >> first) & 1u)) { ++first; continue; }
+                    std::size_t last = first;
+                    while (last + 1 < 6 && ((c.dofs >> (last + 1)) & 1u) && c.values[last + 1] == c.values[first]) ++last;
+                    content << mesh.nodeId(entry.first) << ", " << first + 1 << ", " << last + 1;
+                    if (c.values[first] != 0.0) content << ", " << c.values[first];
+                    content << "\n";
+                    ++result.constraintRecordsWritten;
+                    first = last + 1;
+                }
+            }
+        }
+
         const auto text = content.str();
         std::ofstream out(path, std::ios::binary);
         if (!out) {

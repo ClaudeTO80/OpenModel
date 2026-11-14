@@ -175,6 +175,21 @@ private:
     std::unordered_map<NodeIndex, std::array<Entry, 3>> m_entries;
 };
 
+/**
+ * @brief The constraints that the supports (`fix`) of an analysis put on the nodes of a mesh.
+ *
+ * Each support is resolved with selectNodes(); the result has one entry per constrained node (ordered by node index),
+ * with the degrees of freedom 1 to 3 that some support holds and the prescribed displacement of each. A support whose
+ * selection is empty, or that prescribes a value different from an earlier support on the same node and degree of freedom,
+ * is left out and reported in `diagnostics` as a warning (writeSolverInput() refuses the same cases with an error).
+ * Meant to show or export what the supports do, without writing a solver deck.
+ */
+std::vector<NodeConstraint> supportConstraints(const MeshData& mesh, const AnalysisModel& model,
+                                               std::vector<ImportDiagnostic>& diagnostics);
+
+/** @brief Add supportConstraints() to the constraints of `mesh` (a degree of freedom already constrained takes the new value). */
+void applySupports(MeshData& mesh, const AnalysisModel& model, std::vector<ImportDiagnostic>& diagnostics);
+
 /** @brief Resolve a selector to node indices (sorted, unique). Empty result + `error` when nothing matches or the name is unknown. */
 std::vector<NodeIndex> selectNodes(const MeshData& mesh, const NodeSelector& selector, std::string& error);
 

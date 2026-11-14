@@ -8,6 +8,7 @@
 #include <cstring>
 #include <fstream>
 #include <limits>
+#include <map>
 #include <system_error>
 #include <tuple>
 #include <unordered_map>
@@ -477,6 +478,31 @@ WebViewResult WebViewWriter::build(const MeshData& mesh, const WebViewOptions& o
         for (const auto e : triElement) triElementId.push_back(e < elementIdByPosition.size() ? elementIdByPosition[e] : 0u);
     }
 
+    // Constraints on the degrees of freedom: pairs (vertex index, mask | 1 << 8 when a value is prescribed) for the
+    // constrained nodes that are drawn, ordered by node index.
+    std::vector<std::uint32_t> constraintWords;
+    std::size_t constrainedNodes = 0;
+    if (options.includeConstraints) {
+        std::map<NodeIndex, std::pair<DofMask, bool>> all;
+        auto add = [&](const NodeConstraint& c) {
+            auto& entry = all[c.node];
+            entry.first = static_cast<DofMask>(entry.first | c.dofs);
+            for (std::size_t d = 0; d < 6; ++d) if (((c.dofs >> d) & 1u) && c.values[d] != 0.0) entry.second = true;
+        };
+        for (const auto& entry : mesh.getConstraints()) add(entry.second);
+        for (const auto& c : options.extraConstraints) {
+            if (c.node >= nodeCount) return fail("extra constraint refers to a node that does not exist");
+            if (c.dofs == 0 || (c.dofs & ~kDofAll) != 0) return fail("extra constraint has an invalid degree-of-freedom mask");
+            add(c);
+        }
+        constrainedNodes = all.size();
+        for (const auto& entry : all) {
+            if (remap[entry.first] == kNone) continue;
+            constraintWords.push_back(remap[entry.first]);
+            constraintWords.push_back(static_cast<std::uint32_t>(entry.second.first) | (entry.second.second ? 1u << 8 : 0u));
+        }
+    }
+
     // 6. Binary payload; offsets are relative to the start of the payload.
     std::vector<unsigned char> bin;
     struct Chunk { std::size_t offset, count; };
@@ -492,6 +518,8 @@ WebViewResult WebViewWriter::build(const MeshData& mesh, const WebViewOptions& o
     const Chunk cTri = addWords(triIndices), cBlock = addWords(triBlock), cRegion = addWords(triRegion),
                 cSurf = addWords(triSurface), cEdge = addWords(edgeIndices), cEdgeBlock = addWords(edgeBlock),
                 cEdgeRegion = addWords(edgeRegion);
+    Chunk cConstraints{0, 0};
+    if (!constraintWords.empty()) cConstraints = addWords(constraintWords);
     Chunk cNodeId{0, 0}, cElemId{0, 0}, cFace{0, 0};
     if (idsFit) { cNodeId = addWords(vertexNodeId); cElemId = addWords(triElementId); cFace = addWords(triFace); }
 
@@ -565,7 +593,8 @@ WebViewResult WebViewWriter::build(const MeshData& mesh, const WebViewOptions& o
     json += ",\"counts\":{\"nodes\":" + std::to_string(nodeCount) + ",\"elements\":" + std::to_string(mesh.getNumElements()) +
             ",\"vertices\":" + std::to_string(used.size()) + ",\"triangles\":" + std::to_string(triangleCount) +
             ",\"boundaryTriangles\":" + std::to_string(boundaryTriangles) + ",\"edges\":" + std::to_string(edges.size()) +
-            ",\"boundaryEdges\":" + std::to_string(boundaryEdges) + "}";
+            ",\"boundaryEdges\":" + std::to_string(boundaryEdges) +
+            ",\"constrainedNodes\":" + std::to_string(constrainedNodes) + ",\"constraintVertices\":" + std::to_string(constraintWords.size() / 2) + "}";
     json += ",\"blocks\":[";
     for (std::size_t b = 0; b < blocks.size(); ++b) {
         if (b) json += ",";
@@ -595,6 +624,7 @@ WebViewResult WebViewWriter::build(const MeshData& mesh, const WebViewOptions& o
             chunkJson("triBlock", cBlock) + "," + chunkJson("triRegion", cRegion) + "," +
             chunkJson("triSurface", cSurf) + "," + chunkJson("edgeIndices", cEdge) + "," + chunkJson("edgeBlock", cEdgeBlock) + "," + chunkJson("edgeRegion", cEdgeRegion);
     if (idsFit) json += "," + chunkJson("vertexNodeId", cNodeId) + "," + chunkJson("triElementId", cElemId) + "," + chunkJson("triFace", cFace);
+    if (!constraintWords.empty()) json += "," + chunkJson("constraints", cConstraints);
     if (!options.displacement.empty()) json += "," + chunkJson("displacement", cDisp);
     json += "},\"fields\":[";
     for (std::size_t f = 0; f < fields.size(); ++f) {
@@ -641,6 +671,8 @@ WebViewResult WebViewWriter::build(const MeshData& mesh, const WebViewOptions& o
     result.boundaryTriangles = boundaryTriangles;
     result.edges = edges.size();
     result.boundaryEdges = boundaryEdges;
+    result.constrainedNodes = constrainedNodes;
+    result.constraintVertices = constraintWords.size() / 2;
     result.bytesWritten = image.size();
     return result;
 }

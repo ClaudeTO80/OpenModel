@@ -386,6 +386,39 @@ std::string PrescribedDisplacementTracker::add(std::size_t supportIndex, const F
     return {};
 }
 
+std::vector<NodeConstraint> supportConstraints(const MeshData& mesh, const AnalysisModel& model,
+                                               std::vector<ImportDiagnostic>& diagnostics) {
+    std::map<NodeIndex, NodeConstraint> merged;
+    PrescribedDisplacementTracker tracker;
+    for (std::size_t i = 0; i < model.supports.size(); ++i) {
+        const auto& support = model.supports[i];
+        const std::string label = "fix #" + std::to_string(i + 1);
+        DofMask dofs = 0;
+        for (std::size_t d = 0; d < 3; ++d) if (support.dof[d]) dofs = static_cast<DofMask>(dofs | (1u << d));
+        if (dofs == 0) { diagnostics.push_back({ImportDiagnosticLevel::Warning, "SUPPORT_NO_DOF", label + " constrains no direction", 0}); continue; }
+        std::string error;
+        const auto nodes = selectNodes(mesh, support.where, error);
+        if (!error.empty()) { diagnostics.push_back({ImportDiagnosticLevel::Warning, "SUPPORT_SELECTION", label + ": " + error, 0}); continue; }
+        const auto conflict = tracker.add(i, support, nodes, mesh);
+        if (!conflict.empty()) { diagnostics.push_back({ImportDiagnosticLevel::Warning, "SUPPORT_CONFLICT", conflict, 0}); continue; }
+        for (const NodeIndex n : nodes) {
+            auto& c = merged[n];
+            c.node = n;
+            for (std::size_t d = 0; d < 3; ++d)
+                if (support.dof[d]) c.values[d] = support.displacement[d];
+            c.dofs = static_cast<DofMask>(c.dofs | dofs);
+        }
+    }
+    std::vector<NodeConstraint> out;
+    out.reserve(merged.size());
+    for (const auto& entry : merged) out.push_back(entry.second);
+    return out;
+}
+
+void applySupports(MeshData& mesh, const AnalysisModel& model, std::vector<ImportDiagnostic>& diagnostics) {
+    for (const auto& c : supportConstraints(mesh, model, diagnostics)) mesh.constrainNode(c.node, c.dofs, c.values);
+}
+
 std::vector<NodeIndex> selectNodes(const MeshData& mesh, const NodeSelector& selector, std::string& error) {
     std::vector<NodeIndex> out;
     error.clear();

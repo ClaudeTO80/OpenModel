@@ -443,6 +443,12 @@ void updateView() {
     }
     if (source == &g.mesh) attachResults(*source, viewOptions);
     else g.resultsNote.clear();
+    // The supports of the analysis are constraints on the nodes: draw them next to the ones the mesh carries (imported *BOUNDARY).
+    // Selections that cannot be resolved are left out here; they are reported when the solver input is written.
+    if (source == &g.mesh && g.hasAnalysis) {
+        std::vector<OpenModel::ImportDiagnostic> supportDiagnostics;
+        viewOptions.extraConstraints = OpenModel::supportConstraints(*source, g.analysis, supportDiagnostics);
+    }
     const auto result = WebViewWriter::build(*source, viewOptions, g.view);
     if (!result.success) {
         g.view.clear();
@@ -1317,6 +1323,7 @@ void analysisLoad(webui_event_t* e) {
     if (!parsed.success) { reply(e, false, "Invalid analysis script:" + analysisDiagnosticsText(parsed.diagnostics)); return; }
     g.analysis = parsed.model;
     g.hasAnalysis = true;
+    if (g.mesh.getNumNodes() > 0) updateView();   // the supports are drawn in the viewer
     reply(e, true, OpenModel::serializeAnalysisScript(g.analysis));
 }
 
@@ -1370,6 +1377,7 @@ void analysisUpdate(webui_event_t* e) {
         reply(e, false, "Update rejected: " + error);
         return;
     }
+    if (g.mesh.getNumNodes() > 0) updateView();
     reply(e, true, OpenModel::serializeAnalysisScript(g.analysis));
 }
 
@@ -1383,6 +1391,7 @@ void analysisDelete(webui_event_t* e) {
                    OpenModel::eraseForce(g.analysis, id) ||
                    OpenModel::erasePressure(g.analysis, id);
     if (!removed) { reply(e, false, "Condition not found or cannot be deleted: " + id); return; }
+    if (g.mesh.getNumNodes() > 0) updateView();
     reply(e, true, OpenModel::serializeAnalysisScript(g.analysis));
 }
 

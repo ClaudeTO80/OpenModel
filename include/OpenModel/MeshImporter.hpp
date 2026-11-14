@@ -31,6 +31,8 @@ struct MeshImportOptions {
     bool importNodeSets = true;
     bool importElementSets = true;
     bool importPhysicalGroups = true;
+    /** Abaqus/CalculiX `*BOUNDARY` records on translations and rotations (degrees of freedom 1 to 6) become MeshData constraints. */
+    bool importConstraints = true;
 };
 
 struct MeshImportResult {
@@ -40,6 +42,7 @@ struct MeshImportResult {
     std::size_t elementsRead = 0;
     std::size_t nodeSetsRead = 0;
     std::size_t elementSetsRead = 0;
+    std::size_t constrainedNodesRead = 0;   ///< Nodes that ended up with at least one constrained degree of freedom.
 
     explicit operator bool() const noexcept { return status == ImportStatus::Success; }
     void addError(ImportStatus newStatus, std::string code,

@@ -115,6 +115,10 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
         <option value="skin" selected>Surface</option>
         <option value="all">All (with section)</option>
       </select></label>
+    <div id="consRows" hidden>
+      <label class="row"><span>Constraints</span><input type="checkbox" id="consOn" checked title="Constrained degrees of freedom: a double cone along each fixed translation (X red, Y green, Z blue), a ring around each fixed rotation, an orange dot where a value is prescribed"> <span style="flex:1;color:var(--text)">fixed dofs</span></label>
+      <label class="row"><span>Symbol size</span><input type="number" id="consSize" min="0.5" max="30" step="0.5" value="3"> <span style="flex:1;color:var(--text)">% of radius</span></label>
+    </div>
     <label class="row"><span>Axes</span><input type="checkbox" id="axesOn" checked> <span style="flex:1;color:var(--text)">triad, bottom left</span></label>
   </section>
 
@@ -319,6 +323,72 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     }
   }`;
 
+  // Symbols of the constrained degrees of freedom, one record per constrained node (textures uConsV, uConsM).
+  //   kind 0: translations: for each fixed ux, uy, uz a double cone whose tips meet at the node, along that axis (12 triangles per side);
+  //   kind 1: rotations: for each fixed rx, ry, rz a ring around that axis (16 line segments);
+  //   kind 2: a dot on the nodes that hold a prescribed non-zero value.
+  // The size is in model units; the symbols follow the displacement of the node. X red, Y green, Z blue, as in the axes triad.
+  const VS_CONS = GLSL_COMMON + `
+  uniform sampler2D uPos, uDisp; uniform usampler2D uConsV, uConsM;
+  uniform mat4 uMV, uP; uniform int uHasDisp; uniform float uDispScale; uniform float uSize; uniform int uKind; uniform float uPointSize;
+  out vec3 vModel; out vec3 vView; flat out vec3 vColor;
+  const vec3 AXIS_COLOR[3] = vec3[3](vec3(0.90, 0.28, 0.30), vec3(0.19, 0.64, 0.42), vec3(0.24, 0.39, 0.87));
+  vec3 unit(int axis) { return vec3(axis == 0 ? 1.0 : 0.0, axis == 1 ? 1.0 : 0.0, axis == 2 ? 1.0 : 0.0); }
+  void main() {
+    int per = uKind == 0 ? 216 : (uKind == 1 ? 96 : 1);
+    int node = gl_VertexID / per, local = gl_VertexID - node * per;
+    int vi = int(texelFetch(uConsV, at(node), 0).r);
+    uint mask = texelFetch(uConsM, at(node), 0).r;
+    vec3 p = texelFetch(uPos, at(vi), 0).rgb;
+    vModel = p;
+    vec3 q = p;
+    if (uHasDisp == 1) q += uDispScale * texelFetch(uDisp, at(vi), 0).rgb;
+    vec3 off = vec3(0.0); bool on = false; vec3 color = vec3(1.0, 0.62, 0.0);
+    if (uKind == 0) {
+      int axis = local / 72, rem = local - axis * 72;
+      int side = rem / 36, t = (rem % 36) / 3, corner = rem % 3;
+      on = ((mask >> uint(axis)) & 1u) != 0u;
+      color = AXIS_COLOR[axis];
+      vec3 a = unit(axis), u = unit((axis + 1) % 3), v = unit((axis + 2) % 3);
+      vec3 base = a * (side == 0 ? 1.0 : -1.0) * uSize;
+      int k = t % 6;
+      float ang = 6.2831853 * float(corner == 2 ? k + 1 : k) / 6.0;
+      vec3 rim = base + 0.42 * uSize * (cos(ang) * u + sin(ang) * v);
+      if (t < 6) off = corner == 0 ? vec3(0.0) : rim;        // side of the cone: tip at the node
+      else off = corner == 0 ? base : rim;                    // cap
+    } else if (uKind == 1) {
+      int axis = local / 32, rem = local - axis * 32;
+      int seg = rem / 2, end = rem % 2;
+      on = ((mask >> uint(3 + axis)) & 1u) != 0u;
+      color = AXIS_COLOR[axis] * 0.85 + 0.15;
+      float ang = 6.2831853 * float(seg + end) / 16.0;
+      off = 0.75 * uSize * (cos(ang) * unit((axis + 1) % 3) + sin(ang) * unit((axis + 2) % 3));
+    } else {
+      on = (mask & 256u) != 0u;
+    }
+    vColor = color;
+    vec4 mv = uMV * vec4(q + off, 1.0);
+    vView = mv.xyz;
+    gl_Position = on ? uP * mv : vec4(2.0, 2.0, 2.0, 1.0);
+    gl_PointSize = uPointSize;
+  }`;
+  const FS_CONS = GLSL_COMMON + `
+  uniform vec4 uClip; uniform int uClipOn; uniform int uKind;
+  in vec3 vModel; in vec3 vView; flat in vec3 vColor; out vec4 o;
+  void main() {
+    if (uClipOn == 1 && dot(uClip.xyz, vModel) > uClip.w) discard;
+    if (uKind == 2) {
+      vec2 d = gl_PointCoord - 0.5;
+      if (dot(d, d) > 0.25) discard;
+      o = vec4(1.0, 0.62, 0.0, 1.0);
+    } else if (uKind == 1) {
+      o = vec4(vColor, 1.0);
+    } else {
+      vec3 n = normalize(cross(dFdx(vView), dFdy(vView)));
+      o = vec4(vColor * (0.45 + 0.55 * abs(dot(n, normalize(vec3(0.35, 0.55, 1.0))))), 1.0);
+    }
+  }`;
+
   function program(vs, fs) {
     const make = (type, src) => {
       const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
@@ -335,7 +405,7 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     return { p, u };
   }
   const triProg = program(VS_TRI, FS_TRI), edgeProg = program(VS_EDGE, FS_EDGE);
-  const pickTriProg = program(VS_PICK_TRI, FS_PICK), nodeProg = program(VS_NODE, FS_PICK);
+  const pickTriProg = program(VS_PICK_TRI, FS_PICK), nodeProg = program(VS_NODE, FS_PICK), consProg = program(VS_CONS, FS_CONS);
   const vao = gl.createVertexArray();
 
   /* ------------------------------------------------------------- textures */
@@ -391,7 +461,7 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
   /* ----------------------------------------------------------------- state */
   const S = {
     model: null, tex: {}, count: {}, mode: "block", vis: null, palettes: {},
-    wire: "skin", axes: true, clipOn: false, clipAxis: 2, clipPos: 0.5, clipFlip: false,
+    wire: "skin", axes: true, consOn: true, consSize: 3, clipOn: false, clipAxis: 2, clipPos: 0.5, clipFlip: false,
     fieldIndex: 0, range: [0, 1], dirty: true,
     defOn: true, defFactor: 1, defSuggested: 1,
     modeIndex: 0, animate: false, phase: 0, lastTick: 0,
@@ -430,6 +500,8 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
       edgeRegion: c.edgeRegion ? slice(Uint32Array, c.edgeRegion.offset, c.edgeRegion.count) : new Uint32Array(meta.counts.edges),
       // Optional chunk (results with a displacement field): 3 float32 per vertex.
       disp: c.displacement ? slice(Float32Array, c.displacement.offset, c.displacement.count) : null,
+      // Optional chunk: pairs (vertex index, mask of constrained degrees of freedom | 256 when a value is prescribed).
+      constraints: c.constraints ? slice(Uint32Array, c.constraints.offset, c.constraints.count) : null,
       // Optional picking chunks (written together): external ids of the vertices and of the elements owning the triangles.
       vertexNodeId: c.vertexNodeId ? slice(Uint32Array, c.vertexNodeId.offset, c.vertexNodeId.count) : null,
       triElementId: c.triElementId ? slice(Uint32Array, c.triElementId.offset, c.triElementId.count) : null,
@@ -454,6 +526,15 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     model.canPick = !!(model.vertexNodeId && model.triElementId && model.triFace &&
       model.vertexNodeId.length === n.vertices && model.triElementId.length === n.triangles && model.triFace.length === n.triangles);
     if (model.disp && model.disp.length !== n.vertices * 3) throw new Error("Displacements inconsistent with the vertex count.");
+    if (model.constraints) {
+      const words = model.constraints;
+      if (words.length % 2 !== 0) throw new Error("Constraint chunk with an odd number of words.");
+      model.consVertex = new Uint32Array(words.length / 2); model.consMask = new Uint32Array(words.length / 2);
+      for (let i = 0; i < model.consVertex.length; i++) {
+        model.consVertex[i] = words[2 * i]; model.consMask[i] = words[2 * i + 1];
+        if (model.consVertex[i] >= n.vertices || (model.consMask[i] & 63) === 0) throw new Error("Invalid constraint record " + i + ".");
+      }
+    }
     return model;
   }
 
@@ -491,11 +572,16 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     T.selVert = dataTexture("u1", new Uint32Array(Math.max(1, n.vertices)), 1);
     T.scalar = dataTexture("f1", model.fields.length ? model.fields[0].values : new Float32Array(1), 1);
     T.disp = dataTexture("f3", model.disp || new Float32Array(3), 3);
+    if (model.consVertex && model.consVertex.length) {
+      T.consV = dataTexture("u1", model.consVertex, 1);
+      T.consM = dataTexture("u1", model.consMask, 1);
+    }
     S.palettes = {};
     S.model = model;
     S.sel = { node: new Set(), element: new Set(), face: new Set() };
     S.faceInfo = null; S.nodeVertex = null; S.holeCache = new Map();
-    S.count = { tris: n.triangles, skinTris: n.boundaryTriangles, edges: n.edges, skinEdges: n.boundaryEdges };
+    S.count = { tris: n.triangles, skinTris: n.boundaryTriangles, edges: n.edges, skinEdges: n.boundaryEdges,
+                cons: model.consVertex ? model.consVertex.length : 0 };
   }
   function setField(i) {
     const f = S.model.fields[i];
@@ -717,6 +803,19 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
       const n = S.wire === "all" && S.clipOn ? S.count.edges : S.count.skinEdges;
       if (n > 0) gl.drawArrays(gl.LINES, 0, n * 2);
     }
+    if (S.consOn && S.count.cons > 0) {
+      gl.useProgram(consProg.p);
+      gl.uniformMatrix4fv(consProg.u.uMV, false, MV); gl.uniformMatrix4fv(consProg.u.uP, false, P);
+      gl.uniform4fv(consProg.u.uClip, clip); gl.uniform1i(consProg.u.uClipOn, S.clipOn ? 1 : 0);
+      gl.uniform1i(consProg.u.uHasDisp, S.model.disp ? 1 : 0); gl.uniform1f(consProg.u.uDispScale, dispScale);
+      gl.uniform1f(consProg.u.uSize, S.radius * S.consSize / 100); gl.uniform1f(consProg.u.uPointSize, 8 * dpr);
+      bindTex(consProg, "uPos", 0, T.pos); bindTex(consProg, "uDisp", 1, T.disp);
+      bindTex(consProg, "uConsV", 2, T.consV); bindTex(consProg, "uConsM", 3, T.consM);
+      const nc = S.count.cons;
+      gl.uniform1i(consProg.u.uKind, 0); gl.drawArrays(gl.TRIANGLES, 0, nc * 216);
+      gl.uniform1i(consProg.u.uKind, 1); gl.drawArrays(gl.LINES, 0, nc * 96);
+      gl.uniform1i(consProg.u.uKind, 2); gl.drawArrays(gl.POINTS, 0, nc);
+    }
     if (S.pickMode === "node" && S.sel.node.size > 0) {
       gl.useProgram(nodeProg.p);
       gl.uniformMatrix4fv(nodeProg.u.uMV, false, MV); gl.uniformMatrix4fv(nodeProg.u.uP, false, P);
@@ -749,6 +848,7 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     const rows = [
       ["Nodes", fmt(c.nodes)], ["Elements", fmt(c.elements)], ["Triangles (surface)", fmt(c.boundaryTriangles)],
       ["Triangles (interior)", fmt(c.triangles - c.boundaryTriangles)], ["Edges", fmt(c.edges)],
+      ...(c.constrainedNodes ? [["Constrained nodes", fmt(c.constrainedNodes) + (S.count.cons < c.constrainedNodes ? " (" + fmt(S.count.cons) + " drawn)" : "")]] : []),
       ["Dimensions", m.bbox.max.map((v, i) => Number((v - m.bbox.min[i]).toPrecision(4))).join(" × ")],
     ];
     $("stats").innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
@@ -889,7 +989,7 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
       S.pickMode = "off"; $("pickMode").value = "off"; canvas.style.cursor = ""; $("pickCount").textContent = "none";
       $("pickSec").hidden = !model.canPick;
       setupDeformation(model); setupResultsInfo(model.meta);
-      fillStats(); refreshUi(); setView("iso");
+      fillStats(); refreshUi(); $("consRows").hidden = !(S.count.cons > 0); setView("iso");
       S.loadInfo = { parse: t1 - t0, upload: performance.now() - t1 };
       window.__lastLoad = S.loadInfo;
     } catch (err) {
@@ -911,6 +1011,8 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
   $("smax").addEventListener("input", (e) => { S.range[1] = +e.target.value; S.dirty = true; });
   $("wire").addEventListener("change", (e) => { S.wire = e.target.value; S.dirty = true; });
   $("axesOn").addEventListener("change", (e) => { S.axes = e.target.checked; S.dirty = true; });
+  $("consOn").addEventListener("change", (e) => { S.consOn = e.target.checked; S.dirty = true; });
+  $("consSize").addEventListener("input", (e) => { const v = Number(e.target.value); if (v > 0) { S.consSize = Math.min(v, 30); S.dirty = true; } });
   $("defOn").addEventListener("change", (e) => { S.defOn = e.target.checked; S.dirty = true; });
   $("defScale").addEventListener("input", (e) => { S.defFactor = S.defSuggested * e.target.value / 100; $("defFactor").value = trim(S.defFactor); S.dirty = true; });
   $("defFactor").addEventListener("input", (e) => {
@@ -1590,10 +1692,26 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     load: loadBuffer,
     loadUrl,
     state: S,
+    /**
+     * The constraints drawn in the viewer: one entry per constrained node that is drawn.
+     * @returns {{vertex:number, node:number, dofs:string[], prescribed:boolean}[]} `node` is the external node id (-1 when the
+     *          file has no picking chunks); `dofs` lists the constrained degrees of freedom among ux, uy, uz, rx, ry, rz.
+     */
+    constraints() {
+      const m = S.model;
+      if (!m || !m.consVertex) return [];
+      const names = ["ux", "uy", "uz", "rx", "ry", "rz"];
+      return Array.from(m.consVertex, (v, i) => ({
+        vertex: v, node: m.vertexNodeId ? m.vertexNodeId[v] : -1,
+        dofs: names.filter((_, d) => (m.consMask[i] >> d) & 1), prescribed: (m.consMask[i] & 256) !== 0,
+      }));
+    },
     set(options) {
       if (!S.model) return;
       if ("mode" in options) { $("colorMode").value = options.mode; S.mode = options.mode; }
       if ("wire" in options) { $("wire").value = options.wire; S.wire = options.wire; }
+      if ("constraints" in options) { S.consOn = !!options.constraints; $("consOn").checked = S.consOn; }
+      if ("constraintSize" in options && options.constraintSize > 0) { S.consSize = Math.min(options.constraintSize, 30); $("consSize").value = S.consSize; }
       if ("axes" in options) { S.axes = !!options.axes; $("axesOn").checked = S.axes; }
       if ("clip" in options) { S.clipOn = !!options.clip; $("clipOn").checked = S.clipOn; }
       if ("clipAxis" in options) { S.clipAxis = options.clipAxis; $("clipAxis").value = options.clipAxis; }

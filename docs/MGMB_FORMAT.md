@@ -1,4 +1,6 @@
-# MGMB — OpenModel Binary format, version 1.0
+# MGMB — OpenModel Binary format, version 1.2
+
+The layout below is version 1.0. Minor 1 adds the mesh-group section (id 6) and minor 2 the constraint section (id 7), described at the end. A file that has no node constraints is still written as 1.1, so readers that stop at 1.1 keep reading it; a reader accepts every minor up to 2 and expects exactly 5, 6 or 7 sections for minor 0, 1 or 2.
 
 MGMB is a little-endian, sectioned binary format intended for fast persistence of `MeshData`. Version 1.0 is uncompressed and does not carry section checksums. All integer fields are encoded little-endian; floating-point coordinates are IEEE-754 binary64. No C++ object layout, padding, pointers, or ABI-dependent enum representation is written.
 
@@ -30,6 +32,10 @@ Required section IDs:
 5. **Physical groups** — `u32` count followed by name, dimension (`i32`), tag (`i32`), material name, element-ID count (`u64`), and element IDs (`u64`).
 
 Strings are prefixed by a `u32` byte length. Element type codes are fixed by this format and are explicitly mapped by the implementation; they do not rely on the C++ enum's underlying representation.
+
+## Constraints (minor 2, section id 7)
+
+Written only when the mesh has constraints on the degrees of freedom of its nodes (`MeshData::getConstraints()`); the file is then version 1.2 with seven sections. The section holds a `u32` record count followed by one 64-byte record per constrained node, ordered by node index: node index (`u64`, internal zero-based index), mask (`u8`, bit *i* = degree of freedom *i*+1: ux, uy, uz, rx, ry, rz), seven reserved zero bytes, six `f64` prescribed values (zero for a degree of freedom not in the mask). Readers refuse an empty or out-of-range mask, a node beyond the mesh, a duplicate node, a non-zero reserved byte, a value on a free degree of freedom and a size that does not match the count.
 
 ## Reader requirements
 

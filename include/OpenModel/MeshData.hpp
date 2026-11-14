@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <map>
 #include <stdexcept>
 #include <set>
 #include <unordered_set>
@@ -95,6 +96,34 @@ private:
     std::vector<MeshGroup> m_groups;
 };
 
+/**
+ * @brief Degrees of freedom of a node, as bits of a DofMask.
+ *
+ * Bit 0..5 are the degrees of freedom 1..6 of Abaqus and CalculiX: the translations ux, uy, uz and the rotations
+ * rx, ry, rz (rotations matter for shells, beams and rigid supports; solid elements have the translations only).
+ */
+enum NodeDof : std::uint8_t {
+    DofUx = 1u << 0, DofUy = 1u << 1, DofUz = 1u << 2,
+    DofRx = 1u << 3, DofRy = 1u << 4, DofRz = 1u << 5
+};
+using DofMask = std::uint8_t;
+constexpr DofMask kDofTranslations = DofUx | DofUy | DofUz;               ///< ux, uy, uz.
+constexpr DofMask kDofRotations = DofRx | DofRy | DofRz;                  ///< rx, ry, rz.
+constexpr DofMask kDofAll = kDofTranslations | kDofRotations;             ///< All six.
+
+/**
+ * @brief The degrees of freedom of one node that are constrained, and the value each is held at.
+ *
+ * `values[i]` is the prescribed value of degree of freedom i (a displacement in model length units or a rotation in
+ * radians); it is zero for a free degree of freedom and for a plain fixed one. A constraint with an empty mask does not
+ * exist: MeshData drops it.
+ */
+struct NodeConstraint {
+    NodeIndex node = 0;                        ///< Zero-based node index, not the external NodeId.
+    DofMask dofs = 0;                          ///< Constrained degrees of freedom.
+    std::array<double, 6> values{};            ///< Prescribed values (zero for free degrees of freedom).
+};
+
 class MeshBinaryIO;
 
 class MeshData {
@@ -131,6 +160,50 @@ public:
 
     const std::unordered_map<std::string, std::vector<NodeIndex>>& getNodeSets() const noexcept ;
 
+    /**
+     * @name Constraints on the degrees of freedom of the nodes
+     *
+     * A mesh can carry the kinematic boundary conditions of an analysis: which degrees of freedom of which nodes are
+     * held, and at which value (zero for a support, non-zero for a prescribed displacement). They are independent of the
+     * analysis script (AnalysisModel), which selects nodes by plane or group when the solver input is written; the
+     * constraints here are already resolved to nodes, so they can be shown, imported from a solver deck and stored
+     * with the mesh (MGMB 1.2).
+     * @{
+     */
+
+    /**
+     * @brief Constrain the degrees of freedom in `dofs` of a node.
+     *
+     * Degrees of freedom that are already constrained take the new value; the other degrees of freedom of the node are
+     * left as they are, so successive calls accumulate.
+     * @param index  Node index; throws std::out_of_range if it does not exist.
+     * @param dofs   Non-empty mask of NodeDof bits; throws std::invalid_argument for an empty or out-of-range mask.
+     * @param values Value of each degree of freedom (only the ones in `dofs` are read, and they must be finite).
+     */
+    void constrainNode(NodeIndex index, DofMask dofs, const std::array<double, 6>& values = {});
+
+    /** @brief constrainNode() for every node of `indices`; nothing is changed when one of them is invalid. */
+    void constrainNodes(const std::vector<NodeIndex>& indices, DofMask dofs, const std::array<double, 6>& values = {});
+
+    /** @brief Free the degrees of freedom in `dofs` of a node; the constraint disappears when none is left. */
+    void releaseNode(NodeIndex index, DofMask dofs = kDofAll);
+
+    /** @brief Remove every constraint. */
+    void clearConstraints() noexcept;
+
+    /** @brief The constraint of a node, or nullptr when it has none. */
+    const NodeConstraint* constraintOf(NodeIndex index) const noexcept;
+
+    /** @brief Every constraint, ordered by node index. */
+    const std::map<NodeIndex, NodeConstraint>& getConstraints() const noexcept;
+
+    /** @brief Number of nodes with at least one constrained degree of freedom. */
+    std::size_t constrainedNodeCount() const noexcept;
+
+    /** @brief Total number of constrained degrees of freedom (a node fixed in x, y and z counts three). */
+    std::size_t constrainedDofCount() const noexcept;
+    /** @} */
+
     void addPhysicalGroup(const std::string& name, int dimension, int tag,
                           const std::vector<ElementId>& elementIds,
                           const std::string& materialName = {});
@@ -156,6 +229,7 @@ private:
     std::vector<ElementBlock> m_blocks;
     std::unordered_map<std::string, std::size_t> m_blockLookup;
     std::unordered_map<std::string, std::vector<NodeIndex>> m_nodeSets;
+    std::map<NodeIndex, NodeConstraint> m_constraints;
     std::vector<MeshPhysicalGroup> m_physicalGroups;
     MeshGroupRegistry m_groupRegistry;
 };

@@ -81,6 +81,18 @@ struct WebViewOptions {
     std::string displacementName;
     /** Free text describing the loaded solver results (file, step). Non-empty marks the model as a result view. */
     std::string resultsLabel;
+    /**
+     * Draw the constraints of the mesh (MeshData::getConstraints()) in the viewer: a symbol at each constrained node for
+     * each constrained degree of freedom. Only nodes that are drawn (they belong to an exported face or edge) get a
+     * symbol; the others are counted in `counts.constrainedNodes` but not stored.
+     */
+    bool includeConstraints = true;
+    /**
+     * Constraints to show in addition to the ones of the mesh, for example the ones the supports of an analysis put on
+     * the nodes (supportConstraints()). Degrees of freedom of the same node are merged with the mesh's; node indices
+     * outside the mesh make the build fail.
+     */
+    std::vector<NodeConstraint> extraConstraints;
 };
 
 /** @brief Outcome and statistics of a WebViewWriter call. */
@@ -92,6 +104,8 @@ struct WebViewResult {
     std::size_t boundaryTriangles = 0; ///< Triangles on the skin (stored first).
     std::size_t edges = 0;             ///< Edges stored.
     std::size_t boundaryEdges = 0;     ///< Edges on the skin (stored first).
+    std::size_t constrainedNodes = 0;  ///< Nodes with a constrained degree of freedom (mesh and extraConstraints).
+    std::size_t constraintVertices = 0;///< Of those, the nodes stored in the file (the others are not drawn).
     std::size_t bytesWritten = 0;
 };
 

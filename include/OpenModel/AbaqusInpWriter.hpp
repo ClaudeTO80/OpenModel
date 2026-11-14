@@ -22,6 +22,7 @@ struct AbaqusWriteResult {
     std::size_t elementsWritten = 0;
     std::size_t elementSetsWritten = 0;
     std::size_t nodeSetsWritten = 0;
+    std::size_t constraintRecordsWritten = 0;   ///< `*BOUNDARY` data lines (one per node and run of equal degrees of freedom).
 };
 
 struct AbaqusWriteOptions {
@@ -32,7 +33,7 @@ struct AbaqusWriteOptions {
 // Writes the MeshData model to the Abaqus/CalculiX .inp keyword format.
 // ElementBlock names and physical/generic mesh-group memberships are exported as
 // *ELSETs; generic group node memberships become <name>_NODES *NSETs. Node IDs
-// and element IDs are preserved; connectivity is translated from NodeIndex to NodeId.
+// and element IDs are preserved; the constraints of the nodes (MeshData::getConstraints) become `*BOUNDARY` data lines; connectivity is translated from NodeIndex to NodeId.
 class AbaqusInpWriter {
 public:
     static AbaqusWriteResult writeFile(const std::string& path,

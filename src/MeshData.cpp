@@ -1,5 +1,6 @@
 #include <OpenModel/MeshData.hpp>
 
+#include <cmath>
 #include <type_traits>
 
 std::size_t elementNodeCount(ElementType type) noexcept {
@@ -94,6 +95,7 @@ void MeshData::clear() noexcept {
         m_blocks.clear();
         m_blockLookup.clear();
         m_nodeSets.clear();
+        m_constraints.clear();
         m_physicalGroups.clear();
         m_groupRegistry.clear();
     
@@ -234,6 +236,61 @@ const std::unordered_map<std::string, std::vector<NodeIndex>>& MeshData::getNode
     
 }
 
+void MeshData::constrainNode(NodeIndex index, DofMask dofs, const std::array<double, 6>& values) {
+    if (index >= m_nodeIds.size()) throw std::out_of_range("MeshData: constraint node index out of range");
+    if (dofs == 0 || (dofs & ~kDofAll) != 0) throw std::invalid_argument("MeshData: constraint needs a non-empty mask of the six degrees of freedom");
+    for (std::size_t d = 0; d < 6; ++d)
+        if ((dofs & (1u << d)) && !std::isfinite(values[d])) throw std::invalid_argument("MeshData: non-finite prescribed value");
+    auto& constraint = m_constraints[index];
+    constraint.node = index;
+    for (std::size_t d = 0; d < 6; ++d)
+        if (dofs & (1u << d)) constraint.values[d] = values[d];
+    constraint.dofs = static_cast<DofMask>(constraint.dofs | dofs);
+}
+
+void MeshData::constrainNodes(const std::vector<NodeIndex>& indices, DofMask dofs, const std::array<double, 6>& values) {
+    // Check everything first, so that an invalid argument leaves the constraints untouched.
+    if (dofs == 0 || (dofs & ~kDofAll) != 0) throw std::invalid_argument("MeshData: constraint needs a non-empty mask of the six degrees of freedom");
+    for (const auto index : indices)
+        if (index >= m_nodeIds.size()) throw std::out_of_range("MeshData: constraint node index out of range");
+    for (std::size_t d = 0; d < 6; ++d)
+        if ((dofs & (1u << d)) && !std::isfinite(values[d])) throw std::invalid_argument("MeshData: non-finite prescribed value");
+    for (const auto index : indices) constrainNode(index, dofs, values);
+}
+
+void MeshData::releaseNode(NodeIndex index, DofMask dofs) {
+    const auto it = m_constraints.find(index);
+    if (it == m_constraints.end()) return;
+    for (std::size_t d = 0; d < 6; ++d)
+        if (dofs & (1u << d)) it->second.values[d] = 0.0;
+    it->second.dofs = static_cast<DofMask>(it->second.dofs & ~dofs);
+    if (it->second.dofs == 0) m_constraints.erase(it);
+}
+
+void MeshData::clearConstraints() noexcept {
+    m_constraints.clear();
+}
+
+const NodeConstraint* MeshData::constraintOf(NodeIndex index) const noexcept {
+    const auto it = m_constraints.find(index);
+    return it == m_constraints.end() ? nullptr : &it->second;
+}
+
+const std::map<NodeIndex, NodeConstraint>& MeshData::getConstraints() const noexcept {
+    return m_constraints;
+}
+
+std::size_t MeshData::constrainedNodeCount() const noexcept {
+    return m_constraints.size();
+}
+
+std::size_t MeshData::constrainedDofCount() const noexcept {
+    std::size_t count = 0;
+    for (const auto& entry : m_constraints)
+        for (std::size_t d = 0; d < 6; ++d) count += (entry.second.dofs >> d) & 1u;
+    return count;
+}
+
 const std::vector<MeshPhysicalGroup>& MeshData::getPhysicalGroups() const noexcept {
  return m_physicalGroups;
 }
@@ -284,6 +341,20 @@ const ElementBlock& MeshData::getElementBlock(const std::string& name) const {
                     break;
                 }
             }
+        }
+        for (const auto& entry : m_constraints) {
+            const auto& c = entry.second;
+            if (c.node != entry.first || c.node >= m_nodeIds.size()) {
+                errors.emplace_back("Constraint refers to an invalid node index: " + std::to_string(entry.first));
+                continue;
+            }
+            if (c.dofs == 0 || (c.dofs & ~kDofAll) != 0)
+                errors.emplace_back("Constraint has an empty or invalid degree-of-freedom mask at node index " + std::to_string(entry.first));
+            for (std::size_t d = 0; d < 6; ++d)
+                if (!std::isfinite(c.values[d]) || (!((c.dofs >> d) & 1u) && c.values[d] != 0.0)) {
+                    errors.emplace_back("Constraint has a non-finite value, or a value on a free degree of freedom, at node index " + std::to_string(entry.first));
+                    break;
+                }
         }
         std::unordered_map<ElementId, int> elementDimensions;
         for (const auto& block : m_blocks) {
