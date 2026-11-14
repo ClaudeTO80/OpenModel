@@ -405,6 +405,12 @@ if(OPENMODEL_BUILD_TESTS AND OPENMODEL_TEST_WEBGL_VIEWER AND OPENMODEL_BUILD_CLI
                         "${_washer_dir}/${_washer_name}.mgwv" "${_washer_dir}/${_washer_name}.inp" ${_washer_per_quad} ${_washer_kind})
             set_tests_properties(webgl_hole_${_washer_name} PROPERTIES FIXTURES_REQUIRED washer_data LABELS "webgl;pick" TIMEOUT 240)
         endforeach()
+        # Axes triad: its arrows against the screen directions of real nodes, in the standard views and after rotating.
+        add_test(NAME webgl_axes
+            COMMAND "${OPENMODEL_NODE_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/webgl/viewer_axes_smoke.js"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/examples/webgl-fem-viewer/index.html"
+                    "${_washer_dir}/washer.mgwv" "${_washer_dir}/washer.inp")
+        set_tests_properties(webgl_axes PROPERTIES FIXTURES_REQUIRED washer_data LABELS "webgl" TIMEOUT 240)
         add_test(NAME webgl_modal_smoke
             COMMAND "${OPENMODEL_NODE_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/webgl/viewer_modal_smoke.js"
                     "${CMAKE_CURRENT_SOURCE_DIR}/examples/webgl-fem-viewer/index.html"

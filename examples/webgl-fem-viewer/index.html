@@ -59,6 +59,8 @@ button:focus-visible, select:focus-visible, input:focus-visible, label:focus-wit
 main { position: relative; min-width: 0; background: var(--viewport); }
 canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
 canvas.drag { cursor: grabbing; }
+#axes { position: absolute; left: 12px; bottom: 46px; width: 112px; height: 112px; pointer-events: none; }
+#axes[hidden] { display: none; }
 #hud { position: absolute; left: 12px; bottom: 10px; color: var(--muted); background: color-mix(in srgb, var(--panel) 80%, transparent); border: 1px solid var(--line); border-radius: 6px; padding: 5px 9px; pointer-events: none; }
 #drop { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; color: var(--muted); padding: 24px; pointer-events: none; }
 #drop b { display: block; font-size: 16px; color: var(--text); margin-bottom: 6px; }
@@ -113,6 +115,7 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
         <option value="skin" selected>Surface</option>
         <option value="all">All (with section)</option>
       </select></label>
+    <label class="row"><span>Axes</span><input type="checkbox" id="axesOn" checked> <span style="flex:1;color:var(--text)">triad, bottom left</span></label>
   </section>
 
   <section>
@@ -183,6 +186,7 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
   <div id="drop"><div><b>Drop an .mgwv file here</b>generated with <code>openmodel export-web</code></div></div>
   <div id="msg" hidden></div>
   <div id="selBox" hidden style="position:absolute;border:1px dashed var(--accent);background:color-mix(in srgb, var(--accent) 15%, transparent);pointer-events:none"></div>
+  <canvas id="axes" width="112" height="112" aria-label="Axes of the model coordinate system"></canvas>
   <div id="hud">Left: rotate (or select, if enabled) · Right or Shift: pan · Wheel: zoom · Double-click: fit</div>
 </main>
 
@@ -387,7 +391,7 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
   /* ----------------------------------------------------------------- state */
   const S = {
     model: null, tex: {}, count: {}, mode: "block", vis: null, palettes: {},
-    wire: "skin", clipOn: false, clipAxis: 2, clipPos: 0.5, clipFlip: false,
+    wire: "skin", axes: true, clipOn: false, clipAxis: 2, clipPos: 0.5, clipFlip: false,
     fieldIndex: 0, range: [0, 1], dirty: true,
     defOn: true, defFactor: 1, defSuggested: 1,
     modeIndex: 0, animate: false, phase: 0, lastTick: 0,
@@ -618,8 +622,50 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     const pos = b.lo[S.clipAxis] + (b.hi[S.clipAxis] - b.lo[S.clipAxis]) * S.clipPos;
     return [n[0], n[1], n[2], sign * pos];
   }
+  /**
+   * Draws the triad of the model axes (X red, Y green, Z blue) in the bottom left corner of the view.
+   * The triad is orthographic and uses the rotation of the camera only, so it always shows the current
+   * orientation of the model axes, whatever the zoom, the pan or the perspective of the model.
+   * Axes pointing away from the viewer are drawn thinner and fainter, and under the ones pointing towards it.
+   */
+  function drawAxes() {
+    const c = $("axes");
+    c.hidden = !S.axes || !S.model;
+    if (c.hidden) return;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2), size = 112;
+    if (c.width !== size * dpr) { c.width = size * dpr; c.height = size * dpr; }
+    const g = c.getContext("2d");
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, size, size);
+    const R = S.rot, cx = size / 2, cy = size / 2, len = 38;
+    const cs = getComputedStyle(document.documentElement);
+    const axes = [["X", "#e5484d"], ["Y", "#30a46c"], ["Z", "#3e63dd"]].map(([name, color], i) => (
+      // Column i of the rotation is the model axis i in view coordinates: right, up, towards the viewer.
+      { name, color, x: R[i], y: R[3 + i], depth: R[6 + i] }));
+    axes.sort((a, b) => a.depth - b.depth);
+    g.lineCap = "round"; g.font = "600 12px system-ui, sans-serif"; g.textAlign = "center"; g.textBaseline = "middle";
+    g.fillStyle = cs.getPropertyValue("--panel").trim() || "#fff"; g.globalAlpha = 0.6;
+    g.beginPath(); g.arc(cx, cy, size / 2 - 2, 0, 2 * Math.PI); g.fill();
+    for (const a of axes) {
+      const ex = cx + a.x * len, ey = cy - a.y * len, front = a.depth >= 0;
+      g.globalAlpha = front ? 1 : 0.45; g.strokeStyle = g.fillStyle = a.color; g.lineWidth = front ? 2.5 : 1.5;
+      g.beginPath(); g.moveTo(cx, cy); g.lineTo(ex, ey); g.stroke();
+      const ang = Math.atan2(ey - cy, ex - cx), head = Math.hypot(ex - cx, ey - cy) > 8 ? 7 : 0;
+      if (head) {
+        g.beginPath(); g.moveTo(ex, ey);
+        g.lineTo(ex - head * Math.cos(ang - 0.4), ey - head * Math.sin(ang - 0.4));
+        g.lineTo(ex - head * Math.cos(ang + 0.4), ey - head * Math.sin(ang + 0.4));
+        g.closePath(); g.fill();
+      }
+      // The label sits just past the tip; an axis seen end-on has no direction on screen, so its label goes to a corner.
+      const l = Math.hypot(ex - cx, ey - cy);
+      if (l > 6) g.fillText(a.name, ex + (ex - cx) / l * 10, ey + (ey - cy) / l * 10); else g.fillText(a.name, ex + 9, ey - 9);
+    }
+    g.globalAlpha = 1;
+  }
   function render() {
     S.dirty = false;
+    drawAxes();
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const w = Math.max(1, Math.round(canvas.clientWidth * dpr)), h = Math.max(1, Math.round(canvas.clientHeight * dpr));
     if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
@@ -864,6 +910,7 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
   $("smin").addEventListener("input", (e) => { S.range[0] = +e.target.value; S.dirty = true; });
   $("smax").addEventListener("input", (e) => { S.range[1] = +e.target.value; S.dirty = true; });
   $("wire").addEventListener("change", (e) => { S.wire = e.target.value; S.dirty = true; });
+  $("axesOn").addEventListener("change", (e) => { S.axes = e.target.checked; S.dirty = true; });
   $("defOn").addEventListener("change", (e) => { S.defOn = e.target.checked; S.dirty = true; });
   $("defScale").addEventListener("input", (e) => { S.defFactor = S.defSuggested * e.target.value / 100; $("defFactor").value = trim(S.defFactor); S.dirty = true; });
   $("defFactor").addEventListener("input", (e) => {
@@ -1547,6 +1594,7 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
       if (!S.model) return;
       if ("mode" in options) { $("colorMode").value = options.mode; S.mode = options.mode; }
       if ("wire" in options) { $("wire").value = options.wire; S.wire = options.wire; }
+      if ("axes" in options) { S.axes = !!options.axes; $("axesOn").checked = S.axes; }
       if ("clip" in options) { S.clipOn = !!options.clip; $("clipOn").checked = S.clipOn; }
       if ("clipAxis" in options) { S.clipAxis = options.clipAxis; $("clipAxis").value = options.clipAxis; }
       if ("clipPos" in options) { S.clipPos = options.clipPos; $("clipPos").value = options.clipPos * 1000; }
