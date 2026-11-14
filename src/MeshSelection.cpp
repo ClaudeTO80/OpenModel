@@ -164,6 +164,45 @@ std::string uniqueGroupName(const MeshData& mesh, const std::string& prefix) {
     }
 }
 
+std::vector<NodeIndex> selectedNodes(const MeshData& mesh, const ViewerSelection& selection, std::string& error) {
+    error.clear();
+    const bool byNode = selection.mode == "node", byElement = selection.mode == "element", byFace = selection.mode == "face";
+    if (!byNode && !byElement && !byFace) { error = "Nothing is selected (selection mode '" + selection.mode + "')"; return {}; }
+    if ((byNode && selection.nodes.empty()) || (byElement && selection.elements.empty()) || (byFace && selection.faces.empty())) { error = "The selection is empty"; return {}; }
+    std::set<NodeIndex> nodes;
+    if (byNode) {
+        for (const NodeId id : selection.nodes) {
+            if (!mesh.hasNodeId(id)) { error = "Node " + std::to_string(id) + " is not in the mesh"; return {}; }
+            nodes.insert(mesh.nodeIndex(id));
+        }
+        return std::vector<NodeIndex>(nodes.begin(), nodes.end());
+    }
+    const auto elements = indexElements(mesh);
+    if (byElement) {
+        for (const ElementId id : selection.elements) {
+            const auto at = elements.find(id);
+            if (at == elements.end()) { error = "Element " + std::to_string(id) + " is not in the mesh"; return {}; }
+            const NodeIndex* c = connectivity(at->second);
+            nodes.insert(c, c + at->second.block->nodesPerElement);
+        }
+        return std::vector<NodeIndex>(nodes.begin(), nodes.end());
+    }
+    for (const auto& pf : selection.faces) {
+        const auto at = elements.find(pf.element);
+        if (at == elements.end()) { error = "Element " + std::to_string(pf.element) + " is not in the mesh"; return {}; }
+        std::array<NodeIndex, 3> picked{};
+        for (std::size_t k = 0; k < 3; ++k) {
+            if (!mesh.hasNodeId(pf.nodes[k])) { error = "Node " + std::to_string(pf.nodes[k]) + " is not in the mesh"; return {}; }
+            picked[k] = mesh.nodeIndex(pf.nodes[k]);
+        }
+        ResolvedFace face;
+        std::string why;
+        if (!resolveFace(mesh, at->second, picked, true, face, why)) { error = "Face of element " + std::to_string(pf.element) + ": " + why; return {}; }
+        nodes.insert(face.allNodes.begin(), face.allNodes.end());
+    }
+    return std::vector<NodeIndex>(nodes.begin(), nodes.end());
+}
+
 GroupResult createGroup(MeshData& mesh, const std::string& name, GroupKind kind, const ViewerSelection& selection) {
     GroupResult r;
     r.name = name;

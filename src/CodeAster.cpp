@@ -360,9 +360,10 @@ std::string writeCodeAsterMesh(const fs::path& path, const MeshData& mesh) {
 
 /* --------------------------------------------------------------------------- case export */
 
-CodeAsterExportResult writeCodeAsterCase(const MeshData& mesh, const AnalysisModel& model, const fs::path& directory,
+CodeAsterExportResult writeCodeAsterCase(const MeshData& mesh, const AnalysisModel& scriptModel, const fs::path& directory,
                                          const CodeAsterOptions& options) {
     CodeAsterExportResult r;
+    const AnalysisModel model = withMeshConstraints(mesh, scriptModel, r.diagnostics);
     if (!validJobName(options.jobName)) return fail(r, "Job name must be 1-64 characters from letters, digits, '_' and '-'");
     if (!knownSolver(options.solver)) return fail(r, "Unknown linear solver '" + options.solver + "' (MULT_FRONT, MUMPS, PETSC, LDLT)");
     if (options.timeLimitSeconds < 1 || options.memoryLimitMB < 1 || options.ncpus < 1) return fail(r, "time limit, memory limit and number of processors must be positive");

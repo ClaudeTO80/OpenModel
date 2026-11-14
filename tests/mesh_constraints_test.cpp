@@ -5,6 +5,8 @@
  */
 #include <OpenModel/AbaqusInpWriter.hpp>
 #include <OpenModel/AnalysisSetup.hpp>
+#include <OpenModel/CodeAster.hpp>
+#include <OpenModel/MeshSelection.hpp>
 #include <OpenModel/MeshBinaryIO.hpp>
 #include <OpenModel/MeshImporter.hpp>
 #include <OpenModel/WebViewWriter.hpp>
@@ -15,6 +17,8 @@
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <set>
+#include <sstream>
 
 using namespace OpenModel;
 namespace fs = std::filesystem;
@@ -319,6 +323,121 @@ void testWebView() {
     CHECK(!WebViewWriter::build(mesh, options, image).success);
 }
 
+std::string slurpText(const fs::path& path) {
+    std::ifstream in(path, std::ios::binary);
+    return {std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+}
+
+/** The node IDs listed under `*NSET, NSET=name` of an Abaqus deck. */
+std::set<std::uint64_t> nsetIds(const std::string& deck, const std::string& name) {
+    std::set<std::uint64_t> ids;
+    const auto at = deck.find("*NSET, NSET=" + name + "\n");
+    if (at == std::string::npos) return ids;
+    std::istringstream in(deck.substr(at));
+    std::string line;
+    std::getline(in, line);
+    while (std::getline(in, line) && !line.empty() && line[0] != '*') {
+        std::istringstream fields(line);
+        std::string item;
+        while (std::getline(fields, item, ',')) ids.insert(std::stoull(item));
+    }
+    return ids;
+}
+
+void testSelectedNodes() {
+    const auto mesh = makeCube(2);                     // node id = 100 + (z * 3 + y) * 3 + x
+    std::string error;
+    ViewerSelection byNode;
+    byNode.mode = "node"; byNode.nodes = {105, 100, 105};
+    auto nodes = selectedNodes(mesh, byNode, error);
+    CHECK(error.empty() && nodes == std::vector<NodeIndex>({0, 5}));               // sorted, without repetitions
+
+    ViewerSelection byElement;
+    byElement.mode = "element"; byElement.elements = {1};
+    nodes = selectedNodes(mesh, byElement, error);
+    CHECK(error.empty() && nodes.size() == 8);
+
+    ViewerSelection byFace;                            // the bottom face of the element 1: nodes 0, 1, 4 (and 3) of its z = 0 square
+    byFace.mode = "face"; byFace.faces.push_back({1, {{100, 101, 104}}});
+    nodes = selectedNodes(mesh, byFace, error);
+    CHECK(error.empty() && nodes == std::vector<NodeIndex>({0, 1, 3, 4}));
+    byFace.faces.push_back({2, {{101, 102, 105}}});    // the bottom face of the element 2 shares the nodes 1 and 4
+    nodes = selectedNodes(mesh, byFace, error);
+    CHECK(error.empty() && nodes == std::vector<NodeIndex>({0, 1, 2, 3, 4, 5}));
+
+    ViewerSelection bad;
+    CHECK(selectedNodes(mesh, bad, error).empty() && !error.empty());              // no mode
+    bad.mode = "node";
+    CHECK(selectedNodes(mesh, bad, error).empty() && error == "The selection is empty");
+    bad.nodes = {100, 999};
+    CHECK(selectedNodes(mesh, bad, error).empty() && error.find("999") != std::string::npos);
+    bad.mode = "face"; bad.nodes.clear(); bad.faces.push_back({1, {{100, 101, 126}}});   // 126 is not a node of the element
+    CHECK(selectedNodes(mesh, bad, error).empty() && !error.empty());
+}
+
+void testSolverInputs() {
+    const auto dir = tempDir();
+    auto mesh = makeCube(2);
+    std::vector<NodeIndex> plane;
+    for (NodeIndex i = 0; i < mesh.getNumNodes(); ++i) if (mesh.nodeCoordinates(i)[0] == 0.0) plane.push_back(i);
+    CHECK(plane.size() == 9);
+    const std::string common = "material E=210000 nu=0.3 rho=7.85e-9\nforce plane:x=2 F=1,0,0\nstep static\n";
+
+    // A constraint of the mesh gives the deck of the same `fix` written in the script.
+    auto viaMesh = makeCube(2);
+    viaMesh.constrainNodes(plane, DofUy | DofUx);
+    const auto parsedPlain = parseAnalysisScript(common);
+    CHECK(parsedPlain.success);
+    const auto meshResult = writeSolverInput(viaMesh, parsedPlain.model, dir / "mesh.inp");
+    CHECK(meshResult.success);
+    const auto parsedFix = parseAnalysisScript(common + "fix plane:x=0 dof=1,2\n");
+    CHECK(parsedFix.success);
+    const auto scriptResult = writeSolverInput(makeCube(2), parsedFix.model, dir / "script.inp");
+    CHECK(scriptResult.success);
+    const auto meshDeck = slurpText(dir / "mesh.inp"), scriptDeck = slurpText(dir / "script.inp");
+    CHECK(!nsetIds(meshDeck, "MG_FIX1").empty() && nsetIds(meshDeck, "MG_FIX1") == nsetIds(scriptDeck, "MG_FIX1"));
+    CHECK(nsetIds(meshDeck, "MG_FIX1").size() == 9);
+    for (const char* line : {"MG_FIX1, 1, 1, 0\n", "MG_FIX1, 2, 2, 0\n"}) CHECK(meshDeck.find(line) != std::string::npos);
+    CHECK(meshDeck.find("MG_FIX1, 3, 3") == std::string::npos);                       // uz stays free
+    bool info = false;
+    for (const auto& d : meshResult.diagnostics) info = info || d.code == "CONSTRAINT_FROM_MESH";
+    CHECK(info);
+
+    // Different prescribed values make different supports; they come after the ones of the script; rotations are reported and dropped.
+    auto mixed = makeCube(2);
+    mixed.constrainNodes({plane[0], plane[1]}, DofUx, {0.5, 0, 0, 0, 0, 0});
+    mixed.constrainNodes({plane[2]}, DofUx | DofRz, {0.0, 0, 0, 0, 0, 0.1});
+    const auto withFix = parseAnalysisScript(common + "fix plane:x=2 dof=3\n");
+    const auto mixedResult = writeSolverInput(mixed, withFix.model, dir / "mixed.inp");
+    CHECK(mixedResult.success);
+    const auto mixedDeck = slurpText(dir / "mixed.inp");
+    CHECK(nsetIds(mixedDeck, "MG_FIX1").size() == 9 && nsetIds(mixedDeck, "MG_FIX2").size() == 1 && nsetIds(mixedDeck, "MG_FIX3").size() == 2);
+    CHECK(mixedDeck.find("MG_FIX3, 1, 1, 0.5") != std::string::npos || mixedDeck.find("MG_FIX2, 1, 1, 0.5") != std::string::npos);
+    bool rotation = false;
+    for (const auto& d : mixedResult.diagnostics) rotation = rotation || (d.code == "CONSTRAINT_ROTATION_IGNORED" && d.level == ImportDiagnosticLevel::Warning);
+    CHECK(rotation);
+    CHECK(mixedDeck.find("MG_FIX2, 6") == std::string::npos && mixedDeck.find("MG_FIX3, 6") == std::string::npos);
+
+    // A conflict between the mesh and the script is refused, as two `fix` that disagree are.
+    auto conflicting = makeCube(2);
+    conflicting.constrainNodes({plane[0]}, DofUx, {0.5, 0, 0, 0, 0, 0});
+    const auto conflictModel = parseAnalysisScript(common + "fix plane:x=0 dof=1\n");
+    CHECK(!writeSolverInput(conflicting, conflictModel.model, dir / "conflict.inp").success);
+
+    // A mesh with no constraint writes what it always did.
+    const auto noneResult = writeSolverInput(makeCube(2), parsedFix.model, dir / "none.inp");
+    CHECK(noneResult.success && slurpText(dir / "none.inp") == scriptDeck);
+
+    // code_aster: the same support, as a group of nodes of the case.
+    CodeAsterOptions options;
+    const auto aster = writeCodeAsterCase(viaMesh, parsedPlain.model, dir / "aster", options);
+    CHECK(aster.success);
+    std::string all;
+    for (const auto& entry : fs::recursive_directory_iterator(dir / "aster")) if (entry.is_regular_file()) all += slurpText(entry.path());
+    CHECK(all.find("OM_FIX1") != std::string::npos && all.find("DX=0") != std::string::npos && all.find("DY=0") != std::string::npos);
+    CHECK(all.find("DZ=") == std::string::npos);
+}
+
 } // namespace
 
 int main() {
@@ -328,6 +447,8 @@ int main() {
     testInpRoundTrip();
     testSupports();
     testWebView();
+    testSelectedNodes();
+    testSolverInputs();
     if (g_failures) { std::cerr << g_failures << " check(s) failed\n"; return 1; }
     std::cout << "mesh_constraints_test: all passed\n";
     return 0;

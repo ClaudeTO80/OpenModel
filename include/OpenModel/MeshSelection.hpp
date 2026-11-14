@@ -71,6 +71,15 @@ std::string uniqueGroupName(const MeshData& mesh, const std::string& prefix);
  */
 GroupResult createGroup(MeshData& mesh, const std::string& name, GroupKind kind, const ViewerSelection& selection);
 
+/**
+ * @brief The nodes of a selection, as node indices in increasing order: the picked nodes, all nodes of the picked elements, or
+ *        all nodes of the picked faces (corner and mid-side nodes).
+ *
+ * Fails with an empty result and `error` set on the same conditions as createGroup() for a node set (nothing selected, ids that
+ * are not in the mesh, a face that is not a face of its element).
+ */
+std::vector<NodeIndex> selectedNodes(const MeshData& mesh, const ViewerSelection& selection, std::string& error);
+
 /** @brief Node sets, volume groups and surface groups of the mesh (other physical groups are not listed). */
 std::vector<GroupInfo> listGroups(const MeshData& mesh);
 

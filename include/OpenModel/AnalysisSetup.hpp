@@ -36,7 +36,10 @@
 
 namespace OpenModel {
 
-enum class SelectorKind { All, Group, Plane };
+enum class SelectorKind {
+    All, Group, Plane,
+    Nodes   ///< An explicit list of node indices (`NodeSelector::nodes`). Not written by the script syntax: it is made by withMeshConstraints().
+};
 
 /** @brief Which nodes a condition applies to. */
 struct NodeSelector {
@@ -45,6 +48,7 @@ struct NodeSelector {
     int axis = 0;              ///< 0, 1, 2 for x, y, z (kind Plane).
     double position = 0.0;     ///< Plane coordinate.
     double tolerance = -1.0;   ///< Negative = automatic.
+    std::vector<NodeIndex> nodes; ///< Node indices (kind Nodes).
 };
 
 struct AnalysisMaterial {
@@ -186,6 +190,16 @@ private:
  */
 std::vector<NodeConstraint> supportConstraints(const MeshData& mesh, const AnalysisModel& model,
                                                std::vector<ImportDiagnostic>& diagnostics);
+
+/**
+ * @brief `model` plus the constraints stored in the mesh (MeshData::getConstraints()), as extra supports.
+ *
+ * The nodes that carry the same translations and the same prescribed values become one support (selector kind Nodes), added
+ * after the supports of the script, so that the solver writers handle them like any `fix`. Only translations exist for the
+ * volume elements the solvers get: a rotation in the mask is dropped and reported once as a warning. Adds an info line with the
+ * number of nodes taken from the mesh. The result is a temporary model for writing a solver input, not something to serialize.
+ */
+AnalysisModel withMeshConstraints(const MeshData& mesh, const AnalysisModel& model, std::vector<ImportDiagnostic>& diagnostics);
 
 /** @brief Add supportConstraints() to the constraints of `mesh` (a degree of freedom already constrained takes the new value). */
 void applySupports(MeshData& mesh, const AnalysisModel& model, std::vector<ImportDiagnostic>& diagnostics);

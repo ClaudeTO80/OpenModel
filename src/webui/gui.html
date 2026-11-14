@@ -159,6 +159,10 @@ iframe{display:block;width:100%;height:100%;border:0;background:var(--viewport)}
       <button class="rb" data-act="as-force" data-need="sel" title="Create a node group and add 'force' to the script"><span class="ic">➡</span>Force</button>
       <button class="rb" data-act="as-press" data-need="selface" title="Create a face group and add 'pressure' to the script (only with faces selected)"><span class="ic">⬇</span>Pressure</button>
     </div><div class="gname">Groups and loads</div></div>
+    <div class="group"><div class="items">
+      <button class="rb" data-act="cd-apply" data-need="sel" title="Block the degrees of freedom ticked in the side panel (Mesh constraints) on the nodes of the selection"><span class="ic">🔒</span>Constrain</button>
+      <button class="rb" data-act="cd-clear" data-need="mesh" title="Remove every constraint stored in the mesh"><span class="ic">🔓</span>Unconstrain</button>
+    </div><div class="gname">Mesh constraints</div></div>
   </div>
 
   <div class="panel" data-panel="res" role="tabpanel" hidden>
@@ -423,6 +427,19 @@ iframe{display:block;width:100%;height:100%;border:0;background:var(--viewport)}
     <div class="grid2"><button id="btnAsFix" onclick="assign('fix')">Fix</button><button id="btnAsForce" onclick="assign('force')">Force</button></div>
     <button id="btnAsPress" onclick="assign('press')" style="margin-top:6px">Pressure</button>
     <p class="hint">Each assignment creates a group from the selection and appends the line to the section 6 script.</p>
+    <label>Mesh constraints (stored in the FEM mesh)</label>
+    <div class="grid2" style="margin-top:4px">
+      <label style="margin:0"><input type="checkbox" id="cdUx" checked> ux</label><label style="margin:0"><input type="checkbox" id="cdRx"> rx</label>
+      <label style="margin:0"><input type="checkbox" id="cdUy" checked> uy</label><label style="margin:0"><input type="checkbox" id="cdRy"> ry</label>
+      <label style="margin:0"><input type="checkbox" id="cdUz" checked> uz</label><label style="margin:0"><input type="checkbox" id="cdRz"> rz</label>
+    </div>
+    <div class="grid2"><button type="button" id="cdAll" onclick="constraintPreset(63)">All 6</button><button type="button" id="cdXyz" onclick="constraintPreset(7)">Translations</button></div>
+    <label for="cdValues">Prescribed values ux,uy,uz,rx,ry,rz (empty = 0)</label>
+    <input id="cdValues" placeholder="0,0,0,0,0,0">
+    <div class="grid2"><button id="btnCdApply" onclick="constraintApply()">Apply to selection</button><button id="btnCdRelease" onclick="constraintRelease()">Release on selection</button></div>
+    <button id="btnCdClear" onclick="constraintClear()" style="margin-top:6px">Remove all constraints</button>
+    <p class="hint">Select a face (mode Faces: the connected faces with the same normal, or the wall of a hole, are selected together), tick the degrees of freedom to block and press Apply: they are blocked on every node of the selection, mid-side nodes included. The constraints are drawn in the viewer and written to the solver input. Rotations are stored and drawn, but the solver ignores them on solid elements.</p>
+    <ul id="cdList" style="list-style:none;margin:4px 0 8px;padding:0;font-size:12px"></ul>
     <label>Mesh groups</label>
     <ul id="grpList" style="list-style:none;margin:0;padding:0;font-size:12px"></ul>
   </section>
@@ -511,6 +528,8 @@ async function act(name, ...args) {
   else if (r.ok && ["openmodel_generate_volume", "openmodel_load_mesh"].includes(name)) viewEdges = "skin";
   applyView(r);
   if (r.groups) renderGroups(r.groups);
+  if (r.constraints) renderConstraints(r.constraints);
+  else if (r.ok && ["openmodel_load_mesh", "openmodel_generate_volume"].includes(name)) refreshConstraints();
   if (r.cadGroups) renderCADFaceGroups(r.cadGroups);
   if (r.nativeCADGroups) renderNativeCADGroups(r.nativeCADGroups);
   if (r.meshGroups) renderGenericMeshGroups(r.meshGroups);
@@ -727,6 +746,8 @@ RIBBON_EXTRA["pick-face"] = () => setPickMode("face");
 RIBBON_EXTRA["sel-clear"] = () => { const pk = pickApi(); if (pk) pk.clear(); syncRibbon(); };
 RIBBON_EXTRA["grp-make"] = () => { const sel = currentSelection(); if (sel) makeGroup(sel.mode); else show("Select nodes, elements or faces in the viewer first.", "bad"); };
 RIBBON_EXTRA["as-fix"] = () => assign("fix");
+RIBBON_EXTRA["cd-apply"] = () => constraintApply();
+RIBBON_EXTRA["cd-clear"] = () => constraintClear();
 RIBBON_EXTRA["as-force"] = () => assign("force");
 RIBBON_EXTRA["as-press"] = () => assign("press");
 const RIBBON_ACTIONS = {
@@ -849,6 +870,41 @@ function renderGroups(groups) {
     : '<li style="color:var(--muted)">No groups.</li>';
   $("grpList").querySelectorAll("button[data-group]").forEach((b) => b.addEventListener("click", () => showGroup(groups[+b.dataset.group].name)));
 }
+const CD_IDS = ["cdUx", "cdUy", "cdUz", "cdRx", "cdRy", "cdRz"];
+function constraintMaskFromUI() { let m = 0; CD_IDS.forEach((id, i) => { if ($(id).checked) m |= 1 << i; }); return m; }
+function constraintPreset(m) { CD_IDS.forEach((id, i) => { $(id).checked = !!(m & (1 << i)); }); }
+function constraintValuesText() {
+  const t = $("cdValues").value.trim();
+  if (!t) return "";
+  const v = t.split(",").map((x) => Number(x.trim()));
+  if (v.length !== 6 || v.some((x) => !Number.isFinite(x))) return null;
+  return v.join(",");
+}
+function renderConstraints(list) {
+  const names = ["ux", "uy", "uz", "rx", "ry", "rz"];
+  $("cdList").innerHTML = list.length ? list.map((c) => {
+    const val = c.values.map((x, i) => (c.mask & (1 << i)) && x !== 0 ? names[i] + "=" + x : "").filter(Boolean).join(" ");
+    return `<li style="margin:2px 0"><b>${esc2(c.dofs)}</b> · ${c.nodes} nodes${val ? " · " + esc2(val) : ""}</li>`;
+  }).join("") : '<li style="color:var(--muted)">No constraints.</li>';
+}
+async function refreshConstraints() { const r = await call("openmodel_constraint_list"); if (r && r.constraints) renderConstraints(r.constraints); }
+async function constraintApply() {
+  const sel = currentSelection();
+  if (!sel) { show("Select nodes, elements or faces in the viewer first.", "bad"); return; }
+  const mask = constraintMaskFromUI();
+  if (!mask) { show("Tick at least one degree of freedom to block.", "bad"); return; }
+  const vals = constraintValuesText();
+  if (vals === null) { show("The prescribed values need six comma-separated numbers (ux,uy,uz,rx,ry,rz).", "bad"); return; }
+  await act("openmodel_constraint_apply", sel.mode, selectionText(sel), String(mask), vals);
+}
+async function constraintRelease() {
+  const sel = currentSelection();
+  if (!sel) { show("Select nodes, elements or faces in the viewer first.", "bad"); return; }
+  const mask = constraintMaskFromUI();
+  if (!mask) { show("Tick the degrees of freedom to release.", "bad"); return; }
+  await act("openmodel_constraint_release", sel.mode, selectionText(sel), String(mask));
+}
+async function constraintClear() { await act("openmodel_constraint_clear"); }
 async function refreshGroups() { const r = await call("openmodel_list_groups"); if (r.groups) renderGroups(r.groups); }
 
 function renderNativeCADGroups(groups) {

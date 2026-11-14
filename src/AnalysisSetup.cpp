@@ -259,6 +259,7 @@ std::string serializeAnalysisScript(const AnalysisModel& model) {
     auto selectorText = [](const NodeSelector& selector) {
         if (selector.kind == SelectorKind::All) return std::string("all");
         if (selector.kind == SelectorKind::Group) return std::string("group:") + selector.name;
+        if (selector.kind == SelectorKind::Nodes) return std::string("all");   // never written: see withMeshConstraints()
         std::ostringstream value;
         value << "plane:" << "xyz"[std::max(0, std::min(2, selector.axis))] << '=' << selector.position;
         return value.str();
@@ -386,6 +387,42 @@ std::string PrescribedDisplacementTracker::add(std::size_t supportIndex, const F
     return {};
 }
 
+AnalysisModel withMeshConstraints(const MeshData& mesh, const AnalysisModel& model, std::vector<ImportDiagnostic>& diagnostics) {
+    AnalysisModel out = model;
+    if (mesh.constrainedNodeCount() == 0) return out;
+    // One support per distinct (translations, values): the nodes are listed in node order inside it.
+    std::map<std::pair<DofMask, std::array<double, 3>>, std::vector<NodeIndex>> classes;
+    std::size_t withRotation = 0, taken = 0;
+    for (const auto& entry : mesh.getConstraints()) {
+        const auto& c = entry.second;
+        if (c.dofs & kDofRotations) ++withRotation;
+        const DofMask translations = static_cast<DofMask>(c.dofs & kDofTranslations);
+        if (translations == 0) continue;
+        classes[{translations, {c.values[0], c.values[1], c.values[2]}}].push_back(c.node);
+        ++taken;
+    }
+    if (withRotation > 0)
+        diagnostics.push_back({ImportDiagnosticLevel::Warning, "CONSTRAINT_ROTATION_IGNORED",
+                               std::to_string(withRotation) + " node(s) of the mesh constrain a rotation, which solid elements do not have: the rotations are not written", 0});
+    std::size_t index = 0;
+    for (auto& entry : classes) {
+        FixedSupport support;
+        support.id = "mesh-constraint-" + std::to_string(++index);
+        support.where.kind = SelectorKind::Nodes;
+        support.where.nodes = std::move(entry.second);
+        for (std::size_t d = 0; d < 3; ++d) {
+            support.dof[d] = (entry.first.first >> d) & 1u;
+            support.displacement[d] = entry.first.second[d];
+        }
+        out.supports.push_back(std::move(support));
+    }
+    if (taken > 0)
+        diagnostics.push_back({ImportDiagnosticLevel::Info, "CONSTRAINT_FROM_MESH",
+                               std::to_string(taken) + " node(s) constrained in the mesh are added to the supports of the script (fix #" +
+                               std::to_string(model.supports.size() + 1) + (index > 1 ? " to #" + std::to_string(model.supports.size() + index) : std::string()) + ")", 0});
+    return out;
+}
+
 std::vector<NodeConstraint> supportConstraints(const MeshData& mesh, const AnalysisModel& model,
                                                std::vector<ImportDiagnostic>& diagnostics) {
     std::map<NodeIndex, NodeConstraint> merged;
@@ -426,6 +463,12 @@ std::vector<NodeIndex> selectNodes(const MeshData& mesh, const NodeSelector& sel
     if (selector.kind == SelectorKind::All) {
         out.resize(n);
         for (std::size_t i = 0; i < n; ++i) out[i] = static_cast<NodeIndex>(i);
+        return out;
+    }
+    if (selector.kind == SelectorKind::Nodes) {
+        for (const NodeIndex node : selector.nodes)
+            if (node >= n) { error = "A node index of the selection is not in the mesh"; return out; }
+        out = selector.nodes;
         return out;
     }
     if (selector.kind == SelectorKind::Plane) {
@@ -549,8 +592,9 @@ SolverInputResult failed(SolverInputResult r, std::string message) {
 
 } // namespace
 
-SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& model, const std::filesystem::path& path) {
+SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& scriptModel, const std::filesystem::path& path) {
     SolverInputResult r;
+    const AnalysisModel model = withMeshConstraints(mesh, scriptModel, r.diagnostics);
     const auto& m = model.material;
     if (!(m.youngModulus > 0.0) || !std::isfinite(m.youngModulus)) return failed(r, "Young's modulus must be positive");
     if (!(m.poisson > -1.0 && m.poisson < 0.5)) return failed(r, "Poisson's ratio must lie between -1 and 0.5 (exclusive)");

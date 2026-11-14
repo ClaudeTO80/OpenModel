@@ -24,6 +24,10 @@ Selectors: `all`; `group:NAME` (node set, or the nodes of any physical group, ca
 
 The mesh through `AbaqusInpWriter` (**volume elements only**; surface/line elements are not structure), then `*MATERIAL/*ELASTIC/*DENSITY`, one `*SOLID SECTION` per volume block, `*BOUNDARY`, a single `*STEP` with `*STATIC` (+ `*CLOAD`, `*DLOAD` with `Pn` faces and `GRAV`) or `*FREQUENCY`, `*NODE FILE U[,S,E]` and `*EL PRINT S,E`. Pressure faces are found by matching the surface elements of the group with the faces of tetrahedra/hexahedra (numbering P1–P6 / S1–S4 of CalculiX); a surface element that is not a boundary face is an error.
 
+### Constraints stored in the mesh
+
+The node constraints of `MeshData` (set in the GUI with *Mesh constraints*, or read from `*BOUNDARY`) are added to the script's supports when the input is written (`withMeshConstraints()`): one `fix` per set of blocked translations and prescribed values, id `mesh-constraint-N`. A conflict with a script support is refused with the usual message. Rotations (rx, ry, rz) are not written, because the solid elements have no rotational degrees of freedom: the warning `CONSTRAINT_ROTATION_IGNORED` is reported.
+
 ## Use
 
 * GUI: ribbon tab **Analisi** or section *6 · Analisi e solver*. Job argument: a path ending in `.inp` is the input file, anything else is a folder containing `job.inp`; empty = `./openmodel_job/job.inp`. Solver empty = `ccx` in `PATH`. The log is shown live; *Annulla* sends SIGTERM to the process group, then SIGKILL after 3 s. On success the results are loaded automatically.

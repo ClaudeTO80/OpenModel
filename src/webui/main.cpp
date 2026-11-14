@@ -1664,6 +1664,126 @@ void showGroupHandler(webui_event_t* e) {
     replyGroups(e, true, skipped ? std::to_string(skipped) + " surface elements do not match a face and are not shown." : "", selection.mode, selectionPayload(selection));
 }
 
+/** "ux, uz, rx": the degrees of freedom of a mask. */
+std::string dofNames(DofMask mask) {
+    static const char* const names[6] = {"ux", "uy", "uz", "rx", "ry", "rz"};
+    std::string out;
+    for (std::size_t d = 0; d < 6; ++d)
+        if ((mask >> d) & 1u) out += (out.empty() ? "" : ", ") + std::string(names[d]);
+    return out;
+}
+
+/** The constraints of the mesh, one entry per set of nodes with the same degrees of freedom and values: dofs, values, mask, nodes. */
+std::string constraintsJson() {
+    std::map<std::pair<DofMask, std::array<double, 6>>, std::size_t> classes;
+    for (const auto& entry : g.mesh.getConstraints()) ++classes[{entry.second.dofs, entry.second.values}];
+    std::ostringstream out;
+    out << '[';
+    bool first = true;
+    for (const auto& entry : classes) {
+        if (!first) out << ',';
+        first = false;
+        out << "{\"dofs\":\"" << dofNames(entry.first.first) << "\",\"mask\":" << static_cast<unsigned>(entry.first.first) << ",\"nodes\":" << entry.second << ",\"values\":[";
+        for (std::size_t d = 0; d < 6; ++d) out << (d ? "," : "") << entry.first.second[d];
+        out << "]}";
+    }
+    out << ']';
+    return out.str();
+}
+
+void replyConstraints(webui_event_t* e, bool ok, const std::string& message) {
+    std::ostringstream out;
+    out << "{\"ok\":" << (ok ? "true" : "false") << ",\"message\":\"" << jsonEscape(message) << "\"," << viewFields()
+        << ",\"constraints\":" << constraintsJson() << ",\"constrainedNodes\":" << g.mesh.constrainedNodeCount() << "}";
+    webui_return_string(e, out.str().c_str());
+}
+
+/** The nodes of the selection sent by the page (arguments `first` and `first + 1`: mode and payload). Replies with the error and returns false. */
+bool constraintTargets(webui_event_t* e, std::size_t first, std::vector<NodeIndex>& nodes) {
+    OpenModel::ViewerSelection selection;
+    std::string error;
+    if (!parseSelection(getStringArg(e, first), getStringArg(e, first + 1), selection, error)) { reply(e, false, error); return false; }
+    nodes = OpenModel::selectedNodes(g.mesh, selection, error);
+    if (nodes.empty()) { reply(e, false, error.empty() ? "The selection contains no node." : error); return false; }
+    return true;
+}
+
+/** Mask of degrees of freedom sent as an integer 1..63 (bit 0 = ux ... bit 5 = rz). */
+bool constraintMask(webui_event_t* e, std::size_t index, DofMask& mask) {
+    std::uint64_t value = 0;
+    if (!parseId(getStringArg(e, index), value) || value == 0 || value > kDofAll) { reply(e, false, "Choose at least one degree of freedom."); return false; }
+    mask = static_cast<DofMask>(value);
+    return true;
+}
+
+/**
+ * Arguments: selection mode, selection payload, mask of the degrees of freedom (1..63), prescribed values "ux,uy,uz,rx,ry,rz"
+ * (empty = all zero). Constrains the degrees of freedom in the mask on every node of the selection (the nodes of the picked
+ * faces or elements, or the picked nodes) and redraws the view.
+ */
+void constraintApplyHandler(webui_event_t* e) {
+    StateLock lock;
+    if (!lock.ok()) { replyBusy(e); return; }
+    if (g.mesh.getNumNodes() == 0) { reply(e, false, "Load or generate a volume mesh first."); return; }
+    std::vector<NodeIndex> nodes;
+    DofMask mask = 0;
+    if (!constraintTargets(e, 0, nodes) || !constraintMask(e, 2, mask)) return;
+    std::array<double, 6> values{};
+    const std::string valueText = getStringArg(e, 3);
+    if (!valueText.empty()) {
+        const auto items = splitText(valueText, ',');
+        bool valid = items.size() == 6;
+        for (std::size_t k = 0; valid && k < 6; ++k) {
+            try {
+                std::size_t consumed = 0;
+                values[k] = std::stod(items[k], &consumed);
+                valid = consumed == items[k].size() && std::isfinite(values[k]);
+            } catch (...) { valid = false; }
+        }
+        if (!valid) { reply(e, false, "The prescribed values are six numbers: ux,uy,uz,rx,ry,rz."); return; }
+    }
+    try {
+        g.mesh.constrainNodes(nodes, mask, values);
+    } catch (const std::exception& ex) {
+        reply(e, false, std::string("Constraint not applied: ") + ex.what());
+        return;
+    }
+    updateView();
+    std::string message = "Constrained " + dofNames(mask) + " on " + std::to_string(nodes.size()) + " node" + (nodes.size() == 1 ? "" : "s") + ".";
+    if (mask & kDofRotations) message += "\nRotations are drawn and stored, but the solver input is made for solid elements, which have no rotations: they are left out there.";
+    replyConstraints(e, true, message);
+}
+
+/** Arguments: selection mode, selection payload, mask of the degrees of freedom to free (1..63). */
+void constraintReleaseHandler(webui_event_t* e) {
+    StateLock lock;
+    if (!lock.ok()) { replyBusy(e); return; }
+    if (g.mesh.getNumNodes() == 0) { reply(e, false, "Load or generate a volume mesh first."); return; }
+    std::vector<NodeIndex> nodes;
+    DofMask mask = 0;
+    if (!constraintTargets(e, 0, nodes) || !constraintMask(e, 2, mask)) return;
+    const std::size_t before = g.mesh.constrainedDofCount();
+    for (const NodeIndex n : nodes) g.mesh.releaseNode(n, mask);
+    const std::size_t freed = before - g.mesh.constrainedDofCount();
+    updateView();
+    replyConstraints(e, true, freed ? "Freed " + std::to_string(freed) + " constrained degree" + (freed == 1 ? "" : "s") + " of freedom on the selection." : "No constraint of the selection matched.");
+}
+
+void constraintClearHandler(webui_event_t* e) {
+    StateLock lock;
+    if (!lock.ok()) { replyBusy(e); return; }
+    const std::size_t count = g.mesh.constrainedNodeCount();
+    g.mesh.clearConstraints();
+    if (g.mesh.getNumNodes() > 0) updateView();
+    replyConstraints(e, true, count ? "Removed the constraints of " + std::to_string(count) + " nodes from the mesh." : "The mesh has no constraints.");
+}
+
+void constraintListHandler(webui_event_t* e) {
+    StateLock lock;
+    if (!lock.ok()) { replyBusy(e); return; }
+    replyConstraints(e, true, "");
+}
+
 std::string cadFaceGroupsJson() {
     std::ostringstream out;
     out << '[';
@@ -2095,6 +2215,10 @@ int main() {
     webui_bind(window, "openmodel_create_group", createGroupHandler);
     webui_bind(window, "openmodel_list_groups", listGroupsHandler);
     webui_bind(window, "openmodel_show_group", showGroupHandler);
+    webui_bind(window, "openmodel_constraint_apply", constraintApplyHandler);
+    webui_bind(window, "openmodel_constraint_release", constraintReleaseHandler);
+    webui_bind(window, "openmodel_constraint_clear", constraintClearHandler);
+    webui_bind(window, "openmodel_constraint_list", constraintListHandler);
     webui_bind(window, "openmodel_list_cad_face_groups", listCADFaceGroupsHandler);
     webui_bind(window, "openmodel_create_cad_face_group", createCADFaceGroupHandler);
     webui_bind(window, "openmodel_update_cad_face_group", updateCADFaceGroupHandler);
