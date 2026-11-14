@@ -150,7 +150,7 @@ iframe{display:block;width:100%;height:100%;border:0;background:var(--viewport)}
     <div class="group"><div class="items">
       <button class="rb" data-act="pick-node" data-on="pick:node" data-need="pick" title="Select nodes in the viewer (click; Ctrl+click adds; Alt+drag = box)"><span class="ic">•</span>Nodes</button>
       <button class="rb" data-act="pick-element" data-on="pick:element" data-need="pick" title="Select elements (those with a visible face are shown)"><span class="ic">▣</span>Elements</button>
-      <button class="rb" data-act="pick-face" data-on="pick:face" data-need="pick" title="Select faces; a click also selects the connected faces with the same normal (see Face angle, section 7)"><span class="ic">◩</span>Faces</button>
+      <button class="rb" data-act="pick-face" data-on="pick:face" data-need="pick" title="Select faces; a click also selects the connected faces with the same normal, or the whole wall of a hole (see Face angle and Holes, section 7)"><span class="ic">◩</span>Faces</button>
       <button class="rb" data-act="sel-clear" data-need="sel" title="Clear the selection"><span class="ic">✖</span>None</button>
     </div><div class="gname">Selection</div></div>
     <div class="group"><div class="items">
@@ -395,6 +395,8 @@ iframe{display:block;width:100%;height:100%;border:0;background:var(--viewport)}
     <select id="selGrowth" title="Same normal: the angle is measured against the clicked face, so a curved surface is not followed. Smooth surface: the angle is measured between neighbouring faces, so the selection follows a curved surface." onchange="setPickGrowth(this.value)">
       <option value="same-normal">Same normal</option><option value="smooth">Smooth surface</option>
     </select>
+    <div class="grid2"><div><label for="selHoles">Holes</label><input id="selHoles" type="checkbox" checked title="A click on the wall of a hole (a bolt hole, a bore) selects the whole wall" onchange="setPickHoles(this.checked)"></div>
+      <div><label for="selHoleArc">Hole arc (°)</label><input id="selHoleArc" type="number" min="30" max="360" step="10" value="330" title="Smallest angle around its axis a wall must cover to count as a hole: 330 = a closed hole, 170 also takes the half of a hole cut by a symmetry plane" onchange="setPickHoleArc(this.value)"></div></div>
     <p class="hint" id="selInfo">Selection: none.</p>
     <p class="hint" id="cadFaceInfo">CAD faces: none selected.</p>
     <label>Named groups imported from the CAD file</label>
@@ -808,6 +810,8 @@ const pickApi = () => { const w = viewerApi(); return w && w.OpenModelViewer && 
 function setPickMode(mode) { const pk = pickApi(); if (pk) pk.setMode(mode); syncRibbon(); }
 function setPickAngle(v) { const pk = pickApi(); if (pk) pk.setAngle(v); }
 function setPickGrowth(v) { const pk = pickApi(); if (pk) pk.setGrowth(v); }
+function setPickHoles(on) { const pk = pickApi(); if (pk) pk.setHoles(on); }
+function setPickHoleArc(v) { const pk = pickApi(); if (pk) pk.setHoleArc(v); }
 function setPickBox(on) { const pk = pickApi(); if (pk) pk.setBox(on); }
 function selectionText(sel) {
   if (sel.mode === "node") return sel.nodes.join(",");

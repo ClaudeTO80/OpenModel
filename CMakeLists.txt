@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.20)
 # The single place where the OpenModel version is set. It feeds project(), the installed CMake package,
 # the CPack file names and the generated <OpenModel/Version.hpp> (macros and OpenModel::version()).
 # Override it with -DOPENMODEL_VERSION=x.y.z (for example from a release script).
-set(OPENMODEL_VERSION "0.1.2" CACHE STRING "OpenModel version, MAJOR.MINOR.PATCH (minor and patch 0-99)")
+set(OPENMODEL_VERSION "0.1.3" CACHE STRING "OpenModel version, MAJOR.MINOR.PATCH (minor and patch 0-99)")
 if(NOT OPENMODEL_VERSION MATCHES "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]?)\\.(0|[1-9][0-9]?)$")
     message(FATAL_ERROR "OPENMODEL_VERSION must look like MAJOR.MINOR.PATCH with minor and patch between 0 and 99, no leading zeros (got '${OPENMODEL_VERSION}')")
 endif()
@@ -385,6 +385,25 @@ if(OPENMODEL_BUILD_TESTS AND OPENMODEL_TEST_WEBGL_VIEWER AND OPENMODEL_BUILD_CLI
                         "${CMAKE_CURRENT_BINARY_DIR}/arch_fixture/${_arch_name}.mgwv" "${CMAKE_CURRENT_BINARY_DIR}/arch_fixture/${_arch_name}.inp"
                         ${_arch_per_quad})
             set_tests_properties(webgl_face_growth_${_arch_name} PROPERTIES FIXTURES_REQUIRED arch_data LABELS "webgl;pick" TIMEOUT 240)
+        endforeach()
+        # Recognition of holes: a washer and half a washer (hexahedra and tetrahedra), sizes known from the construction.
+        set(_washer_dir "${CMAKE_CURRENT_BINARY_DIR}/washer_fixture")
+        add_test(NAME webgl_hole_fixture
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/support/make_washer_mesh.py" "${_washer_dir}")
+        set_tests_properties(webgl_hole_fixture PROPERTIES FIXTURES_SETUP washer_mesh LABELS "webgl;pick")
+        foreach(_washer IN ITEMS "washer;1;full" "washer_tet;2;full" "washer_half;1;half" "washer_half_tet;2;half")
+            list(GET _washer 0 _washer_name)
+            list(GET _washer 1 _washer_per_quad)
+            list(GET _washer 2 _washer_kind)
+            add_test(NAME webgl_hole_data_${_washer_name}
+                COMMAND openmodel-cli export-web "${_washer_dir}/${_washer_name}.inp" "${_washer_dir}/${_washer_name}.mgwv")
+            set_tests_properties(webgl_hole_data_${_washer_name} PROPERTIES
+                FIXTURES_REQUIRED washer_mesh FIXTURES_SETUP washer_data LABELS "webgl;pick")
+            add_test(NAME webgl_hole_${_washer_name}
+                COMMAND "${OPENMODEL_NODE_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/webgl/viewer_hole_smoke.js"
+                        "${CMAKE_CURRENT_SOURCE_DIR}/examples/webgl-fem-viewer/index.html"
+                        "${_washer_dir}/${_washer_name}.mgwv" "${_washer_dir}/${_washer_name}.inp" ${_washer_per_quad} ${_washer_kind})
+            set_tests_properties(webgl_hole_${_washer_name} PROPERTIES FIXTURES_REQUIRED washer_data LABELS "webgl;pick" TIMEOUT 240)
         endforeach()
         add_test(NAME webgl_modal_smoke
             COMMAND "${OPENMODEL_NODE_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/webgl/viewer_modal_smoke.js"

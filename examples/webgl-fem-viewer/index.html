@@ -154,6 +154,8 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
         <option value="same-normal">Same normal</option>
         <option value="smooth">Smooth surface</option>
       </select></label>
+    <label class="row"><span>Holes</span><input type="checkbox" id="pickHoles" checked title="A click on the wall of a hole (a bolt hole, a bore) selects the whole wall"> <span style="color:var(--text)">arc ≥</span>
+      <input type="number" id="pickHoleArc" min="30" max="360" step="10" value="330" title="Smallest angle around its axis a wall must cover to count as a hole: 330 = a closed hole, 170 also takes the half of a hole cut by a symmetry plane"> <span style="color:var(--text)">°</span></label>
     <label class="row"><span>Box</span><input type="checkbox" id="pickBox"> <span style="flex:1;color:var(--text)">drag to select</span></label>
     <div class="row"><span>Selected</span><span id="pickCount" style="flex:1;text-align:right">none</span></div>
     <div class="row"><button id="pickClear" style="flex:1">Clear selection</button></div>
@@ -389,7 +391,7 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     fieldIndex: 0, range: [0, 1], dirty: true,
     defOn: true, defFactor: 1, defSuggested: 1,
     modeIndex: 0, animate: false, phase: 0, lastTick: 0,
-    pickMode: "off", pickAngle: 1, pickGrowth: "same-normal", pickBox: false, sel: { node: new Set(), element: new Set(), face: new Set() },
+    pickMode: "off", pickAngle: 1, pickGrowth: "same-normal", pickHoles: true, pickHoleArc: 330, pickBox: false, sel: { node: new Set(), element: new Set(), face: new Set() },
     rot: [1, 0, 0, 0, 1, 0, 0, 0, 1], target: [0, 0, 0], dist: 3, radius: 1,
   };
 
@@ -488,7 +490,7 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     S.palettes = {};
     S.model = model;
     S.sel = { node: new Set(), element: new Set(), face: new Set() };
-    S.faceInfo = null; S.nodeVertex = null;
+    S.faceInfo = null; S.nodeVertex = null; S.holeCache = new Map();
     S.count = { tris: n.triangles, skinTris: n.boundaryTriangles, edges: n.edges, skinEdges: n.boundaryEdges };
   }
   function setField(i) {
@@ -1074,6 +1076,219 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     return match ? Number(match[1]) : -1;
   }
   /**
+   * @brief Eigen-decomposition of a symmetric 3x3 matrix (cyclic Jacobi rotations).
+   * @param m Matrix as 9 numbers, row by row. Not modified.
+   * @return `{values, vectors}` sorted by increasing eigenvalue; `vectors[i]` is the unit eigenvector of `values[i]`.
+   */
+  function eigenSymmetric3(m) {
+    const a = [[m[0], m[1], m[2]], [m[3], m[4], m[5]], [m[6], m[7], m[8]]];
+    const v = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+    for (let sweep = 0; sweep < 32; sweep++) {
+      const off = Math.abs(a[0][1]) + Math.abs(a[0][2]) + Math.abs(a[1][2]);
+      if (off < 1e-14) break;
+      for (const [p, q] of [[0, 1], [0, 2], [1, 2]]) {
+        if (Math.abs(a[p][q]) < 1e-300) continue;
+        const theta = (a[q][q] - a[p][p]) / (2 * a[p][q]);
+        const t = Math.sign(theta || 1) / (Math.abs(theta) + Math.sqrt(theta * theta + 1)), c = 1 / Math.sqrt(t * t + 1), sn = t * c;
+        for (let k = 0; k < 3; k++) { const akp = a[k][p], akq = a[k][q]; a[k][p] = c * akp - sn * akq; a[k][q] = sn * akp + c * akq; }
+        for (let k = 0; k < 3; k++) { const apk = a[p][k], aqk = a[q][k]; a[p][k] = c * apk - sn * aqk; a[q][k] = sn * apk + c * aqk; }
+        for (let k = 0; k < 3; k++) { const vkp = v[k][p], vkq = v[k][q]; v[k][p] = c * vkp - sn * vkq; v[k][q] = sn * vkp + c * vkq; }
+      }
+    }
+    const order = [0, 1, 2].sort((i, j) => a[i][i] - a[j][j]);
+    return { values: order.map((i) => a[i][i]), vectors: order.map((i) => [v[0][i], v[1][i], v[2][i]]) };
+  }
+
+  /** Growth angles (degrees) tried, in increasing order, to collect the smooth patch that may be the wall of a hole. */
+  const HOLE_GROWTH_ANGLES = [5, 10, 15, 20, 30, 45, 60];
+  /** A patch larger than this (faces) is a large smooth surface, not the wall of a hole: the search stops there. */
+  const HOLE_MAX_FACES = 50000;
+  /** Largest distance of a vertex from the fitted cylinder, as a fraction of its radius. */
+  const HOLE_RADIAL_TOLERANCE = 0.03;
+  /** Largest sin^2 of the mean angle between the face normals and the plane perpendicular to the axis (about 12 degrees). */
+  const HOLE_AXIS_TOLERANCE = 0.043;
+
+  /**
+   * @brief Faces reached from `face` through shared edges when neighbouring planes differ by at most `angle` degrees.
+   * @param face  Face index of the start.
+   * @param angle Largest angle between the planes of two neighbouring faces, in degrees.
+   * @param limit Largest number of faces; the search gives up above it.
+   * @return Face indices (`face` included), or null when the patch has more than `limit` faces.
+   */
+  function smoothPatch(face, angle, limit) {
+    const info = buildFaceInfo(), cosLimit = Math.cos(angle * Math.PI / 180) - 1e-9, seen = new Set([face]), queue = [face];   // the margin keeps faces at exactly `angle` degrees
+    while (queue.length) {
+      const f = queue.pop(), nf = info.normals.get(f);
+      for (const g of info.neighbours.get(f) || []) {
+        if (seen.has(g)) continue;
+        const ng = info.normals.get(g);
+        if (Math.abs(nf[0] * ng[0] + nf[1] * ng[1] + nf[2] * ng[2]) < cosLimit) continue;
+        seen.add(g); queue.push(g);
+        if (seen.size > limit) return null;
+      }
+    }
+    return [...seen];
+  }
+
+  /**
+   * @brief Whether a point is inside the solid, by the parity of the skin triangles crossed by rays (the majority of 3 rays).
+   * @param point `[x, y, z]` in the coordinates of the stored positions.
+   * @return True when the point is inside the solid; false when it is outside (in a hole, for instance).
+   */
+  function insideSolid(point) {
+    const m = S.model, P = m.positions, tri = m.triIndices, nSkin = m.meta.counts.boundaryTriangles;
+    const directions = [[0.5773, 0.3011, 0.7589], [-0.2917, 0.8493, 0.4411], [0.1873, -0.4521, 0.8727]];
+    let odd = 0;
+    for (const d of directions) {
+      let crossings = 0;
+      for (let t = 0; t < nSkin; t++) {
+        const a = 3 * tri[3 * t], b = 3 * tri[3 * t + 1], c = 3 * tri[3 * t + 2];
+        const e1x = P[b] - P[a], e1y = P[b + 1] - P[a + 1], e1z = P[b + 2] - P[a + 2];
+        const e2x = P[c] - P[a], e2y = P[c + 1] - P[a + 1], e2z = P[c + 2] - P[a + 2];
+        const px = d[1] * e2z - d[2] * e2y, py = d[2] * e2x - d[0] * e2z, pz = d[0] * e2y - d[1] * e2x;
+        const det = e1x * px + e1y * py + e1z * pz;
+        if (Math.abs(det) < 1e-18) continue;
+        const sx = point[0] - P[a], sy = point[1] - P[a + 1], sz = point[2] - P[a + 2];
+        const u = (sx * px + sy * py + sz * pz) / det;
+        if (u < 0 || u > 1) continue;
+        const qx = sy * e1z - sz * e1y, qy = sz * e1x - sx * e1z, qz = sx * e1y - sy * e1x;
+        const v = (d[0] * qx + d[1] * qy + d[2] * qz) / det;
+        if (v < 0 || u + v > 1) continue;
+        if ((e2x * qx + e2y * qy + e2z * qz) / det > 1e-9) crossings++;
+      }
+      if (crossings % 2 === 1) odd++;
+    }
+    return odd >= 2;
+  }
+
+  /**
+   * @brief Whether a set of faces is the wall of a hole: a concave cylinder that wraps around its axis.
+   *
+   * The axis is the direction the face normals are perpendicular to (the eigenvector of the smallest eigenvalue of
+   * the area weighted sum of n n^T), a circle is fitted to the vertices projected on the plane perpendicular to it,
+   * and the faces must (1) have their normals within about 12 degrees of that plane, (2) have all vertices within
+   * 3 % of the radius from the axis, (3) cover at least `minArc` degrees around the axis, and (4) be concave: a point
+   * just off the wall on the side of the axis is outside the solid (a boss, or a rounded end of a plate, has material
+   * there). The side is found on the skin geometry, by ray parity, because neither the winding of the skin triangles
+   * nor the owning element are reliable here (see MGWV_FORMAT.md). Three faces of the wall vote.
+   *
+   * @param faces  Face indices of the candidate wall.
+   * @param minArc Smallest angle in degrees the wall must cover around the axis (360 = a closed hole).
+   * @return True when the faces form a hole.
+   */
+  function isHoleWall(faces, minArc) {
+    const m = S.model, info = buildFaceInfo(), P = m.positions, tri = m.triIndices;
+    const vertices = new Set();
+    const cov = [0, 0, 0, 0, 0, 0, 0, 0, 0];
+    let total = 0;
+    for (const f of faces) {
+      const t0 = info.first[f], n = info.normals.get(f);
+      let area = 0;
+      for (let t = t0; t < t0 + info.count[f]; t++) {
+        const a = 3 * tri[3 * t], b = 3 * tri[3 * t + 1], c = 3 * tri[3 * t + 2];
+        const ux = P[b] - P[a], uy = P[b + 1] - P[a + 1], uz = P[b + 2] - P[a + 2], vx = P[c] - P[a], vy = P[c + 1] - P[a + 1], vz = P[c + 2] - P[a + 2];
+        area += 0.5 * Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx);
+        vertices.add(tri[3 * t]); vertices.add(tri[3 * t + 1]); vertices.add(tri[3 * t + 2]);
+      }
+      total += area;
+      for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) cov[3 * i + j] += area * n[i] * n[j];
+    }
+    if (!(total > 0)) return false;
+    const eig = eigenSymmetric3(cov.map((x) => x / total));
+    if (eig.values[0] > HOLE_AXIS_TOLERANCE || eig.values[1] < 0.05) return false;      // normals not perpendicular to one axis / one direction only (a plane)
+    const axis = eig.vectors[0];
+    const helper = Math.abs(axis[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0];
+    const cross = (p, q) => [p[1] * q[2] - p[2] * q[1], p[2] * q[0] - p[0] * q[2], p[0] * q[1] - p[1] * q[0]];
+    const norm = (p) => { const l = Math.hypot(...p); return p.map((x) => x / l); };
+    const bu = norm(cross(axis, helper)), bv = cross(axis, bu);
+    const dot = (p, i) => p[0] * P[3 * i] + p[1] * P[3 * i + 1] + p[2] * P[3 * i + 2];
+    const ids = [...vertices], xs = ids.map((i) => dot(bu, i)), ys = ids.map((i) => dot(bv, i)), hs = ids.map((i) => dot(axis, i));
+    // Circle by least squares (Kasa), on coordinates centred on their mean for conditioning.
+    const mx = xs.reduce((q, x) => q + x, 0) / xs.length, my = ys.reduce((q, y) => q + y, 0) / ys.length;
+    let sxx = 0, sxy = 0, syy = 0, sx = 0, sy = 0, sz = 0, sxz = 0, syz = 0;
+    for (let i = 0; i < ids.length; i++) {
+      const x = xs[i] - mx, y = ys[i] - my, z = x * x + y * y;
+      sxx += x * x; sxy += x * y; syy += y * y; sx += x; sy += y; sz += z; sxz += x * z; syz += y * z;
+    }
+    const N = ids.length, A = [[sxx, sxy, sx], [sxy, syy, sy], [sx, sy, N]], B = [-sxz, -syz, -sz];
+    const det3 = (q) => q[0][0] * (q[1][1] * q[2][2] - q[1][2] * q[2][1]) - q[0][1] * (q[1][0] * q[2][2] - q[1][2] * q[2][0]) + q[0][2] * (q[1][0] * q[2][1] - q[1][1] * q[2][0]);
+    const D = det3(A);
+    if (Math.abs(D) < 1e-30) return false;
+    const solve = (k) => det3(A.map((row, r) => row.map((x, c) => (c === k ? B[r] : x)))) / D;
+    const cx = -solve(0) / 2, cy = -solve(1) / 2, r2 = cx * cx + cy * cy - solve(2);
+    if (!(r2 > 0)) return false;
+    const R = Math.sqrt(r2);
+    for (let i = 0; i < N; i++) if (Math.abs(Math.hypot(xs[i] - mx - cx, ys[i] - my - cy) - R) > HOLE_RADIAL_TOLERANCE * R) return false;
+    // Angle covered around the axis: union of the arcs of the faces (each the smallest arc holding its vertices).
+    const slot = new Map(ids.map((id, i) => [id, i])), TWO_PI = 2 * Math.PI, intervals = [];
+    faces.forEach((f) => {
+      const t0 = info.first[f], angles = new Set();
+      for (let t = t0; t < t0 + info.count[f]; t++) for (let j = 0; j < 3; j++) {
+        const i = slot.get(tri[3 * t + j]);
+        angles.add(((Math.atan2(ys[i] - my - cy, xs[i] - mx - cx) % TWO_PI) + TWO_PI) % TWO_PI);
+      }
+      const sorted = [...angles].sort((p, q) => p - q);
+      let gap = sorted[0] + TWO_PI - sorted[sorted.length - 1], gapEnd = 0;
+      for (let i = 1; i < sorted.length; i++) if (sorted[i] - sorted[i - 1] > gap) { gap = sorted[i] - sorted[i - 1]; gapEnd = i; }
+      const start = sorted[gapEnd], length = TWO_PI - gap;
+      if (start + length > TWO_PI) { intervals.push([start, TWO_PI], [0, start + length - TWO_PI]); } else intervals.push([start, start + length]);
+    });
+    intervals.sort((p, q) => p[0] - q[0]);
+    let covered = 0, begin = -1, end = -1;
+    for (const [lo, hi] of intervals) {
+      if (begin < 0) { begin = lo; end = hi; } else if (lo > end + 1e-6) { covered += end - begin; begin = lo; end = hi; } else end = Math.max(end, hi);
+    }
+    if (begin >= 0) covered += end - begin;
+    if (covered * 180 / Math.PI < minArc - 1e-6) return false;
+    // Concave: just off the wall on the side of the axis there is no material. The probe is 0.1 % of the radius from the centre of a face.
+    let outside = 0, votes = 0;
+    for (const f of [faces[0], faces[faces.length >> 1], faces[faces.length - 1]]) {
+      const t0 = info.first[f], corners = new Set();
+      for (let t = t0; t < t0 + info.count[f]; t++) for (let j = 0; j < 3; j++) corners.add(tri[3 * t + j]);
+      const centre = [0, 0, 0];
+      for (const i of corners) for (let k = 0; k < 3; k++) centre[k] += P[3 * i + k] / corners.size;
+      const radial = [0, 0, 0], rx = centre[0] * bu[0] + centre[1] * bu[1] + centre[2] * bu[2] - mx - cx, ry = centre[0] * bv[0] + centre[1] * bv[1] + centre[2] * bv[2] - my - cy;
+      for (let k = 0; k < 3; k++) radial[k] = rx * bu[k] + ry * bv[k];          // from the axis to the face, perpendicular to the axis
+      const n = info.normals.get(f), side = n[0] * radial[0] + n[1] * radial[1] + n[2] * radial[2];
+      if (Math.abs(side) < 1e-6 * R) continue;                                  // normal perpendicular to the radius: no side to tell
+      const sign = side > 0 ? -1 : 1;                                           // towards the axis
+      const probe = centre.map((q, k) => q + sign * 1e-3 * R * n[k]);
+      votes++; if (!insideSolid(probe)) outside++;
+    }
+    return votes > 0 && outside * 2 > votes;
+  }
+
+  /**
+   * @brief The faces of the hole that `face` belongs to, if it belongs to one.
+   *
+   * A hole is the wall of a bolt hole, a bore or a pin seat: faces that together make a concave cylinder around an
+   * axis. The wall is found as the smooth patch of faces around `face` (neighbouring planes within a growing
+   * angle, 5 to 60 degrees) that passes `isHoleWall`; when several angles pass, the largest patch is taken. A fillet or
+   * a chamfer at the mouth of the hole is not a cylinder, so it makes a larger patch fail and it is left out. The result
+   * is kept for every face of the hole.
+   *
+   * @param face   Face index of the clicked face.
+   * @param minArc Smallest angle in degrees the wall must cover around the axis (330 accepts a closed hole with some
+   *               margin for a coarse mesh; 170 also accepts the half of a hole cut by a symmetry plane).
+   * @return Face indices of the whole wall (`face` included), or null when `face` is not on the wall of a hole.
+   */
+  function holeFaces(face, minArc) {
+    const info = buildFaceInfo();
+    if (!info.skinFaces.has(face)) return null;
+    const cache = S.holeCache || (S.holeCache = new Map()), key = (f) => f + "|" + minArc;
+    if (cache.has(key(face))) return cache.get(key(face));
+    let best = null, previous = -1;
+    for (const angle of HOLE_GROWTH_ANGLES) {
+      const patch = smoothPatch(face, angle, HOLE_MAX_FACES);
+      if (!patch) break;                          // a larger angle only makes the patch larger
+      if (patch.length === previous) continue;
+      previous = patch.length;
+      if (patch.length >= 3 && isHoleWall(patch, minArc)) best = patch;
+    }
+    if (best) for (const f of best) cache.set(key(f), best); else cache.set(key(face), null);
+    return best;
+  }
+  /**
    * @brief Faces selected by one click: the clicked face plus the skin faces connected to it through shared edges.
    *
    * The angle is the angle between the planes of two faces, 0 to 90 degrees (a value of 90 or more accepts every
@@ -1088,14 +1303,19 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
    * With `growth` "smooth" a face joins when its plane is within `angle` degrees of the plane of the face
    * it is reached from, so the selection follows a curved surface for as long as it bends gently.
    *
-   * @param face   Face index of the clicked face.
-   * @param angle  Tolerance in degrees; 0 (or less) selects only the clicked face.
-   * @param growth "same-normal" or "smooth".
+   * If the clicked face is on the wall of a hole (see `holeFaces`) the whole wall is selected instead.
+   *
+   * @param face    Face index of the clicked face.
+   * @param angle   Tolerance in degrees; 0 (or less) selects only the clicked face, and holes are not looked for.
+   * @param growth  "same-normal" or "smooth".
+   * @param holeArc Smallest angle a wall must cover to count as a hole, in degrees; 0 (or less) turns hole recognition off.
    * @return Face indices, the clicked face included. Interior faces have no neighbours and give only themselves.
    */
-  function connectedFaces(face, angle, growth) {
+  function connectedFaces(face, angle, growth, holeArc) {
     const info = buildFaceInfo();
     if (!info.skinFaces.has(face) || !(angle > 0)) return [face];
+    const hole = holeArc > 0 ? holeFaces(face, holeArc) : null;
+    if (hole) return hole;
     const limit = Math.cos(angle * Math.PI / 180), seed = info.normals.get(face), chained = growth === "smooth";
     const cad = chained ? -1 : cadFaceOf(face);
     const seen = new Set([face]), queue = [face];
@@ -1208,7 +1428,7 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
       for (const t of hit.tris || []) sel.element.add(m.triElementId[t]);
     } else if (mode === "face") {
       if (hit.tri >= 0) {
-        const faces = connectedFaces(m.triFace[hit.tri], S.pickAngle, S.pickGrowth);
+        const faces = connectedFaces(m.triFace[hit.tri], S.pickAngle, S.pickGrowth, S.pickHoles ? S.pickHoleArc : 0);
         const removing = additive && !hit.add && sel.face.has(m.triFace[hit.tri]);
         for (const f of faces) { if (removing) sel.face.delete(f); else sel.face.add(f); }
       }
@@ -1299,6 +1519,8 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
   $("pickMode").addEventListener("change", (e) => setPickMode(e.target.value));
   $("pickAngle").addEventListener("change", (e) => { S.pickAngle = Math.max(0, Math.min(180, Number(e.target.value) || 0)); });
   $("pickGrowth").addEventListener("change", (e) => { S.pickGrowth = e.target.value === "smooth" ? "smooth" : "same-normal"; });
+  $("pickHoles").addEventListener("change", (e) => { S.pickHoles = !!e.target.checked; });
+  $("pickHoleArc").addEventListener("change", (e) => { S.pickHoleArc = Math.max(30, Math.min(360, Number(e.target.value) || 330)); });
   $("pickBox").addEventListener("change", (e) => { S.pickBox = e.target.checked; });
   $("pickClear").addEventListener("click", clearSelection);
   window.OpenModelViewer = {
@@ -1308,6 +1530,10 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
       setAngle(a) { S.pickAngle = Math.max(0, Math.min(180, Number(a) || 0)); $("pickAngle").value = S.pickAngle; },
       /** "same-normal" (angle against the clicked face) or "smooth" (angle between neighbouring faces). */
       setGrowth(g) { S.pickGrowth = g === "smooth" ? "smooth" : "same-normal"; $("pickGrowth").value = S.pickGrowth; },
+      /** Turns the recognition of holes on or off: a click on the wall of a hole then selects the whole wall. */
+      setHoles(on) { S.pickHoles = !!on; $("pickHoles").checked = S.pickHoles; },
+      /** Smallest angle (degrees, 30 to 360) a wall must cover around its axis to count as a hole. */
+      setHoleArc(deg) { S.pickHoleArc = Math.max(30, Math.min(360, Number(deg) || 330)); $("pickHoleArc").value = S.pickHoleArc; },
       setBox(on) { S.pickBox = !!on; $("pickBox").checked = S.pickBox; },
       available() { return !!(S.model && S.model.canPick); },
       // Test helpers: what is under a client-space point, and where a vertex / node id appears on screen.
