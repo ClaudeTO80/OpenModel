@@ -6,7 +6,7 @@ A C++17 library, command-line tool and lightweight desktop workbench for **finit
 import CAD and mesh files, generate and validate meshes, write solver input, run CalculiX or code_aster, and inspect the results in a WebGL viewer
 where you can also pick nodes, elements and faces to build groups, supports and loads. A fatigue-analysis library works on the loaded results.
 
-> **Version 0.1.2 — early.** The project was previously called MeshGen; the notes of that development (phases 8–50) are in
+> **Version 0.1.3 — early.** The project was previously called MeshGen; the notes of that development (phases 8–50) are in
 > [`docs/DEVELOPMENT_LOG.md`](docs/DEVELOPMENT_LOG.md). See [Status and known limits](#status-and-known-limits) before relying on it.
 
 ## Features
@@ -110,8 +110,8 @@ The installed package contains the core; optional backends are built from source
 
 ## Version
 
-The current version is **0.1.2** ([`CHANGELOG.md`](CHANGELOG.md)). It is set in one place, the CMake cache option `OPENMODEL_VERSION`
-(`MAJOR.MINOR.PATCH`, default `0.1.2`; minor and patch between 0 and 99, no leading zeros):
+The current version is **0.1.3** ([`CHANGELOG.md`](CHANGELOG.md)). It is set in one place, the CMake cache option `OPENMODEL_VERSION`
+(`MAJOR.MINOR.PATCH`, default `0.1.3`; minor and patch between 0 and 99, no leading zeros):
 
 ```bash
 cmake -S . -B build -DOPENMODEL_VERSION=0.2.0     # override, e.g. from a release script
@@ -123,10 +123,10 @@ major version and at least that version), the CPack file names and the generated
 ```cpp
 #include <OpenModel/Version.hpp>
 
-std::string s = OpenModel::versionString();        // "0.1.2", the version of the linked library
+std::string s = OpenModel::versionString();        // "0.1.3", the version of the linked library
 OpenModel::Version v = OpenModel::version();       // v.major, v.minor, v.patch
-#if OPENMODEL_VERSION_NUMBER >= 102                // major*10000 + minor*100 + patch (0.1.2 -> 102)
-// ... code that needs 0.1.2 or later
+#if OPENMODEL_VERSION_NUMBER >= 103                // major*10000 + minor*100 + patch (0.1.3 -> 103)
+// ... code that needs 0.1.3 or later
 #endif
 ```
 
@@ -172,7 +172,7 @@ Each backend is off by default and needs its native library to be found by CMake
 | `OPENMODEL_BUILD_NETGEN_BACKEND` (+ `OPENMODEL_NETGEN_HAS_OCC`) | Netgen meshing |
 | `OPENMODEL_BUILD_MFEM_BACKEND` | MFEM mesh adapter |
 
-General options: `OPENMODEL_VERSION` (`0.1.2`, see [Version](#version)), `OPENMODEL_BUILD_TESTS` (ON), `OPENMODEL_BUILD_CLI` (ON), `OPENMODEL_BUILD_SHARED` (ON), `OPENMODEL_BUILD_BENCHMARKS` (OFF),
+General options: `OPENMODEL_VERSION` (`0.1.3`, see [Version](#version)), `OPENMODEL_BUILD_TESTS` (ON), `OPENMODEL_BUILD_CLI` (ON), `OPENMODEL_BUILD_SHARED` (ON), `OPENMODEL_BUILD_BENCHMARKS` (OFF),
 `OPENMODEL_BUILD_WEBUI` (OFF), `OPENMODEL_TEST_WEBGL_VIEWER` (OFF, needs Node.js with Playwright).
 
 ### Gmsh meshing controls
