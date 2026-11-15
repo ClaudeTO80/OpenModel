@@ -257,6 +257,10 @@ if(OPENMODEL_BUILD_TESTS AND OPENMODEL_BUILD_CLI AND Python3_FOUND)
     add_test(NAME fem_results_cli_csv
         COMMAND openmodel-cli export-web "${_beam_dir}/beam.inp" "${_beam_dir}/beam_csv.mgwv" --results "${_beam_dir}/beam.csv")
     add_test(NAME fem_results_cli_info COMMAND openmodel-cli results-info "${_beam_dir}/beam.frd")
+    add_test(NAME fem_results_cli_time
+        COMMAND openmodel-cli export-web "${_beam_dir}/beam.inp" "${_beam_dir}/beam_time.mgwv" --results "${_beam_dir}/beam.frd" --time 0.9)
+    set_tests_properties(fem_results_cli_time PROPERTIES FIXTURES_REQUIRED beam_fixture LABELS "core;results"
+        PASS_REGULAR_EXPRESSION "Results: step 0 \\(time 1")
     add_test(NAME fem_results_cli_modal
         COMMAND openmodel-cli export-web "${_beam_dir}/beam.inp" "${_beam_dir}/beam_modal.mgwv" --results "${_beam_dir}/beam_modal.frd")
     add_test(NAME fem_results_cli_modal_info COMMAND openmodel-cli results-info "${_beam_dir}/beam_modal.frd")

@@ -6,6 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+- Results of transient (dynamic) runs: every increment is a separate time step, already read before; now the choice is by time as well as by index: `openmodel export-web ... --time T` and `t=T` in the GUI step field take the increment nearest to T. The GUI step message no longer stops at 30 steps (long histories show the first 20 and the last 10). Test: `testDynamicIncrements` (25 increments) and `fem_results_cli_time`.
+
 ## [0.1.3] - 2026-11-14
 
 ### Added

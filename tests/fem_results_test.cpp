@@ -794,6 +794,74 @@ std::string makeModalFile(const MeshData& mesh, const std::vector<double>& frequ
     return w.text;
 }
 
+/** Transient result file: `count` time increments (ICTYPE 1), increment k at time 0.04 k holding DISP = k * 0.01 (x - 10). */
+std::string makeDynamicFile(const MeshData& mesh, int count) {
+    FrdWriter w;
+    w.format = 1;
+    w.header();
+    w.nodes(mesh, 0.0, 0);
+    w.elementsStub();
+    for (int k = 1; k <= count; ++k) {
+        w.resultHeader(0.04 * k, static_cast<long long>(mesh.getNumNodes()), 1, k);
+        w.dataset("DISP", 4, 1);
+        w.component("D1", 2, 1, 0, 0);
+        w.component("D2", 2, 2, 0, 0);
+        w.component("D3", 2, 3, 0, 0);
+        w.component("ALL", 2, 0, 0, 1, "ALL");
+        for (std::size_t n = 0; n < mesh.getNumNodes(); ++n) {
+            const auto c = mesh.nodeCoordinates(n);
+            w.record(static_cast<long long>(mesh.nodeId(n)), {e12(k * 0.01 * (c[0] - 10.0)), e12(0.0), e12(0.0)});
+        }
+        w.end();
+    }
+    w.finish();
+    return w.text;
+}
+
+void testDynamicIncrements() {
+    const MeshData mesh = makeMesh();
+    const int count = 25;  // more than the 30-step listing of the GUI would show with room to spare
+    FemResults r;
+    const auto res = parseFrd(makeDynamicFile(mesh, count), r);
+    CHECK(res);
+    // Every increment is read as its own time step, in file order, with its own field.
+    CHECK(r.steps.size() == static_cast<std::size_t>(count) && r.fields.size() == static_cast<std::size_t>(count));
+    if (r.steps.size() == static_cast<std::size_t>(count)) {
+        bool allTime = true;
+        for (std::size_t i = 0; i < r.steps.size(); ++i) allTime = allTime && r.steps[i].kind == StepKind::Time && near(r.steps[i].value, 0.04 * static_cast<double>(i + 1));
+        CHECK(allTime);
+        CHECK(r.fields[7].step == 7);
+    }
+    CHECK(r.modeSteps().empty());
+
+    // Time lookup: nearest increment; outside the range it clamps to the first or the last one.
+    std::size_t index = 999;
+    CHECK(r.stepAtTime(0.4, index) && index == 9);
+    CHECK(r.stepAtTime(0.41, index) && index == 9);
+    CHECK(r.stepAtTime(0.43, index) && index == 10);
+    CHECK(r.stepAtTime(50.0, index) && index == static_cast<std::size_t>(count - 1));
+    CHECK(r.stepAtTime(-1.0, index) && index == 0);
+
+    // The default binding is still the last increment; an explicit step reads that increment's displacement.
+    WebViewOptions last;
+    auto b = bindResults(mesh, r, BindOptions{}, last);
+    CHECK(b.success && b.step == static_cast<std::size_t>(count - 1) && b.stepLabel.find("time") != std::string::npos);
+    if (b.success && !last.displacement.empty()) CHECK(near(last.displacement[10][0], count * 0.01 * (mesh.nodeCoordinates(10)[0] - 10.0), 1e-5));
+
+    WebViewOptions middle;
+    BindOptions pick;
+    pick.step = 12;
+    b = bindResults(mesh, r, pick, middle);
+    CHECK(b.success && b.step == 12);
+    if (b.success && !middle.displacement.empty()) CHECK(near(middle.displacement[10][0], 13 * 0.01 * (mesh.nodeCoordinates(10)[0] - 10.0), 1e-5));
+    CHECK(b.success && b.hasDisplacement);
+
+    WebViewOptions outside;
+    BindOptions bad;
+    bad.step = static_cast<std::size_t>(count);
+    CHECK(!bindResults(mesh, r, bad, outside).success);
+}
+
 void testModes() {
     const MeshData mesh = makeMesh();
     // Three modes, the last two with the same frequency (a degenerate pair must stay two modes).
@@ -1039,6 +1107,7 @@ int main() {
     testTensorInvariants();
     testElementResults();
     testModes();
+    testDynamicIncrements();
     testDatImporter();
     testDatBindingAndMerge();
     if (g_failures) {

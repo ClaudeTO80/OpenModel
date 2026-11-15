@@ -294,7 +294,7 @@ void usage() {
               << "  openmodel demo-glb <output.glb>\n"
               << "  openmodel demo-web <output.mgwv> [cells-per-side]\n"
               << "  openmodel export-web <input.mgmb|input.inp|input.mail> <output.mgwv> [--no-interior] [--field x|y|z|r]\n"
-              << "                     [--results <file.frd|file.dat|file.csv> [--results <more files>] [--step N] [--displacement NAME|none] [--modes N] [--engineering-strain]\n                      [--no-derived] [--no-coordinate-check]]\n"
+              << "                     [--results <file.frd|file.dat|file.csv> [--results <more files>] [--step N | --time T] [--displacement NAME|none] [--modes N] [--engineering-strain]\n                      [--no-derived] [--no-coordinate-check]]\n"
               << "  openmodel results-info <file.frd|file.dat|file.csv> [more files, merged]\n"
               << "  openmodel write-input <mesh.mgmb|mesh.inp> <analysis.txt> <job.inp>      (analysis script: see docs/SOLVER.md)\n"
               << "  openmodel solve <mesh.mgmb|mesh.inp> <analysis.txt> <workdir> [--solver ccx-path] [--web out.mgwv]\n"
@@ -503,7 +503,8 @@ int main(int argc, char** argv) {
         std::string fieldName;
         std::vector<std::filesystem::path> resultsPaths;
         OpenModel::BindOptions bind;
-        bool modesGiven = false, engineeringGiven = false;
+        bool modesGiven = false, engineeringGiven = false, timeGiven = false;
+        double timeValue = 0.0;
         for (int i = 4; i < argc; ++i) {
             const std::string arg = argv[i];
             if (arg == "--no-interior") options.includeInteriorFaces = false;
@@ -517,6 +518,14 @@ int main(int argc, char** argv) {
                     bind.step = static_cast<std::size_t>(std::stoull(text, &used));
                     if (used != text.size()) throw std::invalid_argument("trailing");
                 } catch (...) { std::cerr << "--step needs a non-negative integer\n"; return 2; }
+            }
+            else if (arg == "--time" && i + 1 < argc) {
+                try {
+                    std::size_t used = 0;
+                    timeValue = std::stod(argv[++i], &used);
+                    if (used != std::string(argv[i]).size() || !std::isfinite(timeValue)) throw std::invalid_argument("trailing");
+                } catch (...) { std::cerr << "--time needs a number (the time of the increment to read)\n"; return 2; }
+                timeGiven = true;
             }
             else if (arg == "--displacement" && i + 1 < argc) bind.displacementField = argv[++i];
             else if (arg == "--modes" && i + 1 < argc) {
@@ -546,6 +555,10 @@ int main(int argc, char** argv) {
             const auto imported = OpenModel::readResultsMerged(resultsPaths, results);
             printDiagnostics(imported.diagnostics);
             if (!imported) { std::cerr << "Cannot read the results\n"; return 1; }
+            if (timeGiven) {
+                if (bind.step != OpenModel::BindOptions::kLastStep) { std::cerr << "--step and --time cannot be used together\n"; return 2; }
+                if (!results.stepAtTime(timeValue, bind.step)) { std::cerr << "The results have no time increment\n"; return 1; }
+            }
             for (const auto& p : resultsPaths) bind.sourceName += (bind.sourceName.empty() ? "" : " + ") + p.filename().string();
             const auto bound = OpenModel::bindResults(mesh, results, bind, options);
             printDiagnostics(bound.diagnostics);
@@ -559,9 +572,9 @@ int main(int argc, char** argv) {
                 std::cout << "\n";
             } else if (results.steps.size() > 1 && bind.step == OpenModel::BindOptions::kLastStep)
                 std::cout << "The file has " << results.steps.size() << " steps; the last one was used (see --step, results-info)\n";
-        } else if (bind.step != OpenModel::BindOptions::kLastStep || !bind.displacementField.empty() || !bind.derivedFields || !bind.checkCoordinates ||
+        } else if (bind.step != OpenModel::BindOptions::kLastStep || timeGiven || !bind.displacementField.empty() || !bind.derivedFields || !bind.checkCoordinates ||
                    modesGiven || engineeringGiven) {
-            std::cerr << "--step, --displacement, --modes, --engineering-strain, --no-derived and --no-coordinate-check need --results\n";
+            std::cerr << "--step, --time, --displacement, --modes, --engineering-strain, --no-derived and --no-coordinate-check need --results\n";
             return 2;
         }
         return writeWeb(mesh, outputPath, options) ? 0 : 1;

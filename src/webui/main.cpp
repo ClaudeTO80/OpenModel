@@ -1176,19 +1176,28 @@ AttachOutcome attachResultFiles(const std::vector<fs::path>& files, const std::s
     if (g.mesh.getNumNodes() == 0)
         return {false, "Load or generate a volume mesh first: results are matched to the mesh nodes (same node number)."};
     OpenModel::BindOptions bind;
+    // "t=VALUE" selects the time increment closest to VALUE; a plain number is the step index.
+    const bool byTime = stepText.size() > 2 && stepText.compare(0, 2, "t=") == 0;
+    double timeValue = 0.0;
     if (!stepText.empty()) {
         try {
             std::size_t used = 0;
-            if (stepText[0] == '-') throw std::invalid_argument("negative");
-            bind.step = static_cast<std::size_t>(std::stoull(stepText, &used));
-            if (used != stepText.size()) throw std::invalid_argument("trailing");
-        } catch (...) { return {false, "The step must be a non-negative integer (empty = last)."}; }
+            if (byTime) {
+                timeValue = std::stod(stepText.substr(2), &used);
+                if (used != stepText.size() - 2 || !std::isfinite(timeValue)) throw std::invalid_argument("trailing");
+            } else {
+                if (stepText[0] == '-') throw std::invalid_argument("negative");
+                bind.step = static_cast<std::size_t>(std::stoull(stepText, &used));
+                if (used != stepText.size()) throw std::invalid_argument("trailing");
+            }
+        } catch (...) { return {false, "The step must be a non-negative integer, or t=TIME for the increment at that time (empty = last)."}; }
     }
 
     OpenModel::FemResults loaded;
     const auto imported = OpenModel::readResultsMerged(files, loaded);
     const std::string importNotes = diagnosticsText(imported.diagnostics);
     if (!imported) return {false, "Reading the results failed:" + importNotes};
+    if (byTime && !loaded.stepAtTime(timeValue, bind.step)) return {false, "The results have no time increment." + importNotes};
 
     // Trial binding: the current view is replaced only if the results really belong to this mesh.
     for (const auto& f : files) bind.sourceName += (bind.sourceName.empty() ? "" : " + ") + f.filename().string();
@@ -1215,9 +1224,15 @@ AttachOutcome attachResultFiles(const std::vector<fs::path>& files, const std::s
     if (bound.elementFieldsBound > 0) out << ", " << bound.elementFieldsBound << " element fields";
     if (g.results.steps.size() > 1 && bound.modesBound == 0) {
         out << "\nAvailable steps:";
-        for (std::size_t i = 0; i < g.results.steps.size() && i < 30; ++i) out << "\n  " << i << ": " << g.results.steps[i].label;
-        if (g.results.steps.size() > 30) out << "\n  … " << g.results.steps.size() - 30 << " more";
-        if (stepText.empty()) out << "\nThe last one is shown; give a step number to change it.";
+        // Long histories (dynamic runs with many increments) are abbreviated: first and last steps are kept.
+        const std::size_t count = g.results.steps.size();
+        const std::size_t shown = count <= 60 ? count : 20;
+        for (std::size_t i = 0; i < shown; ++i) out << "\n  " << i << ": " << g.results.steps[i].label;
+        if (shown < count) {
+            out << "\n  … " << count - 30 << " more";
+            for (std::size_t i = count - 10; i < count; ++i) out << "\n  " << i << ": " << g.results.steps[i].label;
+        }
+        if (stepText.empty()) out << "\nThe last one is shown; give a step number, or t=TIME for the increment at that time, to change it.";
     }
     out << diagnosticsText(bound.diagnostics) << importNotes << (g.viewNote.empty() ? "" : "\n" + g.viewNote);
     return {true, out.str()};

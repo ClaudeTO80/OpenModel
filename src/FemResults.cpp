@@ -35,6 +35,22 @@ std::vector<std::size_t> FemResults::modeSteps() const {
     return modes;
 }
 
+bool FemResults::stepAtTime(double time, std::size_t& index) const {
+    bool found = false;
+    double best = 0.0;
+    for (std::size_t i = 0; i < steps.size(); ++i) {
+        if (steps[i].kind == StepKind::Frequency) continue;
+        const double distance = std::fabs(steps[i].value - time);
+        // Ties keep the earlier increment.
+        if (!found || distance < best) {
+            found = true;
+            best = distance;
+            index = i;
+        }
+    }
+    return found;
+}
+
 void ResultImportResult::addError(ImportStatus newStatus, std::string code, std::string message, std::size_t line) {
     if (status == ImportStatus::Success) status = newStatus;
     diagnostics.push_back({ImportDiagnosticLevel::Error, std::move(code), std::move(message), line});

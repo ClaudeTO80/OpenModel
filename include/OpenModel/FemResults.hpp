@@ -191,6 +191,16 @@ struct FemResults {
 
     /** @brief Indices into `steps` of the vibration modes (kind Frequency), in file order. */
     std::vector<std::size_t> modeSteps() const;
+
+    /**
+     * @brief Index into `steps` of the time increment closest to `time`.
+     *
+     * Considers the steps that are not vibration modes (static, time, load step and user steps).
+     * @param time Time value to look for, in the units of the solver (the value of the step).
+     * @param index Receives the index on success; unchanged otherwise.
+     * @return false when there is no such step.
+     */
+    bool stepAtTime(double time, std::size_t& index) const;
 };
 
 /** @brief Outcome of a result import; shares status codes and diagnostics with MeshImportResult. */

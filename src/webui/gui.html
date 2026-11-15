@@ -540,7 +540,7 @@ details.node details.node{margin-top:8px;background:transparent}
       <summary>Results</summary>
     <label for="resPath">Solver results (.frd, .dat CalculiX; .tab code_aster; .csv; multiple files separated by ';' are merged)</label>
     <div class="row"><input id="resPath" placeholder="/path/run.frd; /path/run.dat"><button onclick="browse('resPath','results')">Browse…</button></div>
-    <label for="resStep">Step (empty = last; modes-only files = all modes)</label>
+    <label for="resStep">Step: number, or t=TIME for the increment at that time (empty = last; modes-only files = all modes)</label>
     <input id="resStep" type="number" min="0" step="1" placeholder="last">
     <div class="grid2"><button class="primary" onclick="loadResults()">Load results</button><button onclick="act('openmodel_clear_results')">Remove</button></div>
     <p class="hint">Values are mapped to the nodes of the current mesh by node number; a file that does not belong to the mesh is rejected. Fields and the deformed shape appear in the viewer.</p>

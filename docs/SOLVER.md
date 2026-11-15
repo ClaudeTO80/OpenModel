@@ -45,7 +45,7 @@ The node constraints of `MeshData` (set in the GUI with *Mesh constraints*, or r
 * Pressure supports tetrahedra/hexahedra (linear and quadratic); no pyramids/wedges, no shell/beam elements, no contact, no nonlinear materials, one material, one step.
 * Loads not written yet: body forces per element (`BX/BY/BZ`), centrifugal loads (`CENTRIF`: the manual does not state unambiguously the meaning of its first value), distributed traction (tangential), nodal moments (solid elements have no rotational degrees of freedom), thermal loads (out of scope). Each one needs its syntax checked against the solver manual before it is written.
 * Dynamic steps and amplitudes are not written to the code_aster case: `writeCodeAsterCase` refuses them with a message.
-* The dynamic step reads only the last increment of the results: the time history is not loaded.
+* The results reader loads every increment of a dynamic run as its own step; the viewer shows the last one by default (`--time T` or `t=T` for another time). Animation over the time history is not implemented.
 * ProcessRunner is POSIX only; on Windows it returns an error (untested/unimplemented).
 * Child process receives no sandbox: it runs with the user's rights.
 
