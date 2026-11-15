@@ -420,6 +420,14 @@ details.node details.node{margin-top:8px;background:transparent}
   <div class="spanel" data-spanel="mat" hidden>
     <details class="node" open>
       <summary>Material</summary>
+      <label for="matDb">Database of elastic materials</label>
+      <select id="matDb" onchange="fillFromDatabase()"><option value="">Loading…</option></select>
+      <p class="hint" id="matDbNote">Choose a material to fill the fields, then press Set material.</p>
+      <label for="matUnits">Units of the values below and of the line written by Set material</label>
+      <select id="matUnits" onchange="loadMaterialDb()">
+        <option value="mm-t-s">mm, MPa, t/mm³ (N-mm-t-s)</option>
+        <option value="si">m, Pa, kg/m³ (SI)</option>
+      </select>
       <ul id="condMaterial" class="conds"></ul>
       <label for="matE">Young modulus E</label>
       <input id="matE" type="number" step="any" placeholder="210000">
@@ -430,7 +438,7 @@ details.node details.node{margin-top:8px;background:transparent}
       <label for="matName">Name (optional; letters, digits, _ - .)</label>
       <input id="matName" placeholder="Steel">
       <button class="primary full" onclick="setMaterial()">Set material</button>
-      <p class="hint">The script takes one material. Setting it replaces the material line of the script, or adds one when there is none. Use units that are consistent with the loads and the geometry.</p>
+      <p class="hint">The script takes one material, and its values must be in the units of the whole script. Setting it replaces the material line of the script, or adds one when there is none. Use units that are consistent with the loads and the geometry.</p>
     </details>
   </div>
 
@@ -1254,6 +1262,28 @@ function renderAnalysisConditions() {
 }
 $("anScript").addEventListener("input", renderAnalysisConditions);
 /** Copies the values of the material line into the Material form, so that editing one field keeps the others. */
+let materialDb = [];
+/** Loads the built-in material database from the host, in the units selected in the Material tab. */
+async function loadMaterialDb() {
+  const r = await call("openmodel_material_list", $("matUnits").value);
+  if (!r.ok || !Array.isArray(r.materials)) { show(r.message || "The material database is not available.", "bad"); return; }
+  materialDb = r.materials;
+  const groups = new Map();
+  for (const m of materialDb) {
+    if (!groups.has(m.className)) groups.set(m.className, []);
+    groups.get(m.className).push(m);
+  }
+  $("matDb").innerHTML = '<option value="">— choose a material —</option>' + [...groups].map(([cls, items]) =>
+    `<optgroup label="${esc2(cls)}">` + items.map((m) => `<option value="${esc2(m.id)}">${esc2(m.name)}</option>`).join("") + "</optgroup>").join("");
+  fillFromDatabase();
+}
+/** Copies the chosen database entry into the Material form; the script is changed only by Set material. */
+function fillFromDatabase() {
+  const m = materialDb.find((x) => x.id === $("matDb").value);
+  if (!m) { $("matDbNote").textContent = "Choose a material to fill the fields, then press Set material."; return; }
+  $("matE").value = m.E; $("matNu").value = m.nu; $("matRho").value = m.rho; $("matName").value = m.id;
+  $("matDbNote").textContent = m.name + ": " + m.note + " Press Set material to apply.";
+}
 function fillMaterialFields(line) {
   const get = (key) => { const m = new RegExp("(?:^|\\s)" + key + "=(\\S+)", "i").exec(line); return m ? m[1] : ""; };
   $("matE").value = get("E"); $("matNu").value = get("nu"); $("matRho").value = get("rho"); $("matName").value = get("name");
@@ -1400,6 +1430,7 @@ setInterval(syncRibbon, 700);
 })();
 
 (async () => {
+  loadMaterialDb();
   const d = await call("openmodel_defaults");
   if (d.ok) {
     defaults = d; $("outBase").value = d.outBase; $("version").textContent = "v" + d.version + " · CAD → FEM mesh → visualization";

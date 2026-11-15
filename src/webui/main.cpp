@@ -21,6 +21,7 @@
 #include <OpenModel/MeshData.hpp>
 #include <OpenModel/MeshSelection.hpp>
 #include <OpenModel/MeshImporter.hpp>
+#include <OpenModel/MaterialDatabase.hpp>
 #include <OpenModel/CADFaceMapper.hpp>
 #include <OpenModel/MeshQuality.hpp>
 #include <OpenModel/MeshValidator.hpp>
@@ -1778,6 +1779,41 @@ void constraintClearHandler(webui_event_t* e) {
     replyConstraints(e, true, count ? "Removed the constraints of " + std::to_string(count) + " nodes from the mesh." : "The mesh has no constraints.");
 }
 
+/**
+ * @brief Material database for the Material tab. The argument is the unit system of the values ("si" or "mm-t-s").
+ * Stateless: it does not touch the model, so it does not take the state lock.
+ */
+void materialListHandler(webui_event_t* e) {
+    OpenModel::UnitSystem units = OpenModel::UnitSystem::MmTonneS;
+    const std::string unitText = getStringArg(e, 0);
+    if (!unitText.empty() && !OpenModel::parseUnitSystem(unitText, units)) {
+        reply(e, false, "Unknown unit system: " + unitText + " (use si or mm-t-s).");
+        return;
+    }
+    auto number = [](double value) {
+        std::ostringstream text;
+        text.precision(12);
+        text << value;
+        return text.str();
+    };
+    std::ostringstream out;
+    out << "{\"ok\":true,\"message\":\"\",\"units\":\"" << (units == OpenModel::UnitSystem::SI ? "si" : "mm-t-s")
+        << "\",\"materials\":[";
+    bool first = true;
+    for (const auto& m : OpenModel::materialDatabase()) {
+        if (!first) out << ",";
+        first = false;
+        out << "{\"id\":\"" << jsonEscape(m.id) << "\",\"name\":\"" << jsonEscape(m.name)
+            << "\",\"className\":\"" << jsonEscape(OpenModel::materialClassName(m.klass))
+            << "\",\"E\":" << number(OpenModel::youngModulusIn(m, units))
+            << ",\"nu\":" << number(m.poisson)
+            << ",\"rho\":" << number(OpenModel::densityIn(m, units))
+            << ",\"note\":\"" << jsonEscape(m.note) << "\"}";
+    }
+    out << "]}";
+    webui_return_string(e, out.str().c_str());
+}
+
 void constraintListHandler(webui_event_t* e) {
     StateLock lock;
     if (!lock.ok()) { replyBusy(e); return; }
@@ -2219,6 +2255,7 @@ int main() {
     webui_bind(window, "openmodel_constraint_release", constraintReleaseHandler);
     webui_bind(window, "openmodel_constraint_clear", constraintClearHandler);
     webui_bind(window, "openmodel_constraint_list", constraintListHandler);
+    webui_bind(window, "openmodel_material_list", materialListHandler);
     webui_bind(window, "openmodel_list_cad_face_groups", listCADFaceGroupsHandler);
     webui_bind(window, "openmodel_create_cad_face_group", createCADFaceGroupHandler);
     webui_bind(window, "openmodel_update_cad_face_group", updateCADFaceGroupHandler);
