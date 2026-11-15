@@ -81,6 +81,14 @@ iframe{display:block;width:100%;height:100%;border:0;background:var(--viewport)}
 #ribbon select{width:auto;min-width:150px;min-height:28px;padding:3px 6px}
 .rlabel{color:var(--muted);font-size:11.5px;align-self:center;padding:0 6px;min-width:70px;text-align:center}
 .flash{outline:2px solid var(--accent);transition:outline-color 1s}
+.stabs{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:4px}
+.stab{min-width:0;padding:6px 0;font-size:10px;line-height:1.2;overflow-wrap:normal;background:transparent;border-color:var(--line)}
+.stab[aria-selected="true"]{background:var(--prim);border-color:var(--prim-line);color:var(--on-prim)}
+details.node{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+details.node>summary{cursor:pointer;font-size:12px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);user-select:none}
+details.node[open]>summary{margin-bottom:8px}
+details.node details.node{margin-top:8px;background:transparent}
+.conds{list-style:none;margin:6px 0;padding:0;font-size:12px}
 @media(max-width:850px){#shell{grid-template-columns:1fr;grid-template-rows:auto 1fr}aside{max-height:40vh;border-right:0;border-bottom:1px solid var(--line)}}
 </style>
 </head>
@@ -247,25 +255,69 @@ iframe{display:block;width:100%;height:100%;border:0;background:var(--viewport)}
 <aside>
   <div><h1>OpenModel Workbench</h1><div class="sub" id="version">CAD → FEM mesh → visualization</div></div>
 
-  <section>
-    <h2>1 · CAD geometry</h2>
+  <details id="secSel" class="node" open>
+    <summary>Selection</summary>
+    <label for="selMode">Select in the viewer</label>
+    <select id="selMode" onchange="setPickMode(this.value)">
+      <option value="off">Off</option><option value="node">Nodes</option><option value="element">Elements</option><option value="face">Faces</option>
+    </select>
+    <details class="node">
+      <summary>Advanced selection</summary>
+    <div class="grid2"><div><label for="selAngle">Face angle (°)</label><input id="selAngle" type="number" min="0" max="180" step="0.5" value="1" title="A click on a face also selects the connected faces whose plane is within this angle of the clicked one (0 = only the clicked face; 90 or more = every connected face)" onchange="setPickAngle(this.value)"></div>
+      <div><label for="selBoxOn">Box</label><input id="selBoxOn" type="checkbox" onchange="setPickBox(this.checked)"></div></div>
+    <label for="selGrowth">Face growth</label>
+    <select id="selGrowth" title="Same normal: the angle is measured against the clicked face, so a curved surface is not followed. Smooth surface: the angle is measured between neighbouring faces, so the selection follows a curved surface." onchange="setPickGrowth(this.value)">
+      <option value="same-normal">Same normal</option><option value="smooth">Smooth surface</option>
+    </select>
+    <div class="grid2"><div><label for="selHoles">Holes</label><input id="selHoles" type="checkbox" checked title="A click on the wall of a hole (a bolt hole, a bore) selects the whole wall" onchange="setPickHoles(this.checked)"></div>
+      <div><label for="selHoleArc">Hole arc (°)</label><input id="selHoleArc" type="number" min="30" max="360" step="10" value="330" title="Smallest angle around its axis a wall must cover to count as a hole: 330 = a closed hole, 170 also takes the half of a hole cut by a symmetry plane" onchange="setPickHoleArc(this.value)"></div></div>
+    </details>
+    <p class="hint" id="selInfo">Selection: none.</p>
+    <p class="hint" id="cadFaceInfo">CAD faces: none selected.</p>
+  </details>
+
+  <nav class="stabs" role="tablist" aria-label="Model sections">
+    <button class="stab" role="tab" data-stab="cad" aria-selected="true" onclick="showSidebarTab('cad')">CAD</button>
+    <button class="stab" role="tab" data-stab="mesh" aria-selected="false" onclick="showSidebarTab('mesh')">Mesh</button>
+    <button class="stab" role="tab" data-stab="mat" aria-selected="false" onclick="showSidebarTab('mat')">Material</button>
+    <button class="stab" role="tab" data-stab="cons" aria-selected="false" onclick="showSidebarTab('cons')">Constraints</button>
+    <button class="stab" role="tab" data-stab="loads" aria-selected="false" onclick="showSidebarTab('loads')">Load cases</button>
+  </nav>
+
+  <div class="spanel" data-spanel="cad">
+    <details class="node" open>
+      <summary>Geometry</summary>
     <label for="cadPath">File (STEP, IGES, BREP, or OBJ/STL/… via Assimp)</label>
     <div class="row"><input id="cadPath" placeholder="/path/part.step"><button onclick="browse('cadPath','cad')">Browse…</button></div>
     <button class="primary full" id="btnImport" onclick="importModel()">Import and triangulate</button>
-  </section>
-
-  <section id="secTess" hidden>
-    <h2>2 · CAD tessellation</h2>
+    </details>
+    <details id="secTess" class="node" open hidden>
+      <summary>Tessellation</summary>
     <label for="linear">Linear deflection: <b id="linearValue">0.001</b></label>
     <input id="linear" type="range" min="0.001" max="2" step="0.001" value="0.001" oninput="linearValue.textContent=Number(this.value).toFixed(3)">
     <label for="angular">Angular deflection (rad): <b id="angularValue">0.05</b></label>
     <input id="angular" type="range" min="0.05" max="3.14" step="0.05" value="0.05" oninput="angularValue.textContent=Number(this.value).toFixed(2)">
     <button class="full" onclick="retessellate()">Apply and retessellate</button>
     <p class="hint">Sets the surface shown before meshing and, for TetGen, the surface that gets filled.</p>
-  </section>
+    </details>
+    <details class="node" open>
+      <summary>Named groups from the CAD file</summary>
+    <label>Named groups imported from the CAD file</label>
+    <ul id="nativeCadGrpList" style="list-style:none;margin:0 0 8px;padding:0;font-size:12px"></ul>
+    <p class="hint">Read-only: names/layers from the CAD file. The dimension identifies vertex (0), edge (1), face (2) or solid (3).</p>
+    </details>
+    <details class="node" open>
+      <summary>CAD face groups</summary>
+    <label for="cadGrpName">New CAD face group (independent of the mesh)</label>
+    <div class="row"><input id="cadGrpName" placeholder="BladeRoot"><button id="btnCadGrpCreate" onclick="createCADFaceGroup()">Create</button></div>
+    <p class="hint">The group stores the IDs of the selected B-Rep faces and is saved next to the CAD file in the <code>.omgroups</code> sidecar. Gmsh, TetGen and Netgen can transfer it to the FEM mesh: the Node Set <code>NAME_NODES</code> is created. TetGen requires the face IDs in the CAD tessellation; Netgen uses geometric mapping. After meshing, the 'Fix' button inserts the zero-displacement constraint into the script. Group changes invalidate the generated volume mesh, which must then be regenerated.</p>
+    <ul id="cadGrpList" style="list-style:none;margin:4px 0 10px;padding:0;font-size:12px"></ul>
+    </details>
+  </div>
 
-  <section id="secMesh">
-    <h2>3 · Volume meshing</h2>
+  <div class="spanel" data-spanel="mesh" hidden>
+    <details id="secMesh" class="node" open>
+      <summary>Volume meshing</summary>
     <label for="mesher">Mesher</label>
     <select id="mesher" onchange="mesherChanged()"></select>
     <label for="size">Maximum element size</label>
@@ -333,10 +385,9 @@ iframe{display:block;width:100%;height:100%;border:0;background:var(--viewport)}
       <p class="hint">Above Error the log is also saved as <code>_gmsh.log</code> next to the CAD file; Info adds the phase timings, Debug the internal Gmsh messages.</p></div>
     <button class="primary full" id="btnMesh" onclick="generate()">Generate volume mesh</button>
     <p class="hint" id="mesherHint"></p>
-  </section>
-
-  <section>
-    <h2>4 · Mesh files</h2>
+    </details>
+    <details class="node">
+      <summary>Mesh files</summary>
     <label for="loadPath">Load an existing mesh (.mgmb, .inp, .mail)</label>
     <div class="row"><input id="loadPath" placeholder="/path/mesh.mgmb"><button onclick="browse('loadPath','mesh')">Browse…</button></div>
     <button class="full" onclick="loadMesh()">Load and display</button>
@@ -348,86 +399,44 @@ iframe{display:block;width:100%;height:100%;border:0;background:var(--viewport)}
       <button onclick="save('openmodel_export_mgwv','.mgwv')" title="For the WebGL viewer">Export MGWV</button>
       <button onclick="save('openmodel_export_glb','.glb')" title="CAD surface">Export GLB</button>
     </div>
-  </section>
-
-  <section>
-    <h2>5 · FEM results</h2>
-    <label for="resPath">Solver results (.frd, .dat CalculiX; .tab code_aster; .csv; multiple files separated by ';' are merged)</label>
-    <div class="row"><input id="resPath" placeholder="/path/run.frd; /path/run.dat"><button onclick="browse('resPath','results')">Browse…</button></div>
-    <label for="resStep">Step (empty = last; modes-only files = all modes)</label>
-    <input id="resStep" type="number" min="0" step="1" placeholder="last">
-    <div class="grid2"><button class="primary" onclick="loadResults()">Load results</button><button onclick="act('openmodel_clear_results')">Remove</button></div>
-    <p class="hint">Values are mapped to the nodes of the current mesh by node number; a file that does not belong to the mesh is rejected. Fields and the deformed shape appear in the viewer.</p>
-  </section>
-
-  <section id="secSolve">
-    <h2>6 · Analysis and solver</h2>
-    <label for="anScript">Analysis script (material, constraints, loads, step)</label>
-    <textarea id="anScript" rows="9" spellcheck="false" style="width:100%;font-family:monospace;font-size:12px"></textarea>
-    <label>Conditions in the script</label>
-    <ul id="analysisConditions" style="list-style:none;margin:0 0 8px;padding:0;font-size:12px"></ul>
-    <p class="hint">Edit or remove individual materials, constraints, loads and steps. Changes update the script used by the solver directly.</p>
-    <label for="anJob">Job file (folder or .inp; empty = ./openmodel_job/job.inp; for code_aster the folder and the file name matter)</label>
-    <input id="anJob" placeholder="/path/work/job.inp">
-    <label for="anSolverKind">Solver</label>
-    <select id="anSolverKind"><option value="ccx">CalculiX</option><option value="aster">code_aster</option></select>
-    <label for="anSolver">Executable (empty = 'ccx' on PATH; code_aster: 'run_aster' or 'as_run', or the OPENMODEL_CODE_ASTER variable)</label>
-    <input id="anSolver" placeholder="/usr/bin/ccx">
-    <div class="grid2"><button id="btnWrite" onclick="analysisWrite()">Write input</button><button id="btnRun" class="primary" onclick="analysisRun()">Run solver</button></div>
-    <div class="grid2"><button id="btnCancel" onclick="analysisCancel()" disabled>Cancel</button><button onclick="analysisExample()">Example</button></div>
-    <pre id="solverLog" style="max-height:180px;overflow:auto;font-size:11px;margin-top:6px" aria-live="polite">No analysis started.</pre>
-    <p class="hint">Commands: <code>material E= nu= rho=</code>, <code>fix plane:x=0 [dof=1,2,3]</code>, <code>force plane:x=10 F=fx,fy,fz</code>, <code>pressure group:NAME p=</code>, <code>gravity g=gx,gy,gz</code>, <code>step static</code> or <code>step frequency modes=N</code>. Selectors: <code>all</code>, <code>group:NAME</code>, <code>plane:x|y|z=VALUE</code>. Use consistent units of your choice. When the run finishes, the results are loaded automatically.</p>
-  </section>
-
-  <dialog id="analysisEditDialog" style="max-width:520px;width:calc(100% - 32px);border:1px solid var(--border,#888);border-radius:8px;background:var(--panel,#fff);color:var(--text,inherit)">
-    <form id="analysisEditForm">
-      <h3 id="analysisEditTitle">Edit condition</h3>
-      <div id="analysisEditFields" class="stack"></div>
-      <div class="grid2" style="margin-top:12px"><button type="button" id="analysisEditCancel">Cancel</button><button type="submit" class="primary">Apply</button></div>
-    </form>
-  </dialog>
-
-  <section id="secSel">
-    <h2>7 · Selection and groups</h2>
-    <label for="selMode">Select in the viewer</label>
-    <select id="selMode" onchange="setPickMode(this.value)">
-      <option value="off">Off</option><option value="node">Nodes</option><option value="element">Elements</option><option value="face">Faces</option>
-    </select>
-    <div class="grid2"><div><label for="selAngle">Face angle (°)</label><input id="selAngle" type="number" min="0" max="180" step="0.5" value="1" title="A click on a face also selects the connected faces whose plane is within this angle of the clicked one (0 = only the clicked face; 90 or more = every connected face)" onchange="setPickAngle(this.value)"></div>
-      <div><label for="selBoxOn">Box</label><input id="selBoxOn" type="checkbox" onchange="setPickBox(this.checked)"></div></div>
-    <label for="selGrowth">Face growth</label>
-    <select id="selGrowth" title="Same normal: the angle is measured against the clicked face, so a curved surface is not followed. Smooth surface: the angle is measured between neighbouring faces, so the selection follows a curved surface." onchange="setPickGrowth(this.value)">
-      <option value="same-normal">Same normal</option><option value="smooth">Smooth surface</option>
-    </select>
-    <div class="grid2"><div><label for="selHoles">Holes</label><input id="selHoles" type="checkbox" checked title="A click on the wall of a hole (a bolt hole, a bore) selects the whole wall" onchange="setPickHoles(this.checked)"></div>
-      <div><label for="selHoleArc">Hole arc (°)</label><input id="selHoleArc" type="number" min="30" max="360" step="10" value="330" title="Smallest angle around its axis a wall must cover to count as a hole: 330 = a closed hole, 170 also takes the half of a hole cut by a symmetry plane" onchange="setPickHoleArc(this.value)"></div></div>
-    <p class="hint" id="selInfo">Selection: none.</p>
-    <p class="hint" id="cadFaceInfo">CAD faces: none selected.</p>
-    <label>Named groups imported from the CAD file</label>
-    <ul id="nativeCadGrpList" style="list-style:none;margin:0 0 8px;padding:0;font-size:12px"></ul>
-    <p class="hint">Read-only: names/layers from the CAD file. The dimension identifies vertex (0), edge (1), face (2) or solid (3).</p>
-    <label for="cadGrpName">New CAD face group (independent of the mesh)</label>
-    <div class="row"><input id="cadGrpName" placeholder="BladeRoot"><button id="btnCadGrpCreate" onclick="createCADFaceGroup()">Create</button></div>
-    <p class="hint">The group stores the IDs of the selected B-Rep faces and is saved next to the CAD file in the <code>.omgroups</code> sidecar. Gmsh, TetGen and Netgen can transfer it to the FEM mesh: the Node Set <code>NAME_NODES</code> is created. TetGen requires the face IDs in the CAD tessellation; Netgen uses geometric mapping. After meshing, the 'Fix' button inserts the zero-displacement constraint into the script. Group changes invalidate the generated volume mesh, which must then be regenerated.</p>
-    <ul id="cadGrpList" style="list-style:none;margin:4px 0 10px;padding:0;font-size:12px"></ul>
+    </details>
+    <details class="node" open>
+      <summary>Groups</summary>
     <label>Generic FEM groups (MeshGroupRegistry)</label>
     <ul id="genericMeshGrpList" style="list-style:none;margin:0 0 8px;padding:0;font-size:12px"></ul>
     <label for="grpName">FEM group name (empty = automatic; letters, digits, _ - .)</label>
     <input id="grpName" placeholder="Support">
     <div class="grid2"><button id="btnGrpNode" onclick="makeGroup('node')">Node group</button><button id="btnGrpElem" onclick="makeGroup('element')">Element group</button></div>
     <button id="btnGrpFace" onclick="makeGroup('face')" style="margin-top:6px">Face group</button>
-    <label for="asDof">Constraint: degrees of freedom (1,2,3 = x,y,z)</label>
-    <input id="asDof" value="1,2,3">
-    <label for="asValue">Prescribed displacement ux,uy,uz (model units)</label>
-    <input id="asValue" value="0,0,0">
-    <label for="asForce">Total force Fx,Fy,Fz</label>
-    <input id="asForce" value="0,0,-100">
-    <label for="asPress">Pressure (positive = toward the body)</label>
-    <input id="asPress" value="1">
-    <div class="grid2"><button id="btnAsFix" onclick="assign('fix')">Fix</button><button id="btnAsForce" onclick="assign('force')">Force</button></div>
-    <button id="btnAsPress" onclick="assign('press')" style="margin-top:6px">Pressure</button>
-    <p class="hint">Each assignment creates a group from the selection and appends the line to the section 6 script.</p>
-    <label>Mesh constraints (stored in the FEM mesh)</label>
+    <label>Mesh groups</label>
+    <ul id="grpList" style="list-style:none;margin:0;padding:0;font-size:12px"></ul>
+    </details>
+    <details class="node" open>
+      <summary>Check</summary>
+      <div class="grid2" style="margin-top:0"><button onclick="act('openmodel_status')">Status</button><button onclick="act('openmodel_validate')">Validate mesh</button></div>
+    </details>
+  </div>
+
+  <div class="spanel" data-spanel="mat" hidden>
+    <details class="node" open>
+      <summary>Material</summary>
+      <ul id="condMaterial" class="conds"></ul>
+      <label for="matE">Young modulus E</label>
+      <input id="matE" type="number" step="any" placeholder="210000">
+      <label for="matNu">Poisson ratio nu</label>
+      <input id="matNu" type="number" step="any" placeholder="0.3">
+      <label for="matRho">Density rho (optional)</label>
+      <input id="matRho" type="number" step="any" placeholder="7.85e-9">
+      <label for="matName">Name (optional; letters, digits, _ - .)</label>
+      <input id="matName" placeholder="Steel">
+      <button class="primary full" onclick="setMaterial()">Set material</button>
+      <p class="hint">The script takes one material. Setting it replaces the material line of the script, or adds one when there is none. Use units that are consistent with the loads and the geometry.</p>
+    </details>
+  </div>
+
+  <div class="spanel" data-spanel="cons" hidden>
+    <details class="node" open>
+      <summary>Mesh constraints (stored in the mesh)</summary>
     <div class="grid2" style="margin-top:4px">
       <label style="margin:0"><input type="checkbox" id="cdUx" checked> ux</label><label style="margin:0"><input type="checkbox" id="cdRx"> rx</label>
       <label style="margin:0"><input type="checkbox" id="cdUy" checked> uy</label><label style="margin:0"><input type="checkbox" id="cdRy"> ry</label>
@@ -440,17 +449,67 @@ iframe{display:block;width:100%;height:100%;border:0;background:var(--viewport)}
     <button id="btnCdClear" onclick="constraintClear()" style="margin-top:6px">Remove all constraints</button>
     <p class="hint">Select a face (mode Faces: the connected faces with the same normal, or the wall of a hole, are selected together), tick the degrees of freedom to block and press Apply: they are blocked on every node of the selection, mid-side nodes included. The constraints are drawn in the viewer and written to the solver input. Rotations are stored and drawn, but the solver ignores them on solid elements.</p>
     <ul id="cdList" style="list-style:none;margin:4px 0 8px;padding:0;font-size:12px"></ul>
-    <label>Mesh groups</label>
-    <ul id="grpList" style="list-style:none;margin:0;padding:0;font-size:12px"></ul>
-  </section>
+    </details>
+    <details class="node" open>
+      <summary>Script constraints (fix)</summary>
+      <label for="asDof">Degrees of freedom (1,2,3 = x,y,z)</label>
+      <input id="asDof" value="1,2,3">
+      <label for="asValue">Prescribed displacement ux,uy,uz (model units)</label>
+      <input id="asValue" value="0,0,0">
+      <button id="btnAsFix" class="full" onclick="assign('fix')">Fix selection</button>
+      <p class="hint">Creates a node group from the selection and appends the <code>fix</code> line to the script.</p>
+      <ul id="condFix" class="conds"></ul>
+    </details>
+  </div>
 
-  <section>
-    <h2>Check</h2>
-    <div class="grid2" style="margin-top:0"><button onclick="act('openmodel_status')">Status</button><button onclick="act('openmodel_validate')">Validate mesh</button></div>
-  </section>
+  <div class="spanel" data-spanel="loads" hidden>
+    <details class="node" open>
+      <summary>Loads and steps</summary>
+      <label for="asForce">Total force Fx,Fy,Fz</label>
+      <input id="asForce" value="0,0,-100">
+      <label for="asPress">Pressure (positive = toward the body)</label>
+      <input id="asPress" value="1">
+      <div class="grid2"><button id="btnAsForce" onclick="assign('force')">Force on nodes</button><button id="btnAsPress" onclick="assign('press')">Pressure on faces</button></div>
+      <p class="hint">Force acts on the selected nodes, pressure on the selected faces. Each assignment appends the line to the script.</p>
+      <ul id="condLoads" class="conds"></ul>
+    </details>
+    <details id="secSolve" class="node" open>
+      <summary>Analysis and solver</summary>
+    <label for="anScript">Analysis script (material, constraints, loads, step)</label>
+    <textarea id="anScript" rows="9" spellcheck="false" style="width:100%;font-family:monospace;font-size:12px"></textarea>
+    <p class="hint">Edit or remove individual materials, constraints, loads and steps. Changes update the script used by the solver directly.</p>
+    <label for="anJob">Job file (folder or .inp; empty = ./openmodel_job/job.inp; for code_aster the folder and the file name matter)</label>
+    <input id="anJob" placeholder="/path/work/job.inp">
+    <label for="anSolverKind">Solver</label>
+    <select id="anSolverKind"><option value="ccx">CalculiX</option><option value="aster">code_aster</option></select>
+    <label for="anSolver">Executable (empty = 'ccx' on PATH; code_aster: 'run_aster' or 'as_run', or the OPENMODEL_CODE_ASTER variable)</label>
+    <input id="anSolver" placeholder="/usr/bin/ccx">
+    <div class="grid2"><button id="btnWrite" onclick="analysisWrite()">Write input</button><button id="btnRun" class="primary" onclick="analysisRun()">Run solver</button></div>
+    <div class="grid2"><button id="btnCancel" onclick="analysisCancel()" disabled>Cancel</button><button onclick="analysisExample()">Example</button></div>
+    <pre id="solverLog" style="max-height:180px;overflow:auto;font-size:11px;margin-top:6px" aria-live="polite">No analysis started.</pre>
+    <p class="hint">Commands: <code>material E= nu= rho=</code>, <code>fix plane:x=0 [dof=1,2,3]</code>, <code>force plane:x=10 F=fx,fy,fz</code>, <code>pressure group:NAME p=</code>, <code>gravity g=gx,gy,gz</code>, <code>step static</code> or <code>step frequency modes=N</code>. Selectors: <code>all</code>, <code>group:NAME</code>, <code>plane:x|y|z=VALUE</code>. Use consistent units of your choice. When the run finishes, the results are loaded automatically.</p>
+    </details>
+    <details class="node" open>
+      <summary>Results</summary>
+    <label for="resPath">Solver results (.frd, .dat CalculiX; .tab code_aster; .csv; multiple files separated by ';' are merged)</label>
+    <div class="row"><input id="resPath" placeholder="/path/run.frd; /path/run.dat"><button onclick="browse('resPath','results')">Browse…</button></div>
+    <label for="resStep">Step (empty = last; modes-only files = all modes)</label>
+    <input id="resStep" type="number" min="0" step="1" placeholder="last">
+    <div class="grid2"><button class="primary" onclick="loadResults()">Load results</button><button onclick="act('openmodel_clear_results')">Remove</button></div>
+    <p class="hint">Values are mapped to the nodes of the current mesh by node number; a file that does not belong to the mesh is rejected. Fields and the deformed shape appear in the viewer.</p>
+    </details>
+  </div>
+
+  <dialog id="analysisEditDialog" style="max-width:520px;width:calc(100% - 32px);border:1px solid var(--border,#888);border-radius:8px;background:var(--panel,#fff);color:var(--text,inherit)">
+    <form id="analysisEditForm">
+      <h3 id="analysisEditTitle">Edit condition</h3>
+      <div id="analysisEditFields" class="stack"></div>
+      <div class="grid2" style="margin-top:12px"><button type="button" id="analysisEditCancel">Cancel</button><button type="submit" class="primary">Apply</button></div>
+    </form>
+  </dialog>
 
   <section><h2>Messages</h2><pre id="result">Ready. Import a CAD model, load a mesh or try the demo model.</pre></section>
-</aside>
+
 
 <main><iframe id="viewer" src="viewer.html" title="FEM viewer"></iframe></main>
 </div>
@@ -734,8 +793,20 @@ const viewerClick = (selector) => { const w = viewerApi(); const el = w && w.doc
 function revealSection(id) {
   const el = $(id); if (el) el.hidden = false;
 }
+/** Shows one sidebar tab (CAD, Mesh, Material, Constraints, Load cases) and hides the others. */
+function showSidebarTab(name) {
+  document.querySelectorAll(".stab").forEach((b) => {
+    const on = b.dataset.stab === name;
+    b.setAttribute("aria-selected", on ? "true" : "false");
+    b.tabIndex = on ? 0 : -1;
+  });
+  document.querySelectorAll(".spanel").forEach((p) => { p.hidden = p.dataset.spanel !== name; });
+}
 function focusSection(id) {
   const el = $(id); if (!el) return;
+  const panel = el.closest(".spanel");
+  if (panel) showSidebarTab(panel.dataset.spanel);
+  for (let d = el.closest("details"); d; d = d.parentElement.closest("details")) d.open = true;
   el.scrollIntoView({behavior: "smooth", block: "nearest"});
   el.classList.add("flash"); setTimeout(() => el.classList.remove("flash"), 1200);
 }
@@ -1122,16 +1193,17 @@ async function editAnalysisCondition(command, line, id, lines, index) {
     dialog.showModal();
   }).then(value => value === true ? false : value === false ? false : null);
 }
+const CONDITION_LIST = { material: "condMaterial", fix: "condFix", force: "condLoads", pressure: "condLoads", gravity: "condLoads", step: "condLoads", output: "condLoads" };
 function renderAnalysisConditions() {
-  const list = $("analysisConditions");
-  if (!list) return;
-  list.replaceChildren();
+  const lists = ["condMaterial", "condFix", "condLoads"].map((id) => $(id)).filter(Boolean);
+  if (!lists.length) return;
+  lists.forEach((l) => l.replaceChildren());
   const lines = $("anScript").value.split(/\r?\n/);
-  let count = 0;
   lines.forEach((line, index) => {
     const command = analysisCommand(line);
     if (!command) return;
-    ++count;
+    const list = $(CONDITION_LIST[command]);
+    if (command === "material") fillMaterialFields(line);
     const item = document.createElement("li");
     item.style.cssText = "display:flex;gap:6px;align-items:center;margin:4px 0;padding:5px;border:1px solid var(--border,#bbb);border-radius:4px";
     const content = document.createElement("code");
@@ -1172,14 +1244,36 @@ function renderAnalysisConditions() {
     item.append(content, edit, remove);
     list.append(item);
   });
-  if (!count) {
+  for (const l of lists) {
+    if (l.childElementCount) continue;
     const empty = document.createElement("li");
-    empty.textContent = "No recognized conditions.";
+    empty.textContent = "None.";
     empty.className = "hint";
-    list.append(empty);
+    l.append(empty);
   }
 }
 $("anScript").addEventListener("input", renderAnalysisConditions);
+/** Copies the values of the material line into the Material form, so that editing one field keeps the others. */
+function fillMaterialFields(line) {
+  const get = (key) => { const m = new RegExp("(?:^|\\s)" + key + "=(\\S+)", "i").exec(line); return m ? m[1] : ""; };
+  $("matE").value = get("E"); $("matNu").value = get("nu"); $("matRho").value = get("rho"); $("matName").value = get("name");
+}
+/** Sets the single material of the script: replaces its line (keeping its id) or appends one. */
+function setMaterial() {
+  const E = $("matE").value.trim(), nu = $("matNu").value.trim();
+  const rho = $("matRho").value.trim(), name = $("matName").value.trim();
+  if (E === "" || !Number.isFinite(Number(E))) { show("The Young modulus E must be a number.", "bad"); return; }
+  if (nu === "" || !Number.isFinite(Number(nu))) { show("The Poisson ratio nu must be a number.", "bad"); return; }
+  if (rho !== "" && !Number.isFinite(Number(rho))) { show("The density must be a number.", "bad"); return; }
+  if (name !== "" && !/^[A-Za-z0-9_.-]+$/.test(name)) { show("The material name may contain letters, digits, _ - .", "bad"); return; }
+  const lines = $("anScript").value.split(/\r?\n/);
+  const index = lines.findIndex((l) => analysisCommand(l) === "material");
+  const idMatch = index >= 0 ? /(?:^|\s)id=([A-Za-z0-9_.-]+)/.exec(lines[index].trim()) : null;
+  const line = "material" + (idMatch ? " id=" + idMatch[1] : "") + " E=" + E + " nu=" + nu
+    + (rho !== "" ? " rho=" + rho : "") + (name !== "" ? " name=" + name : "");
+  if (index >= 0) applyAnalysisEdit(line, idMatch && idMatch[1], lines, index);
+  else appendScript(line);
+}
 function appendScript(line) {
   const box = $("anScript");
   box.value = box.value.replace(/\s*$/, "") + "\n" + line + "\n";
