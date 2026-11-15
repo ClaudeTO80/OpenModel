@@ -58,6 +58,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <cstdint>
 #include <filesystem>
@@ -113,6 +114,9 @@ constexpr double kFinestAngularDeflection = 0.05;
 
 /** Whole application state; always accessed with g_mutex held. */
 struct AppState {
+    OpenModel::MaterialLibrary materials;   ///< Built-in and known materials; loaded on first use.
+    bool materialsLoaded = false;
+    std::string materialsNote;              ///< Problems found while loading the materials file.
     std::shared_ptr<CADModel> cad;
     std::vector<UserCADFaceGroup> cadFaceGroups;
     std::string cadGroupsNote;
@@ -1779,17 +1783,58 @@ void constraintClearHandler(webui_event_t* e) {
     replyConstraints(e, true, count ? "Removed the constraints of " + std::to_string(count) + " nodes from the mesh." : "The mesh has no constraints.");
 }
 
+/** Location of the known materials file: OPENMODEL_MATERIALS, else the user configuration folder. */
+std::string materialLibraryPath() {
+    if (const char* env = std::getenv("OPENMODEL_MATERIALS"); env && *env) return env;
+#ifdef _WIN32
+    if (const char* appData = std::getenv("APPDATA"); appData && *appData) return std::string(appData) + "\\OpenModel\\materials.tsv";
+#else
+    if (const char* home = std::getenv("HOME"); home && *home) return std::string(home) + "/.config/OpenModel/materials.tsv";
+#endif
+    return "openmodel-materials.tsv";
+}
+
+/** Loads the known materials once. Caller holds the state lock. */
+void ensureMaterialsLoaded() {
+    if (g.materialsLoaded) return;
+    g.materialsLoaded = true;
+    std::vector<std::string> problems;
+    std::string error;
+    g.materials.load(materialLibraryPath(), problems, error);
+    if (!problems.empty()) {
+        g.materialsNote = "Some lines of " + materialLibraryPath() + " were ignored: ";
+        for (std::size_t k = 0; k < problems.size(); ++k) g.materialsNote += (k ? "; " : "") + problems[k];
+    }
+}
+
+/** Writes the known materials; caller holds the state lock. */
+bool persistMaterials(std::string& error) {
+    return g.materials.save(materialLibraryPath(), error);
+}
+
+/** Strict number argument: the whole text must be a finite number. */
+bool numberArg(webui_event_t* e, std::size_t index, double& out) {
+    const std::string text = getStringArg(e, index);
+    if (text.empty()) return false;
+    char* end = nullptr;
+    out = std::strtod(text.c_str(), &end);
+    return end == text.c_str() + text.size() && std::isfinite(out);
+}
+
 /**
- * @brief Material database for the Material tab. The argument is the unit system of the values ("si" or "mm-t-s").
- * Stateless: it does not touch the model, so it does not take the state lock.
+ * @brief Known materials for the Material tab: built-in and user entries, values in the unit system the page asks for
+ * ("si" or "mm-t-s"; default mm-t-s).
  */
 void materialListHandler(webui_event_t* e) {
+    StateLock lock;
+    if (!lock.ok()) { replyBusy(e); return; }
     OpenModel::UnitSystem units = OpenModel::UnitSystem::MmTonneS;
     const std::string unitText = getStringArg(e, 0);
     if (!unitText.empty() && !OpenModel::parseUnitSystem(unitText, units)) {
         reply(e, false, "Unknown unit system: " + unitText + " (use si or mm-t-s).");
         return;
     }
+    ensureMaterialsLoaded();
     auto number = [](double value) {
         std::ostringstream text;
         text.precision(12);
@@ -1797,21 +1842,84 @@ void materialListHandler(webui_event_t* e) {
         return text.str();
     };
     std::ostringstream out;
-    out << "{\"ok\":true,\"message\":\"\",\"units\":\"" << (units == OpenModel::UnitSystem::SI ? "si" : "mm-t-s")
-        << "\",\"materials\":[";
+    out << "{\"ok\":true,\"message\":\"" << jsonEscape(g.materialsNote) << "\",\"units\":\""
+        << (units == OpenModel::UnitSystem::SI ? "si" : "mm-t-s") << "\",\"path\":\"" << jsonEscape(materialLibraryPath())
+        << "\",\"classes\":[";
     bool first = true;
-    for (const auto& m : OpenModel::materialDatabase()) {
-        if (!first) out << ",";
+    for (int k = 0; k < 8; ++k) {
+        const auto klass = static_cast<OpenModel::MaterialClass>(k);
+        out << (first ? "" : ",") << "{\"key\":\"" << OpenModel::materialClassKey(klass) << "\",\"name\":\""
+            << jsonEscape(OpenModel::materialClassName(klass)) << "\"}";
         first = false;
-        out << "{\"id\":\"" << jsonEscape(m.id) << "\",\"name\":\"" << jsonEscape(m.name)
-            << "\",\"className\":\"" << jsonEscape(OpenModel::materialClassName(m.klass))
-            << "\",\"E\":" << number(OpenModel::youngModulusIn(m, units))
+    }
+    out << "],\"materials\":[";
+    first = true;
+    for (const auto& m : g.materials.entries()) {
+        out << (first ? "" : ",") << "{\"id\":\"" << jsonEscape(m.id) << "\",\"name\":\"" << jsonEscape(m.name)
+            << "\",\"classKey\":\"" << OpenModel::materialClassKey(m.klass) << "\",\"className\":\""
+            << jsonEscape(OpenModel::materialClassName(m.klass)) << "\",\"builtIn\":"
+            << (g.materials.isBuiltIn(m.id) ? "true" : "false")
+            << ",\"E\":" << number(OpenModel::youngModulusIn(m, units))
             << ",\"nu\":" << number(m.poisson)
             << ",\"rho\":" << number(OpenModel::densityIn(m, units))
             << ",\"note\":\"" << jsonEscape(m.note) << "\"}";
+        first = false;
     }
     out << "]}";
     webui_return_string(e, out.str().c_str());
+}
+
+/**
+ * @brief Adds or replaces a known material. Arguments: unit, id, name, class key, E, nu, rho, note.
+ * The change is written to the file at once; if the file cannot be written, the change is undone.
+ */
+void materialSaveHandler(webui_event_t* e) {
+    StateLock lock;
+    if (!lock.ok()) { replyBusy(e); return; }
+    ensureMaterialsLoaded();
+    OpenModel::UnitSystem units{};
+    if (!OpenModel::parseUnitSystem(getStringArg(e, 0), units)) { reply(e, false, "Unknown unit system."); return; }
+    OpenModel::ElasticMaterial m;
+    m.id = getStringArg(e, 1);
+    m.name = getStringArg(e, 2);
+    if (!OpenModel::parseMaterialClass(getStringArg(e, 3), m.klass)) { reply(e, false, "Choose the family of the material."); return; }
+    double E = 0.0, nu = 0.0, rho = 0.0;
+    if (!numberArg(e, 4, E)) { reply(e, false, "The Young modulus E must be a number."); return; }
+    if (!numberArg(e, 5, nu)) { reply(e, false, "The Poisson ratio nu must be a number."); return; }
+    if (!numberArg(e, 6, rho)) { reply(e, false, "The density rho must be a number."); return; }
+    m.youngModulus = OpenModel::youngModulusFromUnits(E, units);
+    m.poisson = nu;
+    m.density = OpenModel::densityFromUnits(rho, units);
+    m.note = getStringArg(e, 7);
+
+    const OpenModel::MaterialLibrary backup = g.materials;
+    std::string error;
+    const bool exists = g.materials.find(m.id) != nullptr;
+    const bool ok = exists ? g.materials.update(m.id, m, error) : g.materials.add(m, error);
+    if (!ok) { reply(e, false, error); return; }
+    if (!persistMaterials(error)) {
+        g.materials = backup;
+        reply(e, false, "The material was not saved: " + error);
+        return;
+    }
+    reply(e, true, "Known material '" + m.id + "' saved.");
+}
+
+/** @brief Removes a known material (built-in materials cannot be removed). Argument: id. */
+void materialDeleteHandler(webui_event_t* e) {
+    StateLock lock;
+    if (!lock.ok()) { replyBusy(e); return; }
+    ensureMaterialsLoaded();
+    const std::string id = getStringArg(e, 0);
+    const OpenModel::MaterialLibrary backup = g.materials;
+    std::string error;
+    if (!g.materials.remove(id, error)) { reply(e, false, error); return; }
+    if (!persistMaterials(error)) {
+        g.materials = backup;
+        reply(e, false, "The material was not removed: " + error);
+        return;
+    }
+    reply(e, true, "Known material '" + id + "' removed.");
 }
 
 void constraintListHandler(webui_event_t* e) {
@@ -2256,6 +2364,8 @@ int main() {
     webui_bind(window, "openmodel_constraint_clear", constraintClearHandler);
     webui_bind(window, "openmodel_constraint_list", constraintListHandler);
     webui_bind(window, "openmodel_material_list", materialListHandler);
+    webui_bind(window, "openmodel_material_save", materialSaveHandler);
+    webui_bind(window, "openmodel_material_delete", materialDeleteHandler);
     webui_bind(window, "openmodel_list_cad_face_groups", listCADFaceGroupsHandler);
     webui_bind(window, "openmodel_create_cad_face_group", createCADFaceGroupHandler);
     webui_bind(window, "openmodel_update_cad_face_group", updateCADFaceGroupHandler);

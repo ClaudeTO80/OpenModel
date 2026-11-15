@@ -4,6 +4,10 @@
  */
 #include <OpenModel/MaterialDatabase.hpp>
 
+#include <cmath>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <sstream>
 
 namespace OpenModel {
@@ -142,6 +146,207 @@ std::string materialScriptLine(const ElasticMaterial& material, UnitSystem units
     line << "material E=" << youngModulusIn(material, units) << " nu=" << material.poisson
          << " rho=" << densityIn(material, units) << " name=" << material.id;
     return line.str();
+}
+
+} // namespace OpenModel
+
+namespace OpenModel {
+
+namespace {
+
+constexpr const char* kLibraryHeader = "# OpenModel materials: id, name, class, E [Pa], nu, rho [kg/m^3], note";
+
+struct ClassKey {
+    MaterialClass klass;
+    const char* key;
+};
+
+const ClassKey kClassKeys[] = {
+    {MaterialClass::Aluminium, "aluminium"},
+    {MaterialClass::SteelAndIron, "steel"},
+    {MaterialClass::OtherMetal, "other_metal"},
+    {MaterialClass::Concrete, "concrete"},
+    {MaterialClass::Wood, "wood"},
+    {MaterialClass::Polymer, "polymer"},
+    {MaterialClass::GlassCeramic, "glass_ceramic"},
+    {MaterialClass::Stone, "stone"},
+};
+
+bool validId(std::string_view id) {
+    if (id.empty() || id.size() > 64) return false;
+    for (const char c : id) {
+        const bool ok = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-' || c == '.';
+        if (!ok) return false;
+    }
+    return true;
+}
+
+bool plainText(std::string_view text, std::size_t maxLength) {
+    if (text.size() > maxLength) return false;
+    for (const char c : text) {
+        if (c == '\t' || c == '\n' || c == '\r') return false;
+    }
+    return true;
+}
+
+bool finitePositive(double value) { return std::isfinite(value) && value > 0.0; }
+
+/** Strict number parse: the whole field must be a number. */
+bool parseNumber(const std::string& text, double& out) {
+    if (text.empty()) return false;
+    char* end = nullptr;
+    out = std::strtod(text.c_str(), &end);
+    return end == text.c_str() + text.size() && std::isfinite(out);
+}
+
+std::vector<std::string> splitTabs(const std::string& line) {
+    std::vector<std::string> fields;
+    std::string field;
+    std::istringstream in(line);
+    while (std::getline(in, field, '\t')) fields.push_back(field);
+    if (!line.empty() && line.back() == '\t') fields.emplace_back();
+    return fields;
+}
+
+} // namespace
+
+const char* materialClassKey(MaterialClass klass) {
+    for (const auto& k : kClassKeys) {
+        if (k.klass == klass) return k.key;
+    }
+    return "";
+}
+
+bool parseMaterialClass(std::string_view key, MaterialClass& out) {
+    for (const auto& k : kClassKeys) {
+        if (key == k.key) { out = k.klass; return true; }
+    }
+    return false;
+}
+
+double youngModulusFromUnits(double value, UnitSystem units) {
+    return units == UnitSystem::MmTonneS ? value * 1.0e6 : value;
+}
+
+double densityFromUnits(double value, UnitSystem units) {
+    return units == UnitSystem::MmTonneS ? value * 1.0e12 : value;
+}
+
+std::string validateMaterial(const ElasticMaterial& material) {
+    if (!validId(material.id)) return "The identifier must use lower case letters, digits, '_', '-' or '.' (at most 64 characters).";
+    if (material.name.empty() || !plainText(material.name, 120)) return "The name is required (at most 120 characters, no tabs or line breaks).";
+    if (!plainText(material.note, 300)) return "The note must not contain tabs or line breaks (at most 300 characters).";
+    if (!finitePositive(material.youngModulus)) return "The Young modulus must be a positive number.";
+    if (!std::isfinite(material.poisson) || material.poisson < 0.0 || material.poisson >= 0.5) return "The Poisson ratio must be in [0, 0.5).";
+    if (!finitePositive(material.density)) return "The density must be a positive number.";
+    return {};
+}
+
+MaterialLibrary::MaterialLibrary() : m_entries(materialDatabase()), m_builtInCount(m_entries.size()) {}
+
+const ElasticMaterial* MaterialLibrary::find(std::string_view id) const {
+    for (const ElasticMaterial& material : m_entries) {
+        if (material.id == id) return &material;
+    }
+    return nullptr;
+}
+
+bool MaterialLibrary::isBuiltIn(std::string_view id) const {
+    for (std::size_t i = 0; i < m_builtInCount; ++i) {
+        if (m_entries[i].id == id) return true;
+    }
+    return false;
+}
+
+bool MaterialLibrary::add(const ElasticMaterial& material, std::string& error) {
+    error = validateMaterial(material);
+    if (!error.empty()) return false;
+    if (find(material.id)) {
+        error = isBuiltIn(material.id) ? "The identifier '" + material.id + "' belongs to a built-in material: choose another identifier."
+                                       : "The identifier '" + material.id + "' is already used.";
+        return false;
+    }
+    m_entries.push_back(material);
+    return true;
+}
+
+bool MaterialLibrary::update(std::string_view id, const ElasticMaterial& material, std::string& error) {
+    if (isBuiltIn(id)) { error = "Built-in materials cannot be changed: save a copy with another identifier."; return false; }
+    if (material.id != id) { error = "The identifier of a known material cannot be changed."; return false; }
+    error = validateMaterial(material);
+    if (!error.empty()) return false;
+    for (ElasticMaterial& existing : m_entries) {
+        if (existing.id == id) { existing = material; return true; }
+    }
+    error = "No known material with identifier '" + std::string(id) + "'.";
+    return false;
+}
+
+bool MaterialLibrary::remove(std::string_view id, std::string& error) {
+    if (isBuiltIn(id)) { error = "Built-in materials cannot be removed."; return false; }
+    for (auto it = m_entries.begin(); it != m_entries.end(); ++it) {
+        if (it->id == id) { m_entries.erase(it); return true; }
+    }
+    error = "No known material with identifier '" + std::string(id) + "'.";
+    return false;
+}
+
+bool MaterialLibrary::load(const std::string& path, std::vector<std::string>& problems, std::string& error) {
+    error.clear();
+    problems.clear();
+    std::ifstream in(path);
+    if (!in) return true;  // no file: no custom entries yet
+    std::string line;
+    std::size_t number = 0;
+    while (std::getline(in, line)) {
+        ++number;
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        if (line.empty() || line[0] == '#') continue;
+        const auto fields = splitTabs(line);
+        auto fail = [&](const std::string& reason) {
+            problems.push_back("line " + std::to_string(number) + ": " + reason);
+        };
+        if (fields.size() != 7) { fail("expected 7 tab-separated fields"); continue; }
+        ElasticMaterial material;
+        material.id = fields[0];
+        material.name = fields[1];
+        material.note = fields[6];
+        if (!parseMaterialClass(fields[2], material.klass)) { fail("unknown class '" + fields[2] + "'"); continue; }
+        if (!parseNumber(fields[3], material.youngModulus) || !parseNumber(fields[4], material.poisson) ||
+            !parseNumber(fields[5], material.density)) {
+            fail("E, nu and rho must be numbers");
+            continue;
+        }
+        const std::string reason = validateMaterial(material);
+        if (!reason.empty()) { fail(reason); continue; }
+        if (find(material.id)) { fail("identifier '" + material.id + "' is already used"); continue; }
+        m_entries.push_back(material);
+    }
+    return true;
+}
+
+bool MaterialLibrary::save(const std::string& path, std::string& error) const {
+    namespace fs = std::filesystem;
+    error.clear();
+    const fs::path target(path);
+    std::error_code ec;
+    if (target.has_parent_path()) fs::create_directories(target.parent_path(), ec);
+    const fs::path temporary = target.string() + ".tmp";
+    {
+        std::ofstream out(temporary, std::ios::trunc);
+        if (!out) { error = "Cannot write " + temporary.string(); return false; }
+        out << kLibraryHeader << "\n";
+        out.precision(17);
+        for (std::size_t i = m_builtInCount; i < m_entries.size(); ++i) {
+            const ElasticMaterial& m = m_entries[i];
+            out << m.id << '\t' << m.name << '\t' << materialClassKey(m.klass) << '\t' << m.youngModulus << '\t'
+                << m.poisson << '\t' << m.density << '\t' << m.note << '\n';
+        }
+        if (!out) { error = "Writing " + temporary.string() + " failed."; return false; }
+    }
+    fs::rename(temporary, target, ec);
+    if (ec) { error = "Cannot replace " + target.string() + ": " + ec.message(); return false; }
+    return true;
 }
 
 } // namespace OpenModel

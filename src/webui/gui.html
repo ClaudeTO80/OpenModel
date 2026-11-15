@@ -419,26 +419,40 @@ details.node details.node{margin-top:8px;background:transparent}
 
   <div class="spanel" data-spanel="mat" hidden>
     <details class="node" open>
-      <summary>Material</summary>
-      <label for="matDb">Database of elastic materials</label>
-      <select id="matDb" onchange="fillFromDatabase()"><option value="">Loading…</option></select>
-      <p class="hint" id="matDbNote">Choose a material to fill the fields, then press Set material.</p>
-      <label for="matUnits">Units of the values below and of the line written by Set material</label>
+      <summary>Known materials</summary>
+      <label for="matUnits">Units of the values in this tab</label>
       <select id="matUnits" onchange="loadMaterialDb()">
         <option value="mm-t-s">mm, MPa, t/mm³ (N-mm-t-s)</option>
         <option value="si">m, Pa, kg/m³ (SI)</option>
       </select>
-      <ul id="condMaterial" class="conds"></ul>
+      <label for="matDb">Material</label>
+      <select id="matDb" onchange="fillFromDatabase()"><option value="">Loading…</option></select>
+      <p class="hint" id="matDbNote">Choose a material to fill the form below.</p>
+      <div class="grid2"><button type="button" onclick="newKnownMaterial()">New material</button><button type="button" id="btnMatDelete" onclick="deleteKnownMaterial()" disabled>Delete known</button></div>
+      <p class="hint" id="matPath"></p>
+    </details>
+    <details class="node" open>
+      <summary>Edit material</summary>
+      <label for="matId">Identifier (letters, digits, _ - .)</label>
+      <input id="matId" placeholder="steel_local">
+      <label for="matDisplay">Name</label>
+      <input id="matDisplay" placeholder="Structural steel, local supplier">
+      <label for="matClass">Family</label>
+      <select id="matClass"></select>
       <label for="matE">Young modulus E</label>
       <input id="matE" type="number" step="any" placeholder="210000">
       <label for="matNu">Poisson ratio nu</label>
       <input id="matNu" type="number" step="any" placeholder="0.3">
-      <label for="matRho">Density rho (optional)</label>
+      <label for="matRho">Density rho</label>
       <input id="matRho" type="number" step="any" placeholder="7.85e-9">
-      <label for="matName">Name (optional; letters, digits, _ - .)</label>
-      <input id="matName" placeholder="Steel">
-      <button class="primary full" onclick="setMaterial()">Set material</button>
-      <p class="hint">The script takes one material, and its values must be in the units of the whole script. Setting it replaces the material line of the script, or adds one when there is none. Use units that are consistent with the loads and the geometry.</p>
+      <label for="matNote">Note</label>
+      <input id="matNote" placeholder="Source of the values">
+      <div class="grid2"><button type="button" id="btnMatSave" class="primary" onclick="saveKnownMaterial()">Save as known</button><button type="button" onclick="setMaterial()">Set in script</button></div>
+      <p class="hint">Saving writes the material to the materials file at once. Built-in materials cannot be changed: save a copy with another identifier. Set in script writes the values of the form as the material line of the script, with the identifier as its name; the script takes one material, and all its values must be in the units of the script.</p>
+    </details>
+    <details class="node">
+      <summary>Material in the script</summary>
+      <ul id="condMaterial" class="conds"></ul>
     </details>
   </div>
 
@@ -1215,7 +1229,7 @@ function renderAnalysisConditions() {
     const item = document.createElement("li");
     item.style.cssText = "display:flex;gap:6px;align-items:center;margin:4px 0;padding:5px;border:1px solid var(--border,#bbb);border-radius:4px";
     const content = document.createElement("code");
-    const idMatch = /(?:^|\\s)id=([A-Za-z0-9_.-]+)/.exec(line.trim());
+    const idMatch = /(?:^|\s)id=([A-Za-z0-9_.-]+)/.exec(line.trim());
     content.textContent = (idMatch ? "[" + idMatch[1] + "] " : "") + line.trim();
     content.style.cssText = "flex:1;overflow-wrap:anywhere;white-space:pre-wrap";
     const edit = document.createElement("button");
@@ -1263,39 +1277,71 @@ function renderAnalysisConditions() {
 $("anScript").addEventListener("input", renderAnalysisConditions);
 /** Copies the values of the material line into the Material form, so that editing one field keeps the others. */
 let materialDb = [];
-/** Loads the built-in material database from the host, in the units selected in the Material tab. */
-async function loadMaterialDb() {
+/** Loads the known materials (built-in and personal) from the host, in the units of the Material tab. */
+async function loadMaterialDb(selectId) {
   const r = await call("openmodel_material_list", $("matUnits").value);
-  if (!r.ok || !Array.isArray(r.materials)) { show(r.message || "The material database is not available.", "bad"); return; }
+  if (!r.ok || !Array.isArray(r.materials)) { show(r.message || "The materials are not available.", "bad"); return; }
+  if (r.message) show(r.message, "bad");
   materialDb = r.materials;
+  const keep = selectId !== undefined ? selectId : $("matDb").value;
   const groups = new Map();
   for (const m of materialDb) {
     if (!groups.has(m.className)) groups.set(m.className, []);
     groups.get(m.className).push(m);
   }
   $("matDb").innerHTML = '<option value="">— choose a material —</option>' + [...groups].map(([cls, items]) =>
-    `<optgroup label="${esc2(cls)}">` + items.map((m) => `<option value="${esc2(m.id)}">${esc2(m.name)}</option>`).join("") + "</optgroup>").join("");
+    `<optgroup label="${esc2(cls)}">` + items.map((m) => `<option value="${esc2(m.id)}">${esc2(m.name)}${m.builtIn ? "" : " (known)"}</option>`).join("") + "</optgroup>").join("");
+  $("matDb").value = materialDb.some((m) => m.id === keep) ? keep : "";
+  $("matClass").innerHTML = (r.classes || []).map((c) => `<option value="${esc2(c.key)}">${esc2(c.name)}</option>`).join("");
+  $("matPath").textContent = "Known materials file: " + r.path + " (" + materialDb.filter((m) => !m.builtIn).length + " personal)";
   fillFromDatabase();
 }
-/** Copies the chosen database entry into the Material form; the script is changed only by Set material. */
+/** Copies the chosen material into the form. The script changes only with Set in script. */
 function fillFromDatabase() {
   const m = materialDb.find((x) => x.id === $("matDb").value);
-  if (!m) { $("matDbNote").textContent = "Choose a material to fill the fields, then press Set material."; return; }
-  $("matE").value = m.E; $("matNu").value = m.nu; $("matRho").value = m.rho; $("matName").value = m.id;
-  $("matDbNote").textContent = m.name + ": " + m.note + " Press Set material to apply.";
+  $("btnMatDelete").disabled = !(m && !m.builtIn);
+  if (!m) { $("matDbNote").textContent = "Choose a material to fill the form below."; return; }
+  $("matId").value = m.id; $("matDisplay").value = m.name; $("matClass").value = m.classKey;
+  $("matE").value = m.E; $("matNu").value = m.nu; $("matRho").value = m.rho; $("matNote").value = m.note;
+  $("matDbNote").textContent = (m.builtIn ? "Built-in material" : "Known material") + ": " + m.note
+    + (m.builtIn ? " To change it, save a copy with another identifier." : "");
 }
+/** Clears the form to enter a new material. */
+function newKnownMaterial() {
+  $("matDb").value = "";
+  for (const id of ["matId", "matDisplay", "matE", "matNu", "matRho", "matNote"]) $(id).value = "";
+  fillFromDatabase();
+}
+/** Saves the form as a known material (adds it, or updates a personal one with the same identifier). */
+async function saveKnownMaterial() {
+  const id = $("matId").value.trim();
+  const r = await act("openmodel_material_save", $("matUnits").value, id, $("matDisplay").value.trim(), $("matClass").value,
+    $("matE").value.trim(), $("matNu").value.trim(), $("matRho").value.trim(), $("matNote").value.trim());
+  if (r && r.ok) await loadMaterialDb(id);
+}
+/** Deletes the selected personal material; built-in ones cannot be deleted. The script is not changed. */
+async function deleteKnownMaterial() {
+  const id = $("matDb").value;
+  const m = materialDb.find((x) => x.id === id);
+  if (!m || m.builtIn) { show("Only known materials can be deleted.", "bad"); return; }
+  if (!confirm("Delete the known material '" + id + "'? The analysis script is not changed.")) return;
+  const r = await act("openmodel_material_delete", id);
+  if (r && r.ok) await loadMaterialDb("");
+}
+/** Reads the material line of the script back into the form (values in the units of the script). */
 function fillMaterialFields(line) {
   const get = (key) => { const m = new RegExp("(?:^|\\s)" + key + "=(\\S+)", "i").exec(line); return m ? m[1] : ""; };
-  $("matE").value = get("E"); $("matNu").value = get("nu"); $("matRho").value = get("rho"); $("matName").value = get("name");
+  $("matE").value = get("E"); $("matNu").value = get("nu"); $("matRho").value = get("rho");
+  const name = get("name"); if (name) $("matId").value = name;
 }
-/** Sets the single material of the script: replaces its line (keeping its id) or appends one. */
+/** Writes the form into the script as the material line (replaces the existing one, keeping its id). */
 function setMaterial() {
   const E = $("matE").value.trim(), nu = $("matNu").value.trim();
-  const rho = $("matRho").value.trim(), name = $("matName").value.trim();
+  const rho = $("matRho").value.trim(), name = $("matId").value.trim();
   if (E === "" || !Number.isFinite(Number(E))) { show("The Young modulus E must be a number.", "bad"); return; }
   if (nu === "" || !Number.isFinite(Number(nu))) { show("The Poisson ratio nu must be a number.", "bad"); return; }
   if (rho !== "" && !Number.isFinite(Number(rho))) { show("The density must be a number.", "bad"); return; }
-  if (name !== "" && !/^[A-Za-z0-9_.-]+$/.test(name)) { show("The material name may contain letters, digits, _ - .", "bad"); return; }
+  if (name !== "" && !/^[A-Za-z0-9_.-]+$/.test(name)) { show("The identifier may contain letters, digits, _ - .", "bad"); return; }
   const lines = $("anScript").value.split(/\r?\n/);
   const index = lines.findIndex((l) => analysisCommand(l) === "material");
   const idMatch = index >= 0 ? /(?:^|\s)id=([A-Za-z0-9_.-]+)/.exec(lines[index].trim()) : null;
