@@ -491,9 +491,34 @@ details.node details.node{margin-top:8px;background:transparent}
       <input id="asForce" value="0,0,-100">
       <label for="asPress">Pressure (positive = toward the body)</label>
       <input id="asPress" value="1">
+      <label for="asAmp">Amplitude (optional name, see Time dependence)</label>
+      <input id="asAmp" placeholder="empty = constant load">
       <div class="grid2"><button id="btnAsForce" onclick="assign('force')">Force on nodes</button><button id="btnAsPress" onclick="assign('press')">Pressure on faces</button></div>
-      <p class="hint">Force acts on the selected nodes, pressure on the selected faces. Each assignment appends the line to the script.</p>
+      <p class="hint">Force acts on the selected nodes, pressure on the selected faces. Each assignment appends the line to the script. A load with an amplitude is multiplied by the factor of that amplitude at the time of the step.</p>
       <ul id="condLoads" class="conds"></ul>
+    </details>
+    <details class="node">
+      <summary>Time dependence</summary>
+      <label for="asAmpName">Amplitude name</label>
+      <input id="asAmpName" placeholder="A1">
+      <label for="asAmpPoints">Time, factor pairs (first time 0, increasing times)</label>
+      <input id="asAmpPoints" placeholder="0,0,1,1,2,0.5">
+      <button class="full" onclick="addAmplitude()">Add amplitude to script</button>
+      <ul id="condAmplitude" class="conds"></ul>
+    </details>
+    <details class="node">
+      <summary>Step</summary>
+      <label for="asStepKind">Analysis</label>
+      <select id="asStepKind" onchange="stepKindChanged()">
+        <option value="static">Static (loads ramped over the step)</option>
+        <option value="dynamic">Dynamic (transient, implicit)</option>
+      </select>
+      <div id="asDynFields" class="grid2" hidden>
+        <div><label for="asDt">Initial increment dt</label><input id="asDt" type="number" step="any" placeholder="0.01"></div>
+        <div><label for="asPeriod">Step time period</label><input id="asPeriod" type="number" step="any" placeholder="1"></div>
+      </div>
+      <button class="full" onclick="setStep()">Set step in script</button>
+      <p class="hint">Replaces the step line of the script. A dynamic analysis needs the density (rho=) and supports (fix). Loads without amplitude act at full value from the start.</p>
     </details>
     <details id="secSolve" class="node" open>
       <summary>Analysis and solver</summary>
@@ -1107,7 +1132,7 @@ async function makeGroup(kind, name, prefix) {
   if (r && r.ok) { $("grpName").value = ""; }
   return r;
 }
-const ANALYSIS_COMMANDS = new Set(["material", "fix", "force", "pressure", "gravity", "step", "output"]);
+const ANALYSIS_COMMANDS = new Set(["material", "fix", "force", "pressure", "gravity", "amplitude", "step", "output"]);
 function analysisCommand(line) {
   const text = line.trim();
   if (!text || text.startsWith("#")) return null;
@@ -1215,9 +1240,9 @@ async function editAnalysisCondition(command, line, id, lines, index) {
     dialog.showModal();
   }).then(value => value === true ? false : value === false ? false : null);
 }
-const CONDITION_LIST = { material: "condMaterial", fix: "condFix", force: "condLoads", pressure: "condLoads", gravity: "condLoads", step: "condLoads", output: "condLoads" };
+const CONDITION_LIST = { material: "condMaterial", fix: "condFix", force: "condLoads", pressure: "condLoads", gravity: "condLoads", amplitude: "condAmplitude", step: "condLoads", output: "condLoads" };
 function renderAnalysisConditions() {
-  const lists = ["condMaterial", "condFix", "condLoads"].map((id) => $(id)).filter(Boolean);
+  const lists = ["condMaterial", "condFix", "condLoads", "condAmplitude"].map((id) => $(id)).filter(Boolean);
   if (!lists.length) return;
   lists.forEach((l) => l.replaceChildren());
   const lines = $("anScript").value.split(/\r?\n/);
@@ -1350,6 +1375,39 @@ function setMaterial() {
   if (index >= 0) applyAnalysisEdit(line, idMatch && idMatch[1], lines, index);
   else appendScript(line);
 }
+/** Adds an amplitude (time, factor pairs) to the script; the name must not be used yet. */
+function addAmplitude() {
+  const name = $("asAmpName").value.trim(), pts = $("asAmpPoints").value.trim();
+  if (!/^[A-Za-z0-9_.-]+$/.test(name)) { show("The amplitude name may contain letters, digits, _ - .", "bad"); return; }
+  const values = pts.split(",").map((x) => x.trim());
+  if (values.length < 4 || values.length % 2 !== 0 || values.some((x) => x === "" || !Number.isFinite(Number(x)))) {
+    show("An amplitude needs at least two time, factor pairs of numbers, e.g. 0,0,1,1.", "bad"); return;
+  }
+  const times = values.filter((_, i) => i % 2 === 0).map(Number);
+  if (times.some((t, i) => i > 0 && !(t > times[i - 1]))) { show("The times of an amplitude must be strictly increasing.", "bad"); return; }
+  const taken = new RegExp("(?:^|\\s)name=" + name + "(?:\\s|$)");
+  if ($("anScript").value.split(/\r?\n/).some((l) => analysisCommand(l) === "amplitude" && taken.test(l))) {
+    show("An amplitude named '" + name + "' already exists: remove it first.", "bad"); return;
+  }
+  appendScript("amplitude name=" + name + " t=" + values.join(","));
+}
+function stepKindChanged() { $("asDynFields").hidden = $("asStepKind").value !== "dynamic"; }
+/** Replaces the step line of the script with the chosen analysis type. */
+function setStep() {
+  const kind = $("asStepKind").value;
+  let line = "step static";
+  if (kind === "dynamic") {
+    const dt = Number($("asDt").value), period = Number($("asPeriod").value);
+    if (!Number.isFinite(dt) || !Number.isFinite(period) || !(dt > 0) || !(period > 0) || dt > period) {
+      show("A dynamic step needs 0 < dt <= period.", "bad"); return;
+    }
+    line = "step dynamic dt=" + dt + " period=" + period;
+  }
+  const lines = $("anScript").value.split(/\r?\n/);
+  const index = lines.findIndex((l) => analysisCommand(l) === "step");
+  if (index >= 0) applyAnalysisEdit(line, null, lines, index);
+  else appendScript(line);
+}
 function appendScript(line) {
   const box = $("anScript");
   box.value = box.value.replace(/\s*$/, "") + "\n" + line + "\n";
@@ -1367,13 +1425,17 @@ async function assign(type) {
   } else if (type === "force") {
     const f = numList($("asForce").value, 3);
     if (!f) { show("The force requires three comma-separated numbers Fx,Fy,Fz.", "bad"); return; }
-    line = (g) => "force group:" + g + " F=" + f.join(",");
+    const amp = $("asAmp").value.trim();
+    if (amp && !/^[A-Za-z0-9_.-]+$/.test(amp)) { show("The amplitude name may contain letters, digits, _ - .", "bad"); return; }
+    line = (g) => "force group:" + g + " F=" + f.join(",") + (amp ? " amp=" + amp : "");
   } else {
     const p = Number($("asPress").value);
     if (!Number.isFinite(p) || $("asPress").value.trim() === "") { show("The pressure must be a number.", "bad"); return; }
     if (sel.mode !== "face") { show("Pressure acts on faces: select faces in the viewer.", "bad"); return; }
     kind = "face";
-    line = (g) => "pressure group:" + g + " p=" + p;
+    const pampl = $("asAmp").value.trim();
+    if (pampl && !/^[A-Za-z0-9_.-]+$/.test(pampl)) { show("The amplitude name may contain letters, digits, _ - .", "bad"); return; }
+    line = (g) => "pressure group:" + g + " p=" + p + (pampl ? " amp=" + pampl : "");
   }
   const prefix = { fix: "FIX", force: "FORCE", press: "PRESS" }[type];
   const r = await makeGroup(kind, undefined, prefix);

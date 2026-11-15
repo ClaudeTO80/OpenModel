@@ -11,12 +11,16 @@ One command per line, `#` starts a comment.
 ```
 material E=210000 nu=0.3 rho=7.85e-9 [name=STEEL]   # one material for all volume blocks
 fix plane:x=0 [dof=1,2,3] [tol=1e-6]                # default: all translations
-force plane:x=10 F=0,-100,0                         # TOTAL force, shared equally by the selected nodes
-pressure group:Top p=2.5                            # surface group; positive = into the body
+force plane:x=10 F=0,-100,0 [amp=A1]               # TOTAL force, shared equally by the selected nodes
+pressure group:Top p=2.5 [amp=A1]                   # surface group; positive = into the body
 gravity g=0,0,-9810                                 # acceleration (needs rho)
+amplitude name=A1 t=0,0,1,1,2,0.5                   # time-dependent factor: (time, factor) pairs, increasing times
 step static                                         # or: step frequency modes=6
+step dynamic dt=0.01 period=1 [dtmin=1e-5] [dtmax=0.1]   # transient, implicit; needs rho and supports
 output element=auto|on|off                          # element S/E in the .dat (auto: up to 200000 elements)
 ```
+
+`amp=NAME` multiplies the load by the factor of the amplitude at the time of the step (CalculiX `AMPLITUDE=`). Loads without `amp` are constant: in a static step they are ramped over the step, in a dynamic step they act at full value from the start. A dynamic step without `dtmin`/`dtmax` uses min(dt, 1e-5 × period) and 1e30 (the CalculiX defaults).
 
 Selectors: `all`; `group:NAME` (node set, or the nodes of any physical group, case-insensitive); `plane:x|y|z=VALUE` (nodes within `tol`, default 1e-6 × model diagonal). Units are yours: use a consistent set (mm, N, tonne, s in the examples). Errors carry the script line number; all are collected.
 
@@ -39,6 +43,9 @@ The node constraints of `MeshData` (set in the GUI with *Mesh constraints*, or r
 * **The generated `.inp` has not been run through a real CalculiX** (not available here). Tests use `tests/support/fake_ccx.py`, which checks that the input has the expected sections and copies fixture results: they verify the plumbing, not the physics.
 * Forces are shared equally among nodes. For quadratic elements this is not the consistent load (a warning is issued); prefer `pressure`.
 * Pressure supports tetrahedra/hexahedra (linear and quadratic); no pyramids/wedges, no shell/beam elements, no contact, no nonlinear materials, one material, one step.
+* Loads not written yet: body forces per element (`BX/BY/BZ`), centrifugal loads (`CENTRIF`: the manual does not state unambiguously the meaning of its first value), distributed traction (tangential), nodal moments (solid elements have no rotational degrees of freedom), thermal loads (out of scope). Each one needs its syntax checked against the solver manual before it is written.
+* Dynamic steps and amplitudes are not written to the code_aster case: `writeCodeAsterCase` refuses them with a message.
+* The dynamic step reads only the last increment of the results: the time history is not loaded.
 * ProcessRunner is POSIX only; on Windows it returns an error (untested/unimplemented).
 * Child process receives no sandbox: it runs with the user's rights.
 

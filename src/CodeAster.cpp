@@ -372,6 +372,11 @@ CodeAsterExportResult writeCodeAsterCase(const MeshData& mesh, const AnalysisMod
     if (!(m.youngModulus > 0.0) || !std::isfinite(m.youngModulus)) return fail(r, "Young's modulus must be positive");
     if (!(m.poisson > -1.0 && m.poisson < 0.5)) return fail(r, "Poisson's ratio must lie between -1 and 0.5 (exclusive)");
     const bool frequency = model.step == StepType::Frequency;
+    if (model.step == StepType::Dynamic) return fail(r, "Dynamic steps are not written to the code_aster case yet: use the CalculiX solver");
+    bool timeDependent = !model.amplitudes.empty();
+    for (const auto& f : model.forces) timeDependent = timeDependent || !f.amplitude.empty();
+    for (const auto& p : model.pressures) timeDependent = timeDependent || !p.amplitude.empty();
+    if (timeDependent) return fail(r, "Time-dependent loads (amplitude) are not written to the code_aster case yet: use the CalculiX solver");
     if ((frequency || model.hasGravity) && !(m.density > 0.0)) return fail(r, "A frequency analysis and gravity need the density (rho=)");
     if (model.hasGravity && frequency) note(r, ImportDiagnosticLevel::Warning, "ANALYSIS_GRAVITY_IGNORED", "Loads (gravity included) have no effect in a frequency analysis");
     if (frequency && (!model.forces.empty() || !model.pressures.empty()))

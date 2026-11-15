@@ -67,19 +67,34 @@ struct FixedSupport {
     std::array<double, 3> displacement{{0.0, 0.0, 0.0}};
 };
 
+/**
+ * @brief Time dependence of a load: a piecewise linear table of (time, factor) pairs. The load is the nominal value
+ * multiplied by the factor. Written to the solver as *AMPLITUDE, referenced by the loads through AMPLITUDE=.
+ */
+struct AnalysisAmplitude {
+    std::string name;                                ///< Identifier used by the loads (amp=NAME).
+    std::vector<std::array<double, 2>> points;       ///< (time, factor), strictly increasing in time.
+};
+
 struct NodalForce {
     std::string id;             ///< Stable condition identifier.
     NodeSelector where;
     std::array<double, 3> total{{0.0, 0.0, 0.0}};   ///< Whole force; each selected node gets total / count.
+    std::string amplitude;      ///< Optional amplitude name (empty = constant load).
 };
 
 struct SurfacePressure {
     std::string id;             ///< Stable condition identifier.
     std::string group;         ///< Physical group of surface elements (dimension 2).
     double pressure = 0.0;     ///< Positive acts into the body (compressive), as in Abaqus and CalculiX.
+    std::string amplitude;     ///< Optional amplitude name (empty = constant load).
 };
 
-enum class StepType { Static, Frequency };
+enum class StepType {
+    Static,     ///< *STATIC: linear static analysis, the loads are ramped over the step.
+    Frequency,  ///< *FREQUENCY: natural modes; loads are ignored.
+    Dynamic     ///< *DYNAMIC: transient analysis with an implicit time integration.
+};
 
 struct AnalysisModel {
     AnalysisMaterial material;
@@ -88,8 +103,14 @@ struct AnalysisModel {
     std::vector<SurfacePressure> pressures;
     bool hasGravity = false;
     std::array<double, 3> gravity{{0.0, 0.0, 0.0}};
+    std::vector<AnalysisAmplitude> amplitudes;
     StepType step = StepType::Static;
     std::size_t modes = 6;     ///< Frequency step: number of eigenvalues requested.
+    /** Dynamic step (times in the model time unit). The minimum and maximum increments are optional: 0 = solver default. */
+    double dynamicIncrement = 0.0;
+    double dynamicPeriod = 0.0;
+    double dynamicMinIncrement = 0.0;
+    double dynamicMaxIncrement = 0.0;
     /** Print element stresses/strains to the `.dat` (per-element results). Large for big meshes; -1 = automatic (<= 200000 elements). */
     int elementPrint = -1;
 };

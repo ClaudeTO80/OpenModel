@@ -3,6 +3,7 @@
  * @brief Tests of the analysis script parser, node selectors, CalculiX input writer and the process runner.
  */
 #include <OpenModel/AnalysisSetup.hpp>
+#include <OpenModel/CodeAster.hpp>
 #include <OpenModel/ProcessRunner.hpp>
 
 #include <algorithm>
@@ -527,6 +528,104 @@ void testPrescribedDisplacementTracker() {
 
 } // namespace
 
+
+/** Time-dependent loads and the dynamic step: parser, serializer, deck text and the refusals of the code_aster writer. */
+void testTimeLoadsAndDynamic() {
+    // Amplitudes and the amp= option on forces and pressures.
+    {
+        auto r = parseAnalysisScript("material E=210000 nu=0.3 rho=7.85e-9\n"
+                                     "amplitude name=A1 t=0,0,1,1,2,0.5\n"
+                                     "force group:Top F=0,0,-40 amp=A1\n"
+                                     "pressure group:Right p=2 amp=A1\n"
+                                     "step dynamic dt=0.01 period=1 dtmin=1e-6\n");
+        CHECK(r.success);
+        CHECK(r.model.amplitudes.size() == 1 && r.model.amplitudes[0].points.size() == 3);
+        CHECK(r.model.amplitudes[0].points[2][0] == 2.0 && r.model.amplitudes[0].points[2][1] == 0.5);
+        CHECK(r.model.forces.size() == 1 && r.model.forces[0].amplitude == "A1");
+        CHECK(r.model.pressures.size() == 1 && r.model.pressures[0].amplitude == "A1");
+        CHECK(r.model.step == StepType::Dynamic && r.model.dynamicIncrement == 0.01 && r.model.dynamicPeriod == 1.0);
+        CHECK(r.model.dynamicMinIncrement == 1e-6 && r.model.dynamicMaxIncrement == 0.0);
+
+        // Round trip: the serialized script parses back to the same model.
+        const std::string text = serializeAnalysisScript(r.model);
+        CHECK(contains(text, "amplitude name=A1 t=0,0,1,1,2,0.5"));
+        CHECK(contains(text, " group:Top F=0,0,-40 amp=A1"));
+        CHECK(contains(text, "step dynamic dt=0.01 period=1 dtmin="));
+        const auto back = parseAnalysisScript(text);
+        CHECK(back.success && back.model.amplitudes.size() == 1 && back.model.forces[0].amplitude == "A1");
+        CHECK(back.model.step == StepType::Dynamic && back.model.dynamicPeriod == 1.0);
+        CHECK(std::fabs(back.model.dynamicMinIncrement - 1e-6) < 1e-15);
+    }
+
+    // Refusals.
+    auto fails = [](const std::string& text) { return !parseAnalysisScript(text).success; };
+    const std::string base = "material E=210000 nu=0.3 rho=7.85e-9\n";
+    CHECK(fails(base + "force group:Top F=0,0,-1 amp=NOPE\n"));                          // undefined amplitude
+    CHECK(fails(base + "pressure group:Right p=1 amp=NOPE\n"));
+    CHECK(fails(base + "amplitude name=A t=0,0,1\n"));                                  // odd count
+    CHECK(fails(base + "amplitude name=A t=0,0,1,1,0.5,2\n"));                          // times not increasing
+    CHECK(fails(base + "amplitude name=A t=0,0\n"));                                    // one pair only
+    CHECK(fails(base + "amplitude name=A t=0,0,1,1\namplitude name=A t=0,0,2,1\n"));  // duplicate name
+    CHECK(fails(base + "amplitude name=bad/name t=0,0,1,1\n"));
+    CHECK(fails(base + "step dynamic period=1\n"));                                     // dt missing
+    CHECK(fails(base + "step dynamic dt=2 period=1\n"));                                // dt > period
+    CHECK(fails(base + "step dynamic dt=0.1 period=1 dtmin=0.5\n") == false);           // dtmin > dt is allowed
+
+    // Deck text: amplitudes before the step, loads grouped by amplitude, dynamic step, gravity constant.
+    {
+        const fs::path dir = tempDir();
+        MeshData hex = makeHex();
+        const auto model = parseOk(base +
+                                   "amplitude name=A1 t=0,0,1,1,2,0.5\n"
+                                   "amplitude name=A2 t=0,1,1,0\n"
+                                   "fix group:Bottom\n"
+                                   "force group:Top F=0,0,-10\n"
+                                   "force group:Top F=0,0,-20 amp=A1\n"
+                                   "pressure group:Right p=2 amp=A2\n"
+                                   "pressure group:Bottom p=3\n"
+                                   "gravity g=0,0,-10\n"
+                                   "step dynamic dt=0.01 period=1\n");
+        const auto r = writeSolverInput(hex, model, dir / "dyn.inp");
+        CHECK(r.success);
+        if (!r.success) std::cerr << r.error << "\n";
+        const std::string t = slurp(dir / "dyn.inp");
+        CHECK(contains(t, "*AMPLITUDE, NAME=A1\n0, 0, 1, 1, 2, 0.5\n"));
+        CHECK(contains(t, "*AMPLITUDE, NAME=A2\n0, 1, 1, 0\n"));
+        CHECK(t.find("*AMPLITUDE") < t.find("*STEP"));                                 // model data before the step
+        CHECK(contains(t, "*DYNAMIC\n0.01, 1, 1e-05, 1e+30\n"));
+        CHECK(!contains(t, "*STATIC") && !contains(t, "*FREQUENCY"));
+        CHECK(contains(t, "*CLOAD\nMG_LOAD1, 3, -2.5\n"));                  // -10 shared by the 4 nodes of Top
+        CHECK(contains(t, "*CLOAD, AMPLITUDE=A1\nMG_LOAD2, 3, -5\n"));
+        CHECK(contains(t, "*DLOAD\n1, P1, 3\nMG_EALL, GRAV, 10, 0, 0, -1\n"));  // constant pressure, then gravity
+        CHECK(contains(t, "*DLOAD, AMPLITUDE=A2\n1, P4, 2\n"));
+        CHECK(t.find("*CLOAD\n") < t.find("*CLOAD, AMPLITUDE=A1"));                  // constant first
+        CHECK(contains(t, "NODE FILE\nU, S, E"));
+        fs::remove_all(dir);
+    }
+
+    // A dynamic analysis is a free body problem check: no support, no deck.
+    {
+        const fs::path dir = tempDir();
+        MeshData hex = makeHex();
+        const auto model = parseOk(base + "step dynamic dt=0.01 period=1\n");
+        CHECK(!writeSolverInput(hex, model, dir / "free.inp").success);
+        fs::remove_all(dir);
+    }
+
+    // code_aster refuses what it does not write yet.
+    {
+        const fs::path dir = tempDir();
+        MeshData hex = makeHex();
+        CodeAsterOptions options;
+        options.jobName = "dyn";
+        const auto dynamic = parseOk(base + "fix group:Bottom\nstep dynamic dt=0.01 period=1\n");
+        CHECK(!writeCodeAsterCase(hex, dynamic, dir, options).success);
+        const auto timed = parseOk(base + "fix group:Bottom\namplitude name=A t=0,0,1,1\nforce group:Top F=0,0,-1 amp=A\n");
+        CHECK(!writeCodeAsterCase(hex, timed, dir, options).success);
+        fs::remove_all(dir);
+    }
+}
+
 int main() {
     testParser();
     testStableConditionIds();
@@ -536,6 +635,7 @@ int main() {
     testWriterStatic();
     testTetFaces();
     testWriterFrequencyAndValidation();
+    testTimeLoadsAndDynamic();
     testRunner();
     if (g_failures) {
         std::cerr << g_failures << " check(s) failed\n";

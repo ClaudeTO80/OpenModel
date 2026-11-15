@@ -15,6 +15,7 @@
 
 namespace OpenModel {
 namespace {
+bool validConditionId(const std::string& id);
 
 std::string lowered(std::string s) {
     std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
@@ -172,6 +173,7 @@ struct Parser {
             NodalForce f;
             if (positional.size() != 1 || !selector(positional[0], f.where)) { error("SCRIPT_SELECTOR", "force needs one selector: all, group:NAME or plane:x=VALUE"); return; }
             vector3("f", f.total);
+            take("amp", f.amplitude);
             std::string tol;
             if (take("tol", tol) && !parseNumber(tol, f.where.tolerance)) error("SCRIPT_BAD_NUMBER", "'" + tol + "' is not a number (tol)");
             f.id = conditionId("force", keys);
@@ -186,6 +188,7 @@ struct Parser {
             }
             p.group = sel.name;
             number("p", p.pressure, true);
+            take("amp", p.amplitude);
             p.id = conditionId("pressure", keys);
             leftovers();
             if (result.diagnostics.size() == errorsBefore) result.model.pressures.push_back(p);
@@ -201,9 +204,28 @@ struct Parser {
             }
         } else if (command == "step") {
             if (haveStep) { error("SCRIPT_DUPLICATE", "Only one step is supported"); return; }
-            if (positional.size() != 1) { error("SCRIPT_STEP", "step needs 'static' or 'frequency'"); return; }
+            if (positional.size() != 1) { error("SCRIPT_STEP", "step needs 'static', 'frequency' or 'dynamic'"); return; }
             const std::string kind = lowered(positional[0]);
             if (kind == "static") result.model.step = StepType::Static;
+            else if (kind == "dynamic") {
+                result.model.step = StepType::Dynamic;
+                double increment = 0.0, period = 0.0, minimum = 0.0, maximum = 0.0;
+                if (!number("dt", increment, true) || !number("period", period, true)) { leftovers(); return; }
+                if (!(increment > 0.0) || !(period > 0.0) || increment > period) {
+                    error("SCRIPT_BAD_DYNAMIC", "dynamic needs 0 < dt <= period");
+                    return;
+                }
+                number("dtmin", minimum, false);
+                number("dtmax", maximum, false);
+                if (minimum < 0.0 || maximum < 0.0 || (maximum > 0.0 && maximum < increment)) {
+                    error("SCRIPT_BAD_DYNAMIC", "dtmin and dtmax must be positive, with dtmax >= dt");
+                    return;
+                }
+                result.model.dynamicIncrement = increment;
+                result.model.dynamicPeriod = period;
+                result.model.dynamicMinIncrement = minimum;
+                result.model.dynamicMaxIncrement = maximum;
+            }
             else if (kind == "frequency") {
                 result.model.step = StepType::Frequency;
                 double modes = 6;
@@ -211,9 +233,34 @@ struct Parser {
                     if (modes < 1 || modes > 1000 || modes != std::floor(modes)) { error("SCRIPT_BAD_MODES", "modes must be an integer between 1 and 1000"); return; }
                     result.model.modes = static_cast<std::size_t>(modes);
                 }
-            } else { error("SCRIPT_STEP", "Unknown step '" + positional[0] + "' (static or frequency)"); return; }
+            } else { error("SCRIPT_STEP", "Unknown step '" + positional[0] + "' (static, frequency or dynamic)"); return; }
             leftovers();
             haveStep = true;
+        } else if (command == "amplitude") {
+            AnalysisAmplitude a;
+            std::string name, values;
+            if (!positional.empty()) { error("SCRIPT_UNEXPECTED", "Unexpected '" + positional[0] + "' after amplitude"); return; }
+            if (!take("name", name) || !validConditionId(name)) { error("SCRIPT_BAD_NAME", "amplitude needs name=NAME (letters, digits, _ - .)"); return; }
+            if (!take("t", values)) { error("SCRIPT_MISSING_KEY", "amplitude needs t=time,factor,time,factor,..."); return; }
+            std::vector<double> numbers;
+            {
+                std::istringstream in(values);
+                std::string cell;
+                while (std::getline(in, cell, ',')) {
+                    double v = 0.0;
+                    if (!parseNumber(cell, v)) { error("SCRIPT_BAD_NUMBER", "'" + cell + "' is not a number (t)"); return; }
+                    numbers.push_back(v);
+                }
+            }
+            if (numbers.size() < 4 || numbers.size() % 2 != 0) { error("SCRIPT_BAD_AMPLITUDE", "amplitude needs at least two (time, factor) pairs"); return; }
+            for (std::size_t i = 0; i < numbers.size(); i += 2) a.points.push_back({numbers[i], numbers[i + 1]});
+            for (std::size_t i = 1; i < a.points.size(); ++i)
+                if (!(a.points[i][0] > a.points[i - 1][0])) { error("SCRIPT_BAD_AMPLITUDE", "amplitude times must be strictly increasing"); return; }
+            for (const auto& existing : result.model.amplitudes)
+                if (existing.name == name) { error("SCRIPT_DUPLICATE", "amplitude '" + name + "' is defined twice"); return; }
+            a.name = name;
+            leftovers();
+            if (result.diagnostics.size() == errorsBefore) result.model.amplitudes.push_back(a);
         } else if (command == "output") {
             std::string element;
             if (take("element", element)) {
@@ -225,7 +272,7 @@ struct Parser {
             }
             leftovers();
         } else {
-            error("SCRIPT_UNKNOWN_COMMAND", "Unknown command '" + tokens[0] + "' (material, fix, force, pressure, gravity, step, output)");
+            error("SCRIPT_UNKNOWN_COMMAND", "Unknown command '" + tokens[0] + "' (material, fix, force, pressure, gravity, amplitude, step, output)");
         }
     }
 };
@@ -244,6 +291,14 @@ AnalysisParseResult parseAnalysisScript(const std::string& text) {
     p.line = 0;
     if (!p.haveMaterial) p.error("SCRIPT_NO_MATERIAL", "The script has no 'material' line");
     if (!p.haveStep) p.warning("SCRIPT_DEFAULT_STEP", "No 'step' line: a static analysis is assumed");
+    auto known = [&](const std::string& name) {
+        return name.empty() || std::any_of(p.result.model.amplitudes.begin(), p.result.model.amplitudes.end(),
+                                           [&](const AnalysisAmplitude& a) { return a.name == name; });
+    };
+    for (const auto& f : p.result.model.forces)
+        if (!known(f.amplitude)) p.error("SCRIPT_UNKNOWN_AMPLITUDE", "force uses amplitude '" + f.amplitude + "' that is not defined");
+    for (const auto& q : p.result.model.pressures)
+        if (!known(q.amplitude)) p.error("SCRIPT_UNKNOWN_AMPLITUDE", "pressure uses amplitude '" + q.amplitude + "' that is not defined");
     p.result.success = std::none_of(p.result.diagnostics.begin(), p.result.diagnostics.end(),
                                     [](const ImportDiagnostic& d) { return d.level == ImportDiagnosticLevel::Error; });
     return std::move(p.result);
@@ -281,22 +336,35 @@ std::string serializeAnalysisScript(const AnalysisModel& model) {
         if (support.where.tolerance >= 0.0) out << " tol=" << support.where.tolerance;
         out << '\n';
     }
+    for (const auto& a : model.amplitudes) {
+        out << "amplitude name=" << a.name << " t=";
+        for (std::size_t i = 0; i < a.points.size(); ++i) out << (i ? "," : "") << a.points[i][0] << ',' << a.points[i][1];
+        out << '\n';
+    }
     for (const auto& force : model.forces) {
         out << "force";
         if (!force.id.empty()) out << " id=" << force.id;
         out << ' ' << selectorText(force.where) << " F=" << force.total[0] << ',' << force.total[1] << ',' << force.total[2];
+        if (!force.amplitude.empty()) out << " amp=" << force.amplitude;
         if (force.where.tolerance >= 0.0) out << " tol=" << force.where.tolerance;
         out << '\n';
     }
     for (const auto& pressure : model.pressures) {
         out << "pressure";
         if (!pressure.id.empty()) out << " id=" << pressure.id;
-        out << " group:" << pressure.group << " p=" << pressure.pressure << '\n';
+        out << " group:" << pressure.group << " p=" << pressure.pressure;
+        if (!pressure.amplitude.empty()) out << " amp=" << pressure.amplitude;
+        out << '\n';
     }
     if (model.hasGravity)
         out << "gravity g=" << model.gravity[0] << ',' << model.gravity[1] << ',' << model.gravity[2] << '\n';
-    out << "step " << (model.step == StepType::Static ? "static" : "frequency");
+    out << "step " << (model.step == StepType::Static ? "static" : model.step == StepType::Frequency ? "frequency" : "dynamic");
     if (model.step == StepType::Frequency) out << " modes=" << model.modes;
+    if (model.step == StepType::Dynamic) {
+        out << " dt=" << model.dynamicIncrement << " period=" << model.dynamicPeriod;
+        if (model.dynamicMinIncrement > 0.0) out << " dtmin=" << model.dynamicMinIncrement;
+        if (model.dynamicMaxIncrement > 0.0) out << " dtmax=" << model.dynamicMaxIncrement;
+    }
     out << '\n';
     out << "output element=" << (model.elementPrint > 0 ? "on" : model.elementPrint == 0 ? "off" : "auto") << '\n';
     return out.str();
@@ -598,13 +666,19 @@ SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& sc
     const auto& m = model.material;
     if (!(m.youngModulus > 0.0) || !std::isfinite(m.youngModulus)) return failed(r, "Young's modulus must be positive");
     if (!(m.poisson > -1.0 && m.poisson < 0.5)) return failed(r, "Poisson's ratio must lie between -1 and 0.5 (exclusive)");
-    const bool needDensity = model.step == StepType::Frequency || model.hasGravity;
+    const bool needDensity = model.step != StepType::Static || model.hasGravity;
     if (needDensity && !(m.density > 0.0)) return failed(r, "A frequency analysis and gravity need the density (rho=)");
     if (model.hasGravity && model.step == StepType::Frequency) note(r, ImportDiagnosticLevel::Warning, "ANALYSIS_GRAVITY_IGNORED", "Loads (gravity included) have no effect in a frequency step");
     if (model.step == StepType::Frequency && (!model.forces.empty() || !model.pressures.empty()))
         note(r, ImportDiagnosticLevel::Warning, "ANALYSIS_LOADS_IGNORED", "Forces and pressures have no effect in a frequency step");
-    if (model.step == StepType::Static && model.supports.empty())
-        return failed(r, "A static analysis needs at least one support (fix ...): without it the body can move freely and the solver cannot converge");
+    for (const auto& f : model.forces)
+        if (!f.amplitude.empty() && !std::any_of(model.amplitudes.begin(), model.amplitudes.end(), [&](const AnalysisAmplitude& a) { return a.name == f.amplitude; }))
+            return failed(r, "force uses the undefined amplitude '" + f.amplitude + "'");
+    for (const auto& p : model.pressures)
+        if (!p.amplitude.empty() && !std::any_of(model.amplitudes.begin(), model.amplitudes.end(), [&](const AnalysisAmplitude& a) { return a.name == p.amplitude; }))
+            return failed(r, "pressure uses the undefined amplitude '" + p.amplitude + "'");
+    if (model.step != StepType::Frequency && model.supports.empty())
+        return failed(r, "A static or dynamic analysis needs at least one support (fix ...): without it the body can move freely and the solver cannot converge");
     if (model.step == StepType::Static && model.forces.empty() && model.pressures.empty() && !model.hasGravity)
         note(r, ImportDiagnosticLevel::Warning, "ANALYSIS_NO_LOAD", "The static analysis has no load: all results will be zero");
     if (model.step == StepType::Frequency && model.supports.empty())
@@ -676,7 +750,7 @@ SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& sc
              "A force shared equally by all nodes of a quadratic mesh is not the consistent load (corner nodes should carry less than mid-side nodes); use 'pressure' on a surface group for accurate results");
 
     // Pressure: faces of volume elements that coincide with the surface elements of the group.
-    struct FaceLoad { ElementId element; int face; double pressure; };
+    struct FaceLoad { ElementId element; int face; double pressure; std::string amplitude; };
     std::vector<FaceLoad> faceLoads;
     if (!model.pressures.empty()) {
         std::map<std::array<NodeIndex, 4>, std::vector<std::pair<ElementId, int>>> faces;
@@ -724,7 +798,7 @@ SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& sc
                 const auto hit = faces.find(key);
                 if (hit == faces.end()) { ++unmatched; continue; }
                 if (hit->second.size() != 1) { ++shared; continue; }
-                faceLoads.push_back({hit->second[0].first, hit->second[0].second, p.pressure});
+                faceLoads.push_back({hit->second[0].first, hit->second[0].second, p.pressure, p.amplitude});
             }
             if (unmatched) return failed(r, "pressure: " + std::to_string(unmatched) + " surface element(s) of '" + p.group +
                                               "' are not faces of a tetrahedron/hexahedron (other element types are not supported for pressure)");
@@ -743,7 +817,7 @@ SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& sc
     }
     std::ostringstream out;
     out << std::setprecision(10);
-    out << "** OpenModel analysis: " << (model.step == StepType::Static ? "linear static" : "frequency") << "\n";
+    out << "** OpenModel analysis: " << (model.step == StepType::Static ? "linear static" : model.step == StepType::Dynamic ? "dynamic" : "frequency") << "\n";
     out << "*NSET, NSET=MG_NALL\n";
     {
         std::vector<NodeIndex> all(mesh.getNumNodes());
@@ -769,30 +843,61 @@ SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& sc
                     out << "MG_FIX" << i + 1 << ", " << d + 1 << ", " << d + 1 << ", "
                         << model.supports[i].displacement[static_cast<std::size_t>(d)] << "\n";
     }
+    // Amplitudes are model data: they must precede the step.
+    for (const auto& a : model.amplitudes) {
+        out << "*AMPLITUDE, NAME=" << a.name << "\n";
+        for (std::size_t i = 0; i < a.points.size(); ++i)
+            out << a.points[i][0] << ", " << a.points[i][1] << (i % 4 == 3 || i + 1 == a.points.size() ? "\n" : ", ");
+    }
     out << "*STEP\n";
-    if (model.step == StepType::Static) {
-        out << "*STATIC\n";
-        if (!model.forces.empty()) {
-            out << "*CLOAD\n";
-            for (std::size_t i = 0; i < model.forces.size(); ++i)
+    if (model.step == StepType::Frequency) {
+        out << "*FREQUENCY\n" << model.modes << "\n";
+    } else {
+        if (model.step == StepType::Static) {
+            out << "*STATIC\n";
+        } else {
+            // CalculiX: initial increment, step period, minimum and maximum increment (defaults as in its manual).
+            const double minimum = model.dynamicMinIncrement > 0.0 ? model.dynamicMinIncrement
+                                                                   : std::min(model.dynamicIncrement, 1.0e-5 * model.dynamicPeriod);
+            const double maximum = model.dynamicMaxIncrement > 0.0 ? model.dynamicMaxIncrement : 1.0e30;
+            out << "*DYNAMIC\n" << model.dynamicIncrement << ", " << model.dynamicPeriod << ", " << minimum << ", " << maximum << "\n";
+        }
+        // One *CLOAD card per amplitude (empty name = constant load), in order of first appearance.
+        std::vector<std::string> amplitudeNames{""};
+        for (const auto& f : model.forces)
+            if (std::find(amplitudeNames.begin(), amplitudeNames.end(), f.amplitude) == amplitudeNames.end()) amplitudeNames.push_back(f.amplitude);
+        for (const auto& name : amplitudeNames) {
+            bool any = false;
+            for (const auto& f : model.forces) if (f.amplitude == name) any = true;
+            if (!any) continue;
+            out << "*CLOAD" << (name.empty() ? "" : ", AMPLITUDE=" + name) << "\n";
+            for (std::size_t i = 0; i < model.forces.size(); ++i) {
+                if (model.forces[i].amplitude != name) continue;
                 for (int d = 0; d < 3; ++d) {
                     const double share = model.forces[i].total[static_cast<std::size_t>(d)] / static_cast<double>(forceNodes[i].size());
                     if (share != 0.0) out << "MG_LOAD" << i + 1 << ", " << d + 1 << ", " << share << "\n";
                 }
+            }
         }
-        if (!faceLoads.empty() || model.hasGravity) {
-            out << "*DLOAD\n";
-            for (const auto& f : faceLoads) out << f.element << ", P" << f.face << ", " << f.pressure << "\n";
-            if (model.hasGravity) {
+        // One *DLOAD card per amplitude: the pressures, then the gravity (constant, no amplitude).
+        std::vector<std::string> pressureNames{""};
+        for (const auto& f : faceLoads)
+            if (std::find(pressureNames.begin(), pressureNames.end(), f.amplitude) == pressureNames.end()) pressureNames.push_back(f.amplitude);
+        for (const auto& name : pressureNames) {
+            bool any = false;
+            for (const auto& f : faceLoads) if (f.amplitude == name) any = true;
+            if (!any && !(name.empty() && model.hasGravity)) continue;
+            out << "*DLOAD" << (name.empty() ? "" : ", AMPLITUDE=" + name) << "\n";
+            for (const auto& f : faceLoads)
+                if (f.amplitude == name) out << f.element << ", P" << f.face << ", " << f.pressure << "\n";
+            if (name.empty() && model.hasGravity) {
                 const auto& g = model.gravity;
                 const double magnitude = std::sqrt(g[0] * g[0] + g[1] * g[1] + g[2] * g[2]);
                 if (magnitude > 0.0) out << "MG_EALL, GRAV, " << magnitude << ", " << g[0] / magnitude << ", " << g[1] / magnitude << ", " << g[2] / magnitude << "\n";
             }
         }
-    } else {
-        out << "*FREQUENCY\n" << model.modes << "\n";
     }
-    out << "*NODE FILE\nU" << (model.step == StepType::Static ? ", S, E" : "") << "\n";
+    out << "*NODE FILE\nU" << (model.step != StepType::Frequency ? ", S, E" : "") << "\n";
     const bool print = model.step == StepType::Static && (model.elementPrint == 1 || (model.elementPrint < 0 && volumeIds.size() <= 200000));
     if (model.step == StepType::Static && !print)
         note(r, ImportDiagnosticLevel::Info, "ANALYSIS_NO_ELEMENT_PRINT",
@@ -809,12 +914,13 @@ SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& sc
         if (!file) return failed(r, "Failed while writing " + path.string());
     }
     std::ostringstream summary;
-    summary << (model.step == StepType::Static ? "Static analysis" : "Frequency analysis (" + std::to_string(model.modes) + " modes)") << " of "
+    summary << (model.step == StepType::Static ? "Static analysis" : model.step == StepType::Dynamic ? "Dynamic analysis" : "Frequency analysis (" + std::to_string(model.modes) + " modes)") << " of "
             << r.elements << " volume elements, " << r.nodes << " nodes; E = " << m.youngModulus << ", nu = " << m.poisson;
     if (r.fixedNodes) summary << "; " << r.fixedNodes << " constrained nodes";
     if (r.loadedNodes) summary << "; force on " << r.loadedNodes << " nodes";
     if (r.pressureFaces) summary << "; pressure on " << r.pressureFaces << " faces";
     if (model.hasGravity) summary << "; gravity";
+    if (!model.amplitudes.empty()) summary << "; " << model.amplitudes.size() << " amplitude(s)";
     r.summary = summary.str();
     r.success = true;
     return r;
