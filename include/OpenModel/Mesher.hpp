@@ -150,6 +150,17 @@ struct MeshingOptions {
     double thinFaceSizeFactor = 0.0;
 
     /**
+     * Gmsh only: CAD-driven size per face. Every non-planar face, and every planar face whose characteristic
+     * length sqrt(area) is below cadSmallFaceLength, gets a local size of cadFaceSizeFactor times its
+     * characteristic length, clamped between the minimum element size and the maximum element size. The
+     * sizes come from Distance and Threshold fields, so the transition to the rest of the model is smooth.
+     * 0 disables the control. Unlike thinFaceSizeFactor it does not change the size at the corners of a face.
+     */
+    double cadFaceSizeFactor = 0.0;
+    /** Gmsh only: planar faces with sqrt(area) below this length are refined too (see cadFaceSizeFactor). */
+    double cadSmallFaceLength = 0.0;
+
+    /**
      * Dimension of each CAD body, in the order the backend imports the top-level entities of the file (a solid is a
      * volume body, a sheet a surface body). Empty = every body gets `dimension`. The bodies are reported in
      * MeshData::getBodies(). Gmsh only; other backends mesh all bodies in `dimension`.

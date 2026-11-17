@@ -424,6 +424,45 @@ std::size_t limitSizeOfThinFaces(double factor, double maximumSize, double minim
     return limited;
 }
 
+/**
+ * @brief Refine the faces that the CAD geometry marks as critical with Distance and Threshold size fields.
+ *
+ * A face is refined when it is not planar or when its characteristic length sqrt(area) is below smallLength.
+ * Its size is factor * sqrt(area), clamped to [minimumSize, maximumSize]. The fields are combined with a Min
+ * field used as the background mesh, so curvature and point sizes still apply everywhere else.
+ * @return Number of faces refined.
+ */
+std::size_t applyCadFaceSizing(double factor, double smallLength, double maximumSize, double minimumSize) {
+    std::vector<std::pair<int, int>> faces;
+    gmsh::model::getEntities(faces, 2);
+    const double floorSize = minimumSize > 0.0 ? std::min(minimumSize, maximumSize) : 0.25 * maximumSize;
+    std::vector<double> fields;
+    for (const auto& face : faces) {
+        std::string type;
+        gmsh::model::getType(2, face.second, type);
+        double area = 0.0;
+        gmsh::model::occ::getMass(2, face.second, area);
+        const double characteristic = std::sqrt(std::max(area, 0.0));
+        const bool critical = type != "Plane" || characteristic < smallLength;
+        if (!critical || characteristic <= 0.0) continue;
+        const double target = std::clamp(factor * characteristic, floorSize, maximumSize);
+        const int distance = gmsh::model::mesh::field::add("Distance");
+        gmsh::model::mesh::field::setNumbers(distance, "SurfacesList", {static_cast<double>(face.second)});
+        const int threshold = gmsh::model::mesh::field::add("Threshold");
+        gmsh::model::mesh::field::setNumber(threshold, "InField", distance);
+        gmsh::model::mesh::field::setNumber(threshold, "SizeMin", target);
+        gmsh::model::mesh::field::setNumber(threshold, "SizeMax", maximumSize);
+        gmsh::model::mesh::field::setNumber(threshold, "DistMin", 0.0);
+        gmsh::model::mesh::field::setNumber(threshold, "DistMax", maximumSize);
+        fields.push_back(static_cast<double>(threshold));
+    }
+    if (fields.empty()) return 0;
+    const int minimum = gmsh::model::mesh::field::add("Min");
+    gmsh::model::mesh::field::setNumbers(minimum, "FieldsList", fields);
+    gmsh::model::mesh::field::setAsBackgroundMesh(minimum);
+    return fields.size();
+}
+
 /** Gmsh position of the node that OpenModel (Abaqus order) keeps at position 8..19 of a 20-node hexahedron. */
 constexpr int kHexahedron20FromGmsh[12] = {8, 11, 13, 9, 16, 18, 19, 17, 10, 12, 14, 15};
 /** Same for positions 6..14 of a 15-node prism. */
@@ -612,6 +651,18 @@ bool GmshMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Mesh
                 trace("Thin-face sizing limited " + std::to_string(limited) + " faces");
             } else if (options.thinFaceSizeFactor < 0.0) {
                 return fail("thinFaceSizeFactor must be zero or positive");
+            }
+            if (options.cadFaceSizeFactor > 0.0) {
+                if (!std::isfinite(options.cadFaceSizeFactor) || !std::isfinite(options.cadSmallFaceLength) ||
+                    options.cadSmallFaceLength < 0.0)
+                    return fail("cadFaceSizeFactor must be finite and cadSmallFaceLength zero or positive");
+                const std::size_t refined = applyCadFaceSizing(options.cadFaceSizeFactor, options.cadSmallFaceLength,
+                                                               baseSize, options.minElementSize);
+                m_diagnostics.push_back("CAD face sizing (factor " + std::to_string(options.cadFaceSizeFactor) +
+                                        "): " + std::to_string(refined) + " face(s) refined.");
+                trace("CAD face sizing refined " + std::to_string(refined) + " faces");
+            } else if (options.cadFaceSizeFactor < 0.0) {
+                return fail("cadFaceSizeFactor must be zero or positive");
             }
             std::vector<std::pair<int, int>> entities;
             gmsh::model::getEntities(entities, meshDimension);

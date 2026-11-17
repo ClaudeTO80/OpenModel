@@ -91,8 +91,47 @@ void requireMidNodesOnEdges(const MeshData& mesh, ElementType type, const std::v
 }
 }
 
+/** CAD face sizing: a sphere (one non-planar face) is refined, a box (planar faces only) is not. */
+void checkCadFaceSizing() {
+    const auto temp = std::filesystem::temp_directory_path();
+    const auto sphere = makeStep(temp / "openmodel_facesize_sphere.step", [] { gmsh::model::occ::addSphere(0, 0, 0, 1); });
+    const auto box = makeStep(temp / "openmodel_facesize_box.step", [] { gmsh::model::occ::addBox(0, 0, 0, 2, 2, 2); });
+
+    MeshingOptions base;
+    base.dimension = MeshDimension::Volume;
+    base.elementSize = base.maxElementSize = 0.6;
+    base.minElementSize = 0.2;
+    base.importCadGroups = false;
+
+    {
+        GmshMesher mesher;
+        MeshingOptions options = base;
+        options.cadFaceSizeFactor = 0.5;
+        MeshData mesh;
+        require(mesher.buildMesh(sphere, options, mesh), "CAD face sizing on a sphere failed: " + mesher.lastError());
+        require(hasDiagnostic(mesher, "1 face(s) refined"), "The non-planar sphere face must be refined");
+        require(countVolumeElements(mesh) > 0, "The sphere must still be meshed in volume");
+    }
+    {
+        GmshMesher mesher;
+        MeshingOptions options = base;
+        options.cadFaceSizeFactor = 0.5;
+        MeshData mesh;
+        require(mesher.buildMesh(box, options, mesh), "CAD face sizing on a box failed: " + mesher.lastError());
+        require(hasDiagnostic(mesher, "0 face(s) refined"), "Planar box faces must not be refined");
+    }
+    {
+        GmshMesher mesher;
+        MeshingOptions options = base;
+        options.cadFaceSizeFactor = -1.0;
+        MeshData mesh;
+        require(!mesher.buildMesh(box, options, mesh), "A negative cadFaceSizeFactor must be rejected");
+    }
+}
+
 int main() {
     try {
+        checkCadFaceSizing();
         const auto temp = std::filesystem::temp_directory_path();
         // A 2 x 1 x 6 bar: a straight prism. A sphere: not a prism.
         const auto bar = makeStep(temp / "openmodel_structured_bar.step", [] { gmsh::model::occ::addBox(0, 0, 0, 2, 1, 6); });
