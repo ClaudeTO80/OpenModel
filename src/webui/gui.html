@@ -325,6 +325,12 @@ details.node details.node{margin-top:8px;background:transparent}
     <div data-f="order"><label for="order">Element order</label>
       <select id="order"><option value="1">Linear (1st order)</option><option value="2">Quadratic (2nd order)</option></select></div>
     <div data-f="sgmsh" id="sgmsh">
+      <label for="struct">Mesh structure (Gmsh)</label>
+      <select id="struct" onchange="structChanged()">
+        <option value="structured">Structured (hexahedra, prisms)</option>
+        <option value="unstructured">Unstructured (tetrahedra)</option>
+      </select>
+      <div data-u="structured">
       <label for="shape">Structured mesh elements (Gmsh)</label>
       <select id="shape" onchange="shapeChanged()">
         <option value="hex">Hexahedra only</option>
@@ -368,6 +374,20 @@ details.node details.node{margin-top:8px;background:transparent}
         <label for="recMinQ">Minimum quality of a recombined quadrangle (0 to 1)</label>
         <input id="recMinQ" type="number" min="0" max="1" step="any" value="0.01">
         <label class="check"><input type="checkbox" id="recMove" checked> Reposition nodes after recombination</label>
+      </div>
+      </div>
+      <div data-u="unstructured" hidden>
+        <label for="thinF">Thin-face sizing factor (0 = off)</label>
+        <input id="thinF" type="number" min="0" step="any" value="0">
+        <p class="hint">Limits the element size at the corners of thin faces (width times this factor). On a plate with thin side strips, 1 is a good start.</p>
+        <label for="cadF">CAD face sizing factor (0 = off)</label>
+        <input id="cadF" type="number" min="0" step="any" value="0">
+        <label for="cadSmall">Planar faces below this length are refined too (0 = non-planar faces only)</label>
+        <input id="cadSmall" type="number" min="0" step="any" value="0">
+        <p class="hint">Off by default: on the models tested, it gave no clear gain over the default sizing and increased the meshing time a lot. Try it only when a non-planar face is badly meshed.</p>
+        <label for="bodyDims">Dimension of each CAD body, in order (3 = volume, 2 = surface)</label>
+        <input id="bodyDims" placeholder="e.g. 3,2,3">
+        <p class="hint">One entry per top-level body of the CAD file, in the order they are imported. Empty = every body in the global dimension. A volume body is exported with its volume elements only; a surface body with its surface elements.</p>
       </div>
     </div>
     <div data-f="iface"><label for="iface">Solids in contact</label>
@@ -691,7 +711,8 @@ $("viewer").addEventListener("load", () => {
 const importModel = () => act("openmodel_import_model", $("cadPath").value.trim(), $("linear").value, $("angular").value);
 const retessellate = () => act("openmodel_retessellate", $("linear").value, $("angular").value);
 const generate = () => act("openmodel_generate_volume", $("mesher").value, $("size").value, $("order").value, $("iface").value, $("logLevel").value,
-  $("shape").value, $("tcType").value, $("tcCoef").value, $("tsArr").value, $("recAlg").value, $("recAngle").value, $("recOpt").value, $("recMove").checked ? "1" : "0", $("recMinQ").value);
+  $("shape").value, $("tcType").value, $("tcCoef").value, $("tsArr").value, $("recAlg").value, $("recAngle").value, $("recOpt").value, $("recMove").checked ? "1" : "0", $("recMinQ").value,
+  $("struct").value, $("thinF").value, $("cadF").value, $("cadSmall").value, $("bodyDims").value);
 const loadMesh = () => act("openmodel_load_mesh", $("loadPath").value.trim());
 const loadResults = () => act("openmodel_load_results", $("resPath").value.trim(), $("resStep").value.trim());
 const save = (fn, ext) => act(fn, $("outBase").value.trim(), ext);
@@ -703,11 +724,18 @@ function shapeChanged() {
   document.querySelectorAll("#sgmsh [data-s]").forEach((el) => { el.hidden = !on[el.dataset.s]; });
 }
 
+/* Shows the controls of the chosen Gmsh structure: structured (element type) or unstructured (tetrahedra). */
+function structChanged() {
+  const unstructured = $("struct").value === "unstructured";
+  document.querySelectorAll("#sgmsh [data-u]").forEach((el) => { el.hidden = (el.dataset.u === "unstructured") !== unstructured; });
+}
+
 function mesherChanged() {
   const m = meshers.find((x) => x.id === $("mesher").value);
   if (!m) return;
   document.querySelectorAll("[data-f]").forEach((el) => { el.hidden = !m.fields.includes(el.dataset.f); });
   shapeChanged();
+  structChanged();
   $("mesherHint").textContent = m.hint;
 }
 

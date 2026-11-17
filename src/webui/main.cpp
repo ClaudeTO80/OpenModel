@@ -920,6 +920,25 @@ std::string meshingReport(const MeshData& mesh, double seconds) {
     return text + (quality.empty() ? "\nElement quality: not available for these element types." : quality);
 }
 
+/**
+ * @brief Parses the dimension of each top-level CAD body from text such as "3,2,3" (3 = volume, 2 = surface).
+ * An empty text gives no entries: every body then follows the global dimension.
+ */
+bool parseBodyDimensions(const std::string& text, std::vector<MeshDimension>& out, std::string& error) {
+    out.clear();
+    std::stringstream stream(text);
+    std::string token;
+    while (std::getline(stream, token, ',')) {
+        const auto begin = token.find_first_not_of(" \t");
+        if (begin == std::string::npos) { error = "Empty entry in the dimensions of the bodies."; return false; }
+        token = token.substr(begin, token.find_last_not_of(" \t") - begin + 1);
+        if (token == "3") out.push_back(MeshDimension::Volume);
+        else if (token == "2") out.push_back(MeshDimension::Surface);
+        else { error = "The dimension of a body must be 3 (volume) or 2 (surface), got '" + token + "'."; return false; }
+    }
+    return true;
+}
+
 void generateVolume(webui_event_t* e) {
     StateLock lock;
     if (!lock.ok()) { replyBusy(e); return; }
@@ -946,7 +965,24 @@ void generateVolume(webui_event_t* e) {
     options.order = order;
     options.interfaceMode = conformal ? InterfaceMode::Conformal : InterfaceMode::Independent;
     options.importCadGroups = true;
-    if (mesherId == "gmsh") {
+    // Gmsh structure (argument 14): "structured" (default, the transfinite and swept meshes) or "unstructured"
+    // (tetrahedra with the CAD-driven controls: arguments 15-18).
+    const std::string structure = getStringArg(e, 14);
+    if (!structure.empty() && structure != "structured" && structure != "unstructured") {
+        reply(e, false, "Unknown mesh structure '" + structure + "'."); return;
+    }
+    if (mesherId == "gmsh" && structure == "unstructured") {
+        options.structure = MeshStructure::Unstructured;
+        options.structuredFallback = false;
+        options.curvatureAdaptation = true;
+        options.thinFaceSizeFactor = getDoubleArg(e, 15, 0.0);
+        options.cadFaceSizeFactor = getDoubleArg(e, 16, 0.0);
+        options.cadSmallFaceLength = getDoubleArg(e, 17, 0.0);
+        std::string dimensionError;
+        if (!parseBodyDimensions(getStringArg(e, 18), options.bodyDimensions, dimensionError)) {
+            reply(e, false, dimensionError); return;
+        }
+    } else if (mesherId == "gmsh") {
         // Gmsh always builds a structured mesh: nothing falls back to an unstructured one, and only the
         // settings that govern a structured mesh are read (see StructuredGmshOptions).
         options.structure = MeshStructure::Structured;
