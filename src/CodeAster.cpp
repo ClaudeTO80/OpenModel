@@ -1,5 +1,6 @@
 #include <OpenModel/CodeAster.hpp>
 #include <OpenModel/AbaqusInpWriter.hpp>
+#include <OpenModel/MeshBodies.hpp>
 #include <OpenModel/Version.hpp>
 
 #include <algorithm>
@@ -343,7 +344,8 @@ void note(CodeAsterExportResult& r, ImportDiagnosticLevel level, std::string cod
 
 /* --------------------------------------------------------------------------- mesh export */
 
-std::string writeCodeAsterMesh(const fs::path& path, const MeshData& mesh) {
+std::string writeCodeAsterMesh(const fs::path& path, const MeshData& input) {
+    const MeshData mesh = OpenModel::exportableMesh(input);   // a volume body is written with its volume elements only
     std::ostringstream text;
     MeshNames names;
     std::vector<ImportDiagnostic> diagnostics;

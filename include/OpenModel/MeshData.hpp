@@ -86,6 +86,21 @@ struct MeshGroup {
     std::vector<NodeIndex> nodeIndices;
 };
 
+/**
+ * @brief A CAD body of the mesh and the dimension it was meshed in.
+ *
+ * A body is one top-level entity of the CAD file: a solid meshed in volume (dimension 3) or a sheet / shell meshed in
+ * surface (dimension 2). Elements of a body are listed in elementIds, both volume and surface elements of its faces.
+ * Exporters write only the elements of the body's own dimension (see exportableMesh()), so the boundary triangles of a
+ * volume body are kept in memory for the groups and loads but are not written to the solver decks or the mesh files.
+ * Elements that belong to no body are exported as before.
+ */
+struct MeshBody {
+    std::string name;                  ///< Name of the body (CAD name when known, otherwise "Body_<index>").
+    int dimension = 3;                 ///< 3 = volume mesh, 2 = surface mesh.
+    std::vector<ElementId> elementIds; ///< Elements of the body, of any dimension.
+};
+
 class MeshGroupRegistry {
 public:
     void clear() noexcept;
@@ -219,6 +234,10 @@ public:
     const std::vector<ElementBlock>& getElementBlocks() const noexcept ;
     const ElementBlock& getElementBlock(const std::string& name) const ;
 
+    /** @brief Bodies of the mesh with the dimension each was meshed in (empty when the mesh has no body structure). */
+    void setBodies(std::vector<MeshBody> bodies);
+    const std::vector<MeshBody>& getBodies() const noexcept;
+
     // Validation of structural invariants; geometric quality checks are implemented separately.
     std::vector<std::string> validate() const ;
 
@@ -232,4 +251,5 @@ private:
     std::map<NodeIndex, NodeConstraint> m_constraints;
     std::vector<MeshPhysicalGroup> m_physicalGroups;
     MeshGroupRegistry m_groupRegistry;
+    std::vector<MeshBody> m_bodies;
 };

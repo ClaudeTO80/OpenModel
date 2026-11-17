@@ -149,6 +149,13 @@ struct MeshingOptions {
      */
     double thinFaceSizeFactor = 0.0;
 
+    /**
+     * Dimension of each CAD body, in the order the backend imports the top-level entities of the file (a solid is a
+     * volume body, a sheet a surface body). Empty = every body gets `dimension`. The bodies are reported in
+     * MeshData::getBodies(). Gmsh only; other backends mesh all bodies in `dimension`.
+     */
+    std::vector<MeshDimension> bodyDimensions;
+
     /** Continuity of the mesh across contacts between solids (backends that cannot honour it ignore it and say so). */
     InterfaceMode interfaceMode = InterfaceMode::Independent;
     /**

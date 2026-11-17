@@ -14,6 +14,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - CLI: `write-input` writes one deck per job (`<job>.inp`), `solve` runs one solver session per job. `--web` needs a single job.
 
 ### Added
+- Bodies of the mesh: `MeshBody` (name, dimension 3 or 2, elements) in `MeshData::getBodies()`. Gmsh records the top-level CAD entities as bodies and meshes each one in the dimension given by `MeshingOptions::bodyDimensions` (a shell is always a surface). `exportableMesh()` (MeshBodies.hpp) is the export rule: a volume body is exported with its volume elements only, a surface body with its surface elements. Applied by `AbaqusInpWriter::writeFile()` and `writeCodeAsterMesh()`; the viewer and the native MGMB store keep every element. Test: `mesh_bodies_test`. Not verified with Gmsh here (not installed): the Gmsh part needs a build with `OPENMODEL_BUILD_GMSH_BACKEND`.
 - Analysis jobs and steps: `job NAME` lines, `step ... loads=A,B reset` and `findJob()`, `activeLoadIds()`; the CalculiX deck has one `*STEP` per step, zeroes the loads with `reset` and writes the supports once. Tests: `testJobsStepsAndLoads`.
 - Results of transient (dynamic) runs: every increment is a separate time step, already read before; now the choice is by time as well as by index: `openmodel export-web ... --time T` and `t=T` in the GUI step field take the increment nearest to T. The GUI step message no longer stops at 30 steps (long histories show the first 20 and the last 10). Test: `testDynamicIncrements` (25 increments) and `fem_results_cli_time`.
 

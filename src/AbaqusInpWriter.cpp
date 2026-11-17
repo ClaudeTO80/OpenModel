@@ -1,4 +1,5 @@
 #include <OpenModel/AbaqusInpWriter.hpp>
+#include <OpenModel/MeshBodies.hpp>
 
 std::string AbaqusInpWriter::abaqusElementType(ElementType type) {
 
@@ -39,8 +40,11 @@ std::string AbaqusInpWriter::sanitizeName(const std::string& input) {
 }
 
 AbaqusWriteResult AbaqusInpWriter::writeFile(const std::string& path,
-                                       const MeshData& mesh,
+                                       const MeshData& input,
                                        const AbaqusWriteOptions& options) {
+        // Bodies: a volume body is written with its volume elements only (see MeshBodies.hpp).
+        const MeshData exported = OpenModel::exportableMesh(input);
+        const MeshData& mesh = exported;
 
         AbaqusWriteResult result;
         std::ostringstream content;

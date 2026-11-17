@@ -530,7 +530,18 @@ bool GmshMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Mesh
             gmsh::model::occ::synchronize();
             trace("CAD imported by Gmsh after " + elapsed() + " s: " + std::to_string(importedEntities.size()) + " top-level entities");
 
-            const int meshDimension = (options.dimension == MeshDimension::Volume && options.generateTetrahedra) ? 3 : 2;
+            // Dimension of each CAD body: a shell is always a surface; a solid follows its entry in bodyDimensions
+            // (or the global dimension). Gmsh meshes every entity up to the highest dimension asked for, so one volume
+            // body makes the whole model a volume mesh; the surface elements of volume bodies are left out on export.
+            const auto bodyMeshDimension = [&](std::size_t k) {
+                const bool wantsVolume = k < options.bodyDimensions.size() ? options.bodyDimensions[k] == MeshDimension::Volume
+                                                                           : options.dimension == MeshDimension::Volume;
+                return (importedEntities[k].first == 3 && wantsVolume && options.generateTetrahedra) ? 3 : 2;
+            };
+            bool anyVolumeBody = false;
+            for (std::size_t k = 0; k < importedEntities.size(); ++k)
+                if (importedEntities[k].first == 2 || importedEntities[k].first == 3) anyVolumeBody = anyVolumeBody || bodyMeshDimension(k) == 3;
+            const int meshDimension = anyVolumeBody ? 3 : 2;
 
             if (options.interfaceMode == InterfaceMode::Conformal) {
                 std::vector<std::pair<int, int>> solids;
@@ -723,6 +734,29 @@ bool GmshMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Mesh
                 throw std::runtime_error("Gmsh generated no elements in the requested dimension");
             if (extractedElements == 0)
                 throw std::runtime_error("Gmsh generated no elements in the requested dimensions");
+
+            // CAD bodies: each top-level entity of the file with the elements of its boundary, so that the exporters can
+            // leave out the surface elements of the volume bodies (see MeshBodies.hpp). Gmsh has no body names here.
+            {
+                std::vector<MeshBody> bodies;
+                for (std::size_t k = 0; k < importedEntities.size(); ++k) {
+                    const auto top = importedEntities[k];
+                    if (top.first != 2 && top.first != 3) continue;
+                    std::vector<std::pair<int, int>> members{top}, below;
+                    gmsh::model::getBoundary({top}, below, false, false, true);
+                    members.insert(members.end(), below.begin(), below.end());
+                    MeshBody body;
+                    body.name = "Body_" + std::to_string(k + 1);
+                    body.dimension = bodyMeshDimension(k);
+                    for (const auto& member : members) {
+                        const auto found = elementIdsByEntity.find({member.first, member.second});
+                        if (found != elementIdsByEntity.end())
+                            body.elementIds.insert(body.elementIds.end(), found->second.begin(), found->second.end());
+                    }
+                    bodies.push_back(std::move(body));
+                }
+                candidate.setBodies(std::move(bodies));
+            }
 
             // Physical groups are dimension-scoped in Gmsh. MeshData requires
             // globally unique names, so disambiguate only when source names collide.

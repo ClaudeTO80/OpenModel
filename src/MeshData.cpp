@@ -89,6 +89,7 @@ const MeshGroup* MeshGroupRegistry::find(const std::string& name) const noexcept
 
 void MeshData::clear() noexcept {
 
+        m_bodies.clear();
         m_nodeIds.clear();
         m_coordinates.clear();
         m_nodeIdToIndex.clear();
@@ -443,4 +444,12 @@ void MeshData::addPhysicalGroup(const std::string& name, int dimension, int tag,
         }
         m_physicalGroups.push_back(std::move(group));
     
+}
+
+void MeshData::setBodies(std::vector<MeshBody> bodies) {
+    m_bodies = std::move(bodies);
+}
+
+const std::vector<MeshBody>& MeshData::getBodies() const noexcept {
+    return m_bodies;
 }
