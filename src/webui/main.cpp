@@ -64,6 +64,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
+#include <iostream>
 #include <memory>
 #include <map>
 #include <limits>
@@ -939,9 +940,29 @@ bool parseBodyDimensions(const std::string& text, std::vector<MeshDimension>& ou
     return true;
 }
 
+void generateVolumeLocked(webui_event_t* e);
+
+/**
+ * Handler of "openmodel_generate_volume". An exception that escapes the meshers or the view preparation would end
+ * the callback without a reply, and the page would show only "Unexpected end of JSON input": every failure is
+ * answered with its message instead.
+ */
 void generateVolume(webui_event_t* e) {
     StateLock lock;
     if (!lock.ok()) { replyBusy(e); return; }
+    try {
+        generateVolumeLocked(e);
+    } catch (const std::exception& error) {
+        std::cerr << "Volume mesh generation failed: " << error.what() << "\n";
+        reply(e, false, std::string("Volume mesh generation stopped: ") + error.what());
+    } catch (...) {
+        std::cerr << "Volume mesh generation failed: unknown exception\n";
+        reply(e, false, "Volume mesh generation stopped by an unknown error.");
+    }
+}
+
+/** Body of generateVolume; called with the state locked and every exception handled by the caller. */
+void generateVolumeLocked(webui_event_t* e) {
     const std::string mesherId = getStringArg(e, 0);
     const double size = getDoubleArg(e, 1, 1.0);
     const int order = static_cast<int>(getDoubleArg(e, 2, 1.0));
