@@ -81,9 +81,24 @@ iframe{display:block;width:100%;height:100%;border:0;background:var(--viewport)}
 #ribbon select{width:auto;min-width:150px;min-height:28px;padding:3px 6px}
 .rlabel{color:var(--muted);font-size:11.5px;align-self:center;padding:0 6px;min-width:70px;text-align:center}
 .flash{outline:2px solid var(--accent);transition:outline-color 1s}
-.stabs{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:4px}
-.stab{min-width:0;padding:6px 0;font-size:10px;line-height:1.2;overflow-wrap:normal;background:transparent;border-color:var(--line)}
-.stab[aria-selected="true"]{background:var(--prim);border-color:var(--prim-line);color:var(--on-prim)}
+/* ---- sidebar tree: model sections and the 3D viewer elements ---- */
+.sbtree{display:grid;gap:8px;font-size:12.5px}
+.sbhead{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 2px 2px;color:var(--muted);font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase}
+.sbmini{padding:2px 8px;font-size:11px;font-weight:600}
+.sbgroup{display:grid;gap:1px}
+.sbkids{display:grid;gap:1px;margin-left:12px;padding-left:8px;border-left:1px solid var(--line)}
+.sbrow{display:flex;align-items:center;gap:4px;min-height:28px;padding:2px 3px 2px 6px;border-radius:6px}
+.sbrow:hover{background:var(--hover)}
+.sbname{flex:1;min-width:0;padding:3px 6px;border-radius:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sbrow>.sbname[role="treeitem"]{cursor:pointer}
+.sbgroup>.sbrow>.sbname{font-weight:700}
+.sbname:focus-visible,.sbeye:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.sbname.active{background:var(--prim);color:var(--on-prim)}
+.sbrow.off .sbname{color:var(--muted);text-decoration:line-through}
+.sbrow.mixed .sbeye{opacity:.55}
+.sbeye{flex:0 0 auto;padding:1px 5px;font-size:12px;line-height:1.3;background:transparent;border-color:transparent}
+.sbeye:hover:not(:disabled){background:var(--btn-hover)}
+.sbtree .hint{margin:2px 4px}
 details.node{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
 details.node>summary{cursor:pointer;font-size:12px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);user-select:none}
 details.node[open]>summary{margin-bottom:8px}
@@ -276,12 +291,9 @@ details.node details.node{margin-top:8px;background:transparent}
     <p class="hint" id="cadFaceInfo">CAD faces: none selected.</p>
   </details>
 
-  <nav class="stabs" role="tablist" aria-label="Model sections">
-    <button class="stab" role="tab" data-stab="cad" aria-selected="true" onclick="showSidebarTab('cad')">CAD</button>
-    <button class="stab" role="tab" data-stab="mesh" aria-selected="false" onclick="showSidebarTab('mesh')">Mesh</button>
-    <button class="stab" role="tab" data-stab="mat" aria-selected="false" onclick="showSidebarTab('mat')">Material</button>
-    <button class="stab" role="tab" data-stab="cons" aria-selected="false" onclick="showSidebarTab('cons')">Constraints</button>
-    <button class="stab" role="tab" data-stab="loads" aria-selected="false" onclick="showSidebarTab('loads')">Load cases</button>
+  <nav class="sbtree" id="sbTree" aria-label="Model browser">
+    <div id="sbSetup"></div>
+    <div id="sbViewer"></div>
   </nav>
 
   <div class="spanel" data-spanel="cad">
@@ -685,16 +697,22 @@ function loadView(label) {
   // A reload of the same geometry (the supports of the analysis changed, say) keeps the camera where the user left it.
   const before = w.OpenModelViewer.state;
   const camera = before.model ? {rot: [...before.rot], target: [...before.target], dist: before.dist, bbox: JSON.stringify(before.model.meta.bbox)} : null;
+  viewerLoading = true;
   Promise.resolve(w.OpenModelViewer.loadUrl("model.mgwv?v=" + viewVersion, label)).then(() => {
     const now = w.OpenModelViewer.state;
-    if (now.model) {
-      w.OpenModelViewer.set({wire: edges});
-      if (camera && camera.bbox === JSON.stringify(now.model.meta.bbox)) {
-        now.rot = camera.rot; now.target = camera.target; now.dist = camera.dist; now.dirty = true;
+    try {
+      if (now.model) {
+        w.OpenModelViewer.set({wire: edges});
+        applyViewerVis();   // the viewer resets its groups on every load: reapply the choices of the tree
+        if (camera && camera.bbox === JSON.stringify(now.model.meta.bbox)) {
+          now.rot = camera.rot; now.target = camera.target; now.dist = camera.dist; now.dirty = true;
+        }
+        syncRibbon();
       }
-      syncRibbon();
+    } finally {
+      viewerSeq++; viewerLoading = false;   // always release the tree, even if a step above threw
     }
-  });
+  }, () => { viewerLoading = false; });
 }
 $("viewer").addEventListener("load", () => {
   // The viewer follows the workbench theme (light by default); the Viewer theme button toggles both.
@@ -868,13 +886,236 @@ const viewerClick = (selector) => { const w = viewerApi(); const el = w && w.doc
 function revealSection(id) {
   const el = $(id); if (el) el.hidden = false;
 }
-/** Shows one sidebar tab (CAD, Mesh, Material, Constraints, Load cases) and hides the others. */
-function showSidebarTab(name) {
-  document.querySelectorAll(".stab").forEach((b) => {
-    const on = b.dataset.stab === name;
-    b.setAttribute("aria-selected", on ? "true" : "false");
-    b.tabIndex = on ? 0 : -1;
+/** Sidebar categories of the model setup, in tree order; the key is the data-spanel value of the panel. */
+const SB_CATEGORIES = [
+  {key: "cad", label: "CAD"},
+  {key: "mesh", label: "Mesh"},
+  {key: "mat", label: "Material"},
+  {key: "cons", label: "Constraints"},
+  {key: "loads", label: "Load cases"},
+];
+/**
+ * What the 3D viewer draws, as set from the sidebar tree.
+ * hidden: names of the mesh groups hidden in the viewer (the others stay visible).
+ */
+const viewerVis = {hidden: new Set(), constraints: true, axes: true, deform: true};
+/** True while a model is loading into the viewer; the viewer state is not read back then. */
+let viewerLoading = false;
+/** Incremented each time a model has finished loading, so that the viewer branch is rebuilt for it. */
+let viewerSeq = 0;
+/** Signature of the viewer branch as last built; the branch is rebuilt only when it changes. */
+let viewerSig = null;
+
+/**
+ * @brief Gives the model loaded in the viewer, if any.
+ * @return the viewer's model metadata and arrays, or null when no model is shown
+ */
+function viewerModel() {
+  const w = viewerApi();
+  return w ? w.OpenModelViewer.state.model : null;
+}
+/**
+ * @brief Reads the visibility the viewer currently has, so that the tree shows it even when the viewer
+ * panel changes the same settings. Does nothing while a model is loading.
+ */
+function readViewerVis() {
+  const w = $("viewer").contentWindow;
+  if (!w || !w.OpenModelViewer || viewerLoading) return;
+  const st = w.OpenModelViewer.state;
+  if (!st.model) return;
+  viewerVis.constraints = !!st.consOn;
+  viewerVis.axes = !!st.axes;
+  viewerVis.deform = !!st.defOn;
+  viewerVis.hidden = new Set(st.model.meta.groups.filter((g, i) => !st.gvis[i + 1]).map((g) => g.name));
+}
+/** @brief Pushes viewerVis to the viewer through its public API. Call it after every model load. */
+function applyViewerVis() {
+  const w = viewerApi();
+  if (!w) return;
+  w.OpenModelViewer.set({
+    hideGroups: [...viewerVis.hidden], constraints: viewerVis.constraints,
+    axes: viewerVis.axes, deform: {on: viewerVis.deform},
   });
+}
+/**
+ * @brief Mirrors the viewer's choice of mesh groups to list: the volume groups, or the face groups of a
+ * surface-only model. Keep in step with regionDim() in the viewer.
+ * @param meta model metadata of the viewer
+ * @return the dimension of the listed groups
+ */
+function listedGroupDim(meta) {
+  if (meta.groups.some((g) => g.dimension === 3)) return 3;
+  return meta.blocks.every((b) => b.dimension < 3) && meta.groups.some((g) => g.dimension === 2) ? 2 : 0;
+}
+/**
+ * @brief Builds the hierarchy of the listed mesh groups from their names: "Assy/Bracket/Bolt" is three levels.
+ * @param meta model metadata of the viewer
+ * @return root node {children: Map<string, node>, own: string[]}
+ */
+function groupHierarchy(meta) {
+  const dim = listedGroupDim(meta), root = {children: new Map(), own: []};
+  meta.groups.forEach((g) => {
+    if (g.dimension !== dim) return;
+    let node = root;
+    for (const part of g.name.split("/")) {
+      if (!node.children.has(part)) node.children.set(part, {children: new Map(), own: []});
+      node = node.children.get(part);
+    }
+    node.own.push(g.name);
+  });
+  return root;
+}
+/** @brief Lists every group name under a hierarchy node. */
+function namesUnder(node) {
+  return [...node.own, ...[...node.children.values()].flatMap(namesUnder)];
+}
+/**
+ * @brief Makes one row of the tree: a name, optionally selectable, and an optional eye that shows or hides it.
+ * @param label   text of the row
+ * @param state   "on", "off" or "mixed" (some of the groups under it hidden); drives the eye and the look
+ * @param onPick  called when the name is activated, or null for a plain label
+ * @param onEye   called when the eye is pressed, or null for a row without eye
+ * @return the row element
+ */
+function sbRow(label, state, onPick, onEye) {
+  const row = document.createElement("div");
+  row.className = "sbrow" + (state === "off" ? " off" : "") + (state === "mixed" ? " mixed" : "");
+  const name = document.createElement("span");
+  name.className = "sbname"; name.textContent = label;
+  if (onPick) {
+    name.tabIndex = 0; name.setAttribute("role", "treeitem");
+    name.addEventListener("click", onPick);
+    name.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onPick(); } });
+  }
+  row.append(name);
+  if (onEye) {
+    const eye = document.createElement("button");
+    const shown = state !== "off";
+    eye.type = "button"; eye.className = "sbeye";
+    eye.textContent = shown ? "👁" : "🙈";
+    eye.title = (shown ? "Hide " : "Show ") + label;
+    eye.setAttribute("aria-pressed", String(shown));
+    eye.addEventListener("click", onEye);
+    row.append(eye);
+  }
+  return row;
+}
+/**
+ * @brief Builds the model setup branch: one group per category, one row per section of its panel.
+ * Section ids are generated when missing, so that every section can be reached by id.
+ */
+function buildSetupTree() {
+  const box = $("sbSetup");
+  box.innerHTML = "";
+  const head = document.createElement("div"); head.className = "sbhead";
+  head.innerHTML = "<span>Model setup</span>";
+  box.append(head);
+  SB_CATEGORIES.forEach(({key, label}) => {
+    const panel = document.querySelector(`.spanel[data-spanel="${key}"]`);
+    if (!panel) return;
+    const group = document.createElement("div"); group.className = "sbgroup";
+    const catRow = sbRow(label, null, () => showSidebarTab(key), null);
+    catRow.querySelector(".sbname").dataset.cat = key;
+    group.append(catRow);
+    const kids = document.createElement("div"); kids.className = "sbkids";
+    [...panel.querySelectorAll(":scope > details")].forEach((d, i) => {
+      if (!d.id) d.id = `sb-${key}-${i}`;
+      const summary = d.querySelector(":scope > summary");
+      kids.append(sbRow(summary ? summary.textContent.trim() : d.id, null, () => focusSection(d.id), null));
+    });
+    group.append(kids); box.append(group);
+  });
+  showSidebarTab("cad");
+}
+/**
+ * @brief Makes the eye row of a set of mesh groups: the state follows how many of them are hidden.
+ * @param label text of the row
+ * @param names group names the eye acts on
+ * @return the row element
+ */
+function groupEyeRow(label, names) {
+  const hidden = names.filter((n) => viewerVis.hidden.has(n)).length;
+  const state = hidden === 0 ? "on" : hidden === names.length ? "off" : "mixed";
+  return sbRow(label, state, null, () => {
+    if (state === "on") names.forEach((n) => viewerVis.hidden.add(n));
+    else names.forEach((n) => viewerVis.hidden.delete(n));
+    applyViewerVis(); renderViewerBranch();
+  });
+}
+/**
+ * @brief Makes a group of the mesh hierarchy and, under it, its sub-groups.
+ * @param name name of this level of the hierarchy
+ * @param node hierarchy node
+ * @return the group element
+ */
+function groupNode(name, node) {
+  const wrap = document.createElement("div"); wrap.className = "sbgroup";
+  wrap.append(groupEyeRow(name, namesUnder(node)));
+  if (node.children.size) {
+    const kids = document.createElement("div"); kids.className = "sbkids";
+    [...node.children].forEach(([n, c]) => kids.append(groupNode(n, c)));
+    wrap.append(kids);
+  }
+  return wrap;
+}
+/**
+ * @brief Rebuilds the "3D viewer" branch of the tree: the mesh groups, the constraints, the deformed shape
+ * and the axes, each with an eye that shows or hides it in the viewer.
+ */
+function renderViewerBranch() {
+  const box = $("sbViewer");
+  box.innerHTML = "";
+  const head = document.createElement("div"); head.className = "sbhead";
+  const title = document.createElement("span"); title.textContent = "3D viewer";
+  const all = document.createElement("button");
+  all.type = "button"; all.className = "sbmini"; all.textContent = "Show all";
+  all.title = "Show everything in the 3D viewer";
+  all.addEventListener("click", () => {
+    viewerVis.hidden.clear(); viewerVis.constraints = viewerVis.axes = viewerVis.deform = true;
+    applyViewerVis(); renderViewerBranch();
+  });
+  head.append(title, all); box.append(head);
+  const m = viewerModel();
+  if (!m) {
+    const p = document.createElement("p"); p.className = "hint";
+    p.textContent = "Import or open a model to choose what the 3D viewer shows.";
+    box.append(p); return;
+  }
+  const flag = (key) => () => { viewerVis[key] = !viewerVis[key]; applyViewerVis(); renderViewerBranch(); };
+  const root = groupHierarchy(m.meta);
+  if (root.children.size) {
+    const wrap = document.createElement("div"); wrap.className = "sbgroup";
+    wrap.append(groupEyeRow("Mesh groups", namesUnder(root)));
+    const kids = document.createElement("div"); kids.className = "sbkids";
+    [...root.children].forEach(([n, c]) => kids.append(groupNode(n, c)));
+    wrap.append(kids); box.append(wrap);
+  }
+  const extras = document.createElement("div"); extras.className = "sbgroup";
+  if (m.consVertex && m.consVertex.length) {
+    extras.append(sbRow("Constraints", viewerVis.constraints ? "on" : "off", null, flag("constraints")));
+  }
+  if (m.disp && m.meta.deformation) {
+    extras.append(sbRow("Deformed shape", viewerVis.deform ? "on" : "off", null, flag("deform")));
+  }
+  extras.append(sbRow("Axes", viewerVis.axes ? "on" : "off", null, flag("axes")));
+  box.append(extras);
+}
+/**
+ * @brief Keeps the viewer branch in step with the viewer and rebuilds it only when something it shows changed.
+ * Called on a timer, so the eyes follow changes made in the viewer's own panel.
+ */
+function syncViewerBranch() {
+  readViewerVis();
+  const m = viewerModel();
+  const sig = JSON.stringify([viewerSeq, m ? [...viewerVis.hidden].sort() : null, viewerVis.constraints, viewerVis.axes, viewerVis.deform]);
+  if (sig !== viewerSig) { viewerSig = sig; renderViewerBranch(); }
+}
+/**
+ * @brief Shows one model setup category (CAD, Mesh, Material, Constraints, Load cases) and hides the others.
+ * @param name category key, the data-spanel value of its panel
+ */
+function showSidebarTab(name) {
+  document.querySelectorAll("#sbSetup .sbname[data-cat]").forEach((n) => n.classList.toggle("active", n.dataset.cat === name));
   document.querySelectorAll(".spanel").forEach((p) => { p.hidden = p.dataset.spanel !== name; });
 }
 function focusSection(id) {
@@ -885,6 +1126,9 @@ function focusSection(id) {
   el.scrollIntoView({behavior: "smooth", block: "nearest"});
   el.classList.add("flash"); setTimeout(() => el.classList.remove("flash"), 1200);
 }
+buildSetupTree();
+renderViewerBranch();
+setInterval(syncViewerBranch, 700);
 var RIBBON_EXTRA = {};
 RIBBON_EXTRA["pick-node"] = () => setPickMode("node");
 RIBBON_EXTRA["pick-element"] = () => setPickMode("element");
