@@ -19,6 +19,7 @@
  * CalculiX `.inp` that requests exactly the output the result readers understand (nodal U/S/E in the `.frd`,
  * S/E per element in the `.dat`).
  *
+ * A model holds the loads once, and jobs select them per step. A job is one solver session; its steps run in order.
  * Script syntax (one command per line, `#` starts a comment, names must not contain blanks):
  * @code
  * material E=210000 nu=0.3 rho=7.85e-9 [name=STEEL]
@@ -27,8 +28,13 @@
  * force plane:x=10 F=0,-100,0                   # total force, shared equally by the selected nodes
  * pressure group:Top p=2.5                      # on a dimension-2 surface group; positive = pushing into the body
  * gravity g=0,0,-9810                           # acceleration vector (needs rho)
- * step static                                   # or: step frequency modes=6
+ * job SETTLE                                    # starts a job (one solver session); steps below belong to it
+ * step static loads=F1,P1                       # only the listed loads are active; ids come from the lines above
+ * step static loads=F2 reset                    # F1 and P1 of the previous steps are set to zero here
+ * step frequency modes=6                        # or: step dynamic dt=0.01 period=1
  * @endcode
+ * Without a `job` line the steps form one job named `job`; without `loads=` a step uses every load. Gravity is active
+ * with the other loads, under the id `gravity`.
  * Node selectors: `all`, `group:NAME` (node set, generic mesh group, or the nodes of a physical group of any dimension) and
  * `plane:x=VALUE` (also y, z): nodes whose coordinate lies within `tol` of VALUE (default 1e-6 times the model diagonal).
  * Units are the user's: use a consistent set (for example mm, N, tonne, s as in the examples).
@@ -96,6 +102,40 @@ enum class StepType {
     Dynamic     ///< *DYNAMIC: transient analysis with an implicit time integration.
 };
 
+/** Identifier of the gravity load in AnalysisStep::loads (gravity is one load among the others). */
+inline constexpr const char* kGravityLoadId = "gravity";
+
+/**
+ * @brief One step of a job: its analysis type, the loads that are active in it, and what happens to the loads of the
+ * previous steps of the same job.
+ *
+ * A load that is active in a step is written with its value. A load of an earlier step that is not active here either
+ * keeps its last value (`resetLoads` = false: the solver carries it over, as CalculiX does) or is set to zero
+ * (`resetLoads` = true). Supports (`fix`) are not steps: they hold in every step of every job.
+ */
+struct AnalysisStep {
+    StepType type = StepType::Static;
+    std::size_t modes = 6;     ///< Frequency step: number of eigenvalues requested.
+    /** Dynamic step (times in the model time unit). The minimum and maximum increments are optional: 0 = solver default. */
+    double dynamicIncrement = 0.0;
+    double dynamicPeriod = 0.0;
+    double dynamicMinIncrement = 0.0;
+    double dynamicMaxIncrement = 0.0;
+    /** True: every load of the model is active in the step (the default). False: only `loads` are active. */
+    bool allLoads = true;
+    std::vector<std::string> loads;   ///< Ids of the active loads (forces, pressures, kGravityLoadId) when !allLoads.
+    bool resetLoads = false;          ///< Set the loads of previous steps that are not active here to zero.
+};
+
+/**
+ * @brief A job is one solver session: its steps run in order in the same input deck. The loads, materials, amplitudes and
+ * supports are shared by all jobs of the model; each job selects the loads of its own steps.
+ */
+struct AnalysisJob {
+    std::string id;                     ///< Stable name; it names the solver input and the output of the job.
+    std::vector<AnalysisStep> steps;    ///< At least one step.
+};
+
 struct AnalysisModel {
     AnalysisMaterial material;
     std::vector<FixedSupport> supports;
@@ -104,15 +144,10 @@ struct AnalysisModel {
     bool hasGravity = false;
     std::array<double, 3> gravity{{0.0, 0.0, 0.0}};
     std::vector<AnalysisAmplitude> amplitudes;
-    StepType step = StepType::Static;
-    std::size_t modes = 6;     ///< Frequency step: number of eigenvalues requested.
-    /** Dynamic step (times in the model time unit). The minimum and maximum increments are optional: 0 = solver default. */
-    double dynamicIncrement = 0.0;
-    double dynamicPeriod = 0.0;
-    double dynamicMinIncrement = 0.0;
-    double dynamicMaxIncrement = 0.0;
     /** Print element stresses/strains to the `.dat` (per-element results). Large for big meshes; -1 = automatic (<= 200000 elements). */
     int elementPrint = -1;
+    /** The solver sessions. Empty only in a model built in code before the first job is added. */
+    std::vector<AnalysisJob> jobs;
 };
 
 struct AnalysisParseResult {
@@ -144,6 +179,12 @@ bool erasePressure(AnalysisModel& model, const std::string& id);
 /** @brief Read a script (see the file comment). Errors carry the line number; all of them are collected. */
 AnalysisParseResult parseAnalysisScript(const std::string& text);
 
+/** @brief Id of the job `id` (empty = the only job of the model, an error when there are several). Null when absent. */
+const AnalysisJob* findJob(const AnalysisModel& model, const std::string& id);
+
+/** @brief Ids of the loads active in `step`: its own list, or every load of the model when `step.allLoads`. */
+std::vector<std::string> activeLoadIds(const AnalysisModel& model, const AnalysisStep& step);
+
 /** @brief Serialize an analysis model to a round-trippable script, including stable condition IDs. */
 std::string serializeAnalysisScript(const AnalysisModel& model);
 
@@ -165,12 +206,14 @@ struct SolverInputResult {
  * @brief Write the complete CalculiX input for `mesh` and `model`.
  *
  * Only the volume elements are written (surface and line elements of the mesh are boundary descriptions, not
- * structure); every volume block gets the material. The file is written to `path` (the job name is its stem).
+ * structure); every volume block gets the material. The job `jobId` (empty = the only job) becomes one deck with one
+ * `*STEP` per step, in order. The file is written to `path` (the job name is its stem).
  * Checks: material values, supports present for a static step, non-empty selections, surface groups that really
  * are boundary faces of exactly one volume element (tetrahedra and hexahedra), at least one volume element.
  * Not checked: whether the model is physically sensible, units, mesh quality.
  */
-SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& model, const std::filesystem::path& path);
+SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& model, const std::filesystem::path& path,
+                                   const std::string& jobId = {});
 
 /**
  * @brief Detects conflicting prescribed translations of overlapping supports.

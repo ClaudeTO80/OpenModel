@@ -9,7 +9,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ### Changed
 - Viewer: the constraint symbols are less intrusive: default size 2.2 % of the model radius (was 3 %), cones about a third thinner (base radius 0.28 of the size, was 0.42) and smaller rotation rings. The size is still adjustable in the viewer panel.
 
+### Changed
+- Analysis model: the loads are defined once and jobs select them per step. `AnalysisModel::jobs` holds `AnalysisJob`s (one solver session each) whose `AnalysisStep`s set the analysis type, the active loads (`loads=`) and whether the loads of the earlier steps are zeroed (`reset`). The step fields `step`, `modes` and `dynamic*` moved from the model to `AnalysisStep`. `writeSolverInput()` and `writeCodeAsterCase()` take the job name (not needed for a model with one job). Scripts without `job` lines behave as before.
+- CLI: `write-input` writes one deck per job (`<job>.inp`), `solve` runs one solver session per job. `--web` needs a single job.
+
 ### Added
+- Analysis jobs and steps: `job NAME` lines, `step ... loads=A,B reset` and `findJob()`, `activeLoadIds()`; the CalculiX deck has one `*STEP` per step, zeroes the loads with `reset` and writes the supports once. Tests: `testJobsStepsAndLoads`.
 - Results of transient (dynamic) runs: every increment is a separate time step, already read before; now the choice is by time as well as by index: `openmodel export-web ... --time T` and `t=T` in the GUI step field take the increment nearest to T. The GUI step message no longer stops at 30 steps (long histories show the first 20 and the last 10). Test: `testDynamicIncrements` (25 increments) and `fem_results_cli_time`.
 
 ## [0.1.3] - 2026-11-14

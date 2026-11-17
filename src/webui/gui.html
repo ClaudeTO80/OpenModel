@@ -1132,7 +1132,7 @@ async function makeGroup(kind, name, prefix) {
   if (r && r.ok) { $("grpName").value = ""; }
   return r;
 }
-const ANALYSIS_COMMANDS = new Set(["material", "fix", "force", "pressure", "gravity", "amplitude", "step", "output"]);
+const ANALYSIS_COMMANDS = new Set(["material", "fix", "force", "pressure", "gravity", "amplitude", "job", "step", "output"]);
 function analysisCommand(line) {
   const text = line.trim();
   if (!text || text.startsWith("#")) return null;
@@ -1240,7 +1240,7 @@ async function editAnalysisCondition(command, line, id, lines, index) {
     dialog.showModal();
   }).then(value => value === true ? false : value === false ? false : null);
 }
-const CONDITION_LIST = { material: "condMaterial", fix: "condFix", force: "condLoads", pressure: "condLoads", gravity: "condLoads", amplitude: "condAmplitude", step: "condLoads", output: "condLoads" };
+const CONDITION_LIST = { material: "condMaterial", fix: "condFix", force: "condLoads", pressure: "condLoads", gravity: "condLoads", amplitude: "condAmplitude", job: "condLoads", step: "condLoads", output: "condLoads" };
 function renderAnalysisConditions() {
   const lists = ["condMaterial", "condFix", "condLoads", "condAmplitude"].map((id) => $(id)).filter(Boolean);
   if (!lists.length) return;

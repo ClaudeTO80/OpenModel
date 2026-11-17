@@ -144,7 +144,7 @@ void testStableConditionIds() {
     CHECK(roundTrip.model.forces[0].where.tolerance == 1e-8);
     CHECK(roundTrip.model.pressures.size() == 1 && roundTrip.model.pressures[0].id == "top-pressure");
     CHECK(roundTrip.model.hasGravity && roundTrip.model.gravity[2] == -9.81);
-    CHECK(roundTrip.model.step == StepType::Frequency && roundTrip.model.modes == 8);
+    CHECK(roundTrip.model.jobs.front().steps.front().type == StepType::Frequency && roundTrip.model.jobs.front().steps.front().modes == 8);
 
     const auto duplicate = parseAnalysisScript(
         "material id=shared E=1 nu=0.3\n"
@@ -234,7 +234,7 @@ void testParser() {
     CHECK(model.forces.size() == 1 && model.forces[0].total[1] == -100.0);
     CHECK(model.pressures.size() == 1 && model.pressures[0].group == "Top" && model.pressures[0].pressure == 2.5);
     CHECK(model.hasGravity && model.gravity[2] == -9810.0);
-    CHECK(model.step == StepType::Frequency && model.modes == 4);
+    CHECK(model.jobs.front().steps.front().type == StepType::Frequency && model.jobs.front().steps.front().modes == 4);
     CHECK(model.elementPrint == 0);
 
     // Errors: every one reported with its own line number, none stops the parsing of the others.
@@ -543,8 +543,8 @@ void testTimeLoadsAndDynamic() {
         CHECK(r.model.amplitudes[0].points[2][0] == 2.0 && r.model.amplitudes[0].points[2][1] == 0.5);
         CHECK(r.model.forces.size() == 1 && r.model.forces[0].amplitude == "A1");
         CHECK(r.model.pressures.size() == 1 && r.model.pressures[0].amplitude == "A1");
-        CHECK(r.model.step == StepType::Dynamic && r.model.dynamicIncrement == 0.01 && r.model.dynamicPeriod == 1.0);
-        CHECK(r.model.dynamicMinIncrement == 1e-6 && r.model.dynamicMaxIncrement == 0.0);
+        CHECK(r.model.jobs.front().steps.front().type == StepType::Dynamic && r.model.jobs.front().steps.front().dynamicIncrement == 0.01 && r.model.jobs.front().steps.front().dynamicPeriod == 1.0);
+        CHECK(r.model.jobs.front().steps.front().dynamicMinIncrement == 1e-6 && r.model.jobs.front().steps.front().dynamicMaxIncrement == 0.0);
 
         // Round trip: the serialized script parses back to the same model.
         const std::string text = serializeAnalysisScript(r.model);
@@ -553,8 +553,8 @@ void testTimeLoadsAndDynamic() {
         CHECK(contains(text, "step dynamic dt=0.01 period=1 dtmin="));
         const auto back = parseAnalysisScript(text);
         CHECK(back.success && back.model.amplitudes.size() == 1 && back.model.forces[0].amplitude == "A1");
-        CHECK(back.model.step == StepType::Dynamic && back.model.dynamicPeriod == 1.0);
-        CHECK(std::fabs(back.model.dynamicMinIncrement - 1e-6) < 1e-15);
+        CHECK(back.model.jobs.front().steps.front().type == StepType::Dynamic && back.model.jobs.front().steps.front().dynamicPeriod == 1.0);
+        CHECK(std::fabs(back.model.jobs.front().steps.front().dynamicMinIncrement - 1e-6) < 1e-15);
     }
 
     // Refusals.
@@ -626,6 +626,109 @@ void testTimeLoadsAndDynamic() {
     }
 }
 
+void testJobsStepsAndLoads() {
+    const std::string common = "material E=210000 nu=0.3 rho=7.85e-9\n"
+                               "fix group:Bottom\n"
+                               "force id=F1 group:Top F=0,0,-10\n"
+                               "pressure id=P1 group:Right p=2\n"
+                               "gravity g=0,0,-10\n";
+    // Parser: jobs, steps and the loads of each step; a step without loads= uses every load.
+    {
+        const auto model = parseOk(common +
+                                   "job SETTLE\n"
+                                   "step static loads=F1,gravity\n"
+                                   "job LOAD\n"
+                                   "step static loads=P1\n"
+                                   "step static loads=F1 reset\n"
+                                   "step static\n");
+        CHECK(model.jobs.size() == 2);
+        CHECK(model.jobs[0].id == "SETTLE" && model.jobs[0].steps.size() == 1);
+        CHECK(!model.jobs[0].steps[0].allLoads && model.jobs[0].steps[0].loads.size() == 2);
+        CHECK(model.jobs[1].steps.size() == 3);
+        CHECK(model.jobs[1].steps[0].loads == std::vector<std::string>{"P1"} && !model.jobs[1].steps[0].resetLoads);
+        CHECK(model.jobs[1].steps[1].resetLoads && model.jobs[1].steps[1].loads == std::vector<std::string>{"F1"});
+        CHECK(model.jobs[1].steps[2].allLoads && !model.jobs[1].steps[2].resetLoads);
+        CHECK(activeLoadIds(model, model.jobs[1].steps[2]).size() == 3);   // F1, P1 and gravity
+        CHECK(activeLoadIds(model, model.jobs[0].steps[0]).size() == 2);
+        CHECK(findJob(model, "") == nullptr);                              // two jobs: no implicit one
+        CHECK(findJob(model, "LOAD") == &model.jobs[1]);
+    }
+    // Steps before any job line form the job "job"; a script without any step gets a static one.
+    {
+        const auto model = parseOk(common + "step static\n");
+        CHECK(model.jobs.size() == 1 && model.jobs[0].id == "job" && model.jobs[0].steps.size() == 1);
+        const auto none = parseAnalysisScript(common);
+        CHECK(none.success && none.model.jobs.size() == 1 && none.model.jobs[0].steps.size() == 1);
+    }
+    // Errors: unknown load, duplicate job, job without step, bad reset value.
+    {
+        CHECK(!parseAnalysisScript(common + "job A\nstep static loads=NOPE\n").success);
+        CHECK(hasCode(parseAnalysisScript(common + "job A\nstep static loads=NOPE\n").diagnostics, "SCRIPT_UNKNOWN_LOAD"));
+        CHECK(hasCode(parseAnalysisScript(common + "job A\nstep static\njob A\nstep static\n").diagnostics, "SCRIPT_DUPLICATE"));
+        CHECK(hasCode(parseAnalysisScript(common + "job EMPTY\n").diagnostics, "SCRIPT_EMPTY_JOB"));
+        CHECK(hasCode(parseAnalysisScript(common + "job A\nstep static reset=maybe\n").diagnostics, "SCRIPT_BAD_RESET"));
+    }
+    // Round trip: the serialized script parses back to the same jobs and steps.
+    {
+        const auto model = parseOk(common + "job LOAD\nstep static loads=P1\nstep static loads=F1 reset\nstep static loads=none\n");
+        const auto back = parseOk(serializeAnalysisScript(model));
+        CHECK(back.jobs.size() == 1 && back.jobs[0].steps.size() == 3);
+        CHECK(back.jobs[0].steps[1].resetLoads && back.jobs[0].steps[2].loads.empty() && !back.jobs[0].steps[2].allLoads);
+    }
+    // Deck: one *STEP per step; a reset zeroes the loads of the earlier steps that are not active.
+    {
+        const fs::path dir = tempDir();
+        MeshData hex = makeHex();
+        const auto cycle = parseOk(common + "job CYCLE\nstep static loads=F1\nstep static loads=P1 reset\n");
+        const auto r = writeSolverInput(hex, cycle, dir / "cycle.inp", "CYCLE");
+        CHECK(r.success);
+        if (!r.success) std::cerr << r.error << "\n";
+        const std::string t = slurp(dir / "cycle.inp");
+        CHECK(t.find("*STEP") != std::string::npos && t.find("*STEP", t.find("*STEP") + 1) != std::string::npos);
+        const std::size_t second = t.find("*STEP", t.find("*STEP") + 1);
+        const std::string first = t.substr(0, second), last = t.substr(second);
+        CHECK(contains(first, "MG_LOAD1, 3, -2.5"));                 // F1 active in step 1
+        CHECK(!contains(first, "P1,") && !contains(first, "P4,"));   // no pressure yet
+        CHECK(contains(last, "MG_LOAD1, 3, 0"));                     // reset: F1 set to zero in step 2
+        CHECK(contains(last, "*DLOAD\n1, P4, 2"));                   // Right face (x = 1) active in step 2
+        CHECK(contains(t, "*BOUNDARY"));                             // supports written once, before the steps
+        CHECK(t.find("*BOUNDARY") < t.find("*STEP"));
+
+        // Without reset the loads carry over: nothing is written in step 2 for F1.
+        const auto carry = parseOk(common + "job CARRY\nstep static loads=F1\nstep static loads=P1\n");
+        const auto rc = writeSolverInput(hex, carry, dir / "carry.inp", "CARRY");
+        CHECK(rc.success);
+        const std::string tc = slurp(dir / "carry.inp");
+        const std::size_t cs = tc.find("*STEP", tc.find("*STEP") + 1);
+        CHECK(cs != std::string::npos && !contains(tc.substr(cs), "MG_LOAD1, 3, 0"));
+
+        // Several jobs: the deck needs the job name.
+        const auto two = parseOk(common + "job A\nstep static loads=F1\njob B\nstep static\n");
+        CHECK(!writeSolverInput(hex, two, dir / "x.inp").success);        // two jobs, none named
+        CHECK(writeSolverInput(hex, cycle, dir / "y.inp").success);       // a single job needs no name
+        // A job name that does not exist is refused.
+        CHECK(!writeSolverInput(hex, cycle, dir / "x.inp", "NOPE").success);
+        fs::remove_all(dir);
+    }
+    // code_aster: a job with one step is written with its active loads only; a job with several steps is refused.
+    {
+        const fs::path dir = tempDir();
+        MeshData hex = makeHex();
+        const auto model = parseOk(common + "job ONE\nstep static loads=P1\njob MANY\nstep static loads=F1\nstep static loads=P1 reset\n");
+        CodeAsterOptions options;
+        options.jobName = "one";
+        const auto one = writeCodeAsterCase(hex, model, dir, options, "ONE");
+        CHECK(one.success);
+        if (one.success) {
+            const std::string comm = slurp(one.commFile);
+            CHECK(comm.find("PRES_REP") != std::string::npos);      // P1 active
+            CHECK(comm.find("FORCE_NODALE") == std::string::npos);  // F1 is not active in this step
+        }
+        CHECK(!writeCodeAsterCase(hex, model, dir, options, "MANY").success);
+        fs::remove_all(dir);
+    }
+}
+
 int main() {
     testParser();
     testStableConditionIds();
@@ -636,6 +739,7 @@ int main() {
     testTetFaces();
     testWriterFrequencyAndValidation();
     testTimeLoadsAndDynamic();
+    testJobsStepsAndLoads();
     testRunner();
     if (g_failures) {
         std::cerr << g_failures << " check(s) failed\n";

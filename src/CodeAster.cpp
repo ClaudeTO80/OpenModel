@@ -361,18 +361,31 @@ std::string writeCodeAsterMesh(const fs::path& path, const MeshData& mesh) {
 /* --------------------------------------------------------------------------- case export */
 
 CodeAsterExportResult writeCodeAsterCase(const MeshData& mesh, const AnalysisModel& scriptModel, const fs::path& directory,
-                                         const CodeAsterOptions& options) {
+                                         const CodeAsterOptions& options, const std::string& jobId) {
     CodeAsterExportResult r;
-    const AnalysisModel model = withMeshConstraints(mesh, scriptModel, r.diagnostics);
+    const AnalysisModel withConstraints = withMeshConstraints(mesh, scriptModel, r.diagnostics);
     if (!validJobName(options.jobName)) return fail(r, "Job name must be 1-64 characters from letters, digits, '_' and '-'");
     if (!knownSolver(options.solver)) return fail(r, "Unknown linear solver '" + options.solver + "' (MULT_FRONT, MUMPS, PETSC, LDLT)");
     if (options.timeLimitSeconds < 1 || options.memoryLimitMB < 1 || options.ncpus < 1) return fail(r, "time limit, memory limit and number of processors must be positive");
+    const AnalysisJob* sessionJob = findJob(withConstraints, jobId);
+    if (!sessionJob) return fail(r, jobId.empty() ? std::string("The model has no job or several jobs: name the job to write") : "No job '" + jobId + "'");
+    if (sessionJob->steps.size() != 1)
+        return fail(r, "code_aster writes a job with one step for now: job '" + sessionJob->id + "' has " + std::to_string(sessionJob->steps.size()) + " steps (use the CalculiX solver)");
+    // The deck of the step: the loads that are not active in it are left out, the step gives the analysis type.
+    const AnalysisStep& step = sessionJob->steps.front();
+    const auto active = activeLoadIds(withConstraints, step);
+    auto isActive = [&](const std::string& id) { return std::find(active.begin(), active.end(), id) != active.end(); };
+    AnalysisModel model = withConstraints;
+    model.jobs.clear();
+    model.forces.erase(std::remove_if(model.forces.begin(), model.forces.end(), [&](const NodalForce& f) { return !isActive(f.id); }), model.forces.end());
+    model.pressures.erase(std::remove_if(model.pressures.begin(), model.pressures.end(), [&](const SurfacePressure& p) { return !isActive(p.id); }), model.pressures.end());
+    model.hasGravity = model.hasGravity && isActive(kGravityLoadId);
 
     const auto& m = model.material;
     if (!(m.youngModulus > 0.0) || !std::isfinite(m.youngModulus)) return fail(r, "Young's modulus must be positive");
     if (!(m.poisson > -1.0 && m.poisson < 0.5)) return fail(r, "Poisson's ratio must lie between -1 and 0.5 (exclusive)");
-    const bool frequency = model.step == StepType::Frequency;
-    if (model.step == StepType::Dynamic) return fail(r, "Dynamic steps are not written to the code_aster case yet: use the CalculiX solver");
+    const bool frequency = step.type == StepType::Frequency;
+    if (step.type == StepType::Dynamic) return fail(r, "Dynamic steps are not written to the code_aster case yet: use the CalculiX solver");
     bool timeDependent = !model.amplitudes.empty();
     for (const auto& f : model.forces) timeDependent = timeDependent || !f.amplitude.empty();
     for (const auto& p : model.pressures) timeDependent = timeDependent || !p.amplitude.empty();
@@ -653,7 +666,7 @@ CodeAsterExportResult writeCodeAsterCase(const MeshData& mesh, const AnalysisMod
           << "nume = NUME_DDL(MATR_RIGI=rigi)\n"
           << "matk = ASSE_MATRICE(MATR_ELEM=rigi, NUME_DDL=nume)\n"
           << "matm = ASSE_MATRICE(MATR_ELEM=mass, NUME_DDL=nume)\n\n"
-          << "modes = CALC_MODES(MATR_RIGI=matk, MATR_MASS=matm, OPTION='PLUS_PETITE', CALC_FREQ=_F(NMAX_FREQ=" << model.modes << "))\n\n"
+          << "modes = CALC_MODES(MATR_RIGI=matk, MATR_MASS=matm, OPTION='PLUS_PETITE', CALC_FREQ=_F(NMAX_FREQ=" << step.modes << "))\n\n"
           << "# Mode shapes and frequencies as text tables read back by OpenModel.\n";
         tableDump("tmode", "modes", "DEPL", "mode shapes", 80);
         c << "\n# Frequencies (Hz when the unit of time is the second). A failure here does not stop the run.\n"
@@ -701,7 +714,7 @@ CodeAsterExportResult writeCodeAsterCase(const MeshData& mesh, const AnalysisMod
     }
 
     std::ostringstream summary;
-    summary << (frequency ? "code_aster frequency analysis (" + std::to_string(model.modes) + " modes)" : std::string("code_aster static analysis"))
+    summary << (frequency ? "code_aster frequency analysis (" + std::to_string(step.modes) + " modes)" : std::string("code_aster static analysis"))
             << " of " << r.volumeElements << " volume elements, " << r.nodes << " nodes; E = " << m.youngModulus << ", nu = " << m.poisson;
     if (r.fixedNodes) summary << "; " << r.fixedNodes << " constrained nodes";
     if (r.loadedNodes) summary << "; force on " << r.loadedNodes << " nodes";

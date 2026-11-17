@@ -224,8 +224,13 @@ void printAnalysisDiagnostics(const std::vector<OpenModel::ImportDiagnostic>& di
     }
 }
 
-/** Parses the script and writes the solver input; returns 0 on success. */
-int prepareAnalysis(const std::string& meshPath, const std::string& scriptPath, const std::filesystem::path& jobPath) {
+/**
+ * Parses the script and writes one solver input per job; returns 0 on success.
+ * A model with one job writes exactly `jobPath`; with several jobs each one is written as `<job>.inp` next to it.
+ * `jobIds` receives the jobs in script order, with the file stem each one is written under.
+ */
+int prepareAnalysis(const std::string& meshPath, const std::string& scriptPath, const std::filesystem::path& jobPath,
+                    std::vector<std::string>& jobIds) {
     MeshData mesh;
     if (const int code = loadMeshFile(meshPath, mesh)) return code;
     std::string script;
@@ -235,10 +240,15 @@ int prepareAnalysis(const std::string& meshPath, const std::string& scriptPath, 
     if (!parsed.success) return 2;
     std::error_code ec;
     std::filesystem::create_directories(jobPath.parent_path(), ec);
-    const auto written = OpenModel::writeSolverInput(mesh, parsed.model, jobPath);
-    printAnalysisDiagnostics(written.diagnostics);
-    if (!written.success) { std::cerr << "error: " << written.error << "\n"; return 1; }
-    std::cout << written.summary << "\nWrote " << jobPath.string() << "\n";
+    const bool several = parsed.model.jobs.size() > 1;
+    for (const auto& job : parsed.model.jobs) {
+        const std::filesystem::path path = several ? jobPath.parent_path() / (job.id + ".inp") : jobPath;
+        const auto written = OpenModel::writeSolverInput(mesh, parsed.model, path, job.id);
+        printAnalysisDiagnostics(written.diagnostics);
+        if (!written.success) { std::cerr << "error: job " << job.id << ": " << written.error << "\n"; return 1; }
+        std::cout << written.summary << "\nWrote " << path.string() << "\n";
+        jobIds.push_back(path.stem().string());
+    }
     return 0;
 }
 
@@ -276,6 +286,7 @@ int prepareAster(const std::string& meshPath, const std::string& scriptPath, con
     const auto parsed = OpenModel::parseAnalysisScript(script);
     printAnalysisDiagnostics(parsed.diagnostics);
     if (!parsed.success) return 2;
+    // code_aster writes one job with one step: a model with one job is written as it is.
     written = OpenModel::writeCodeAsterCase(mesh, parsed.model, dir, options);
     printAnalysisDiagnostics(written.diagnostics);
     if (!written.success) { std::cerr << "error: " << written.error << "\n"; return 1; }
@@ -379,7 +390,8 @@ int main(int argc, char** argv) {
     }
     if (command == "write-input") {
         if (argc != 5) { usage(); return 2; }
-        return prepareAnalysis(argv[2], argv[3], argv[4]);
+        std::vector<std::string> written;
+        return prepareAnalysis(argv[2], argv[3], argv[4], written);
     }
     if (command == "solve") {
         if (argc < 5) { usage(); return 2; }
@@ -391,33 +403,39 @@ int main(int argc, char** argv) {
             else { usage(); return 2; }
         }
         const std::filesystem::path workDir = std::filesystem::absolute(argv[4]);
-        const std::filesystem::path job = workDir / "job.inp";
-        if (const int code = prepareAnalysis(argv[2], argv[3], job)) return code;
+        std::vector<std::string> jobs;
+        if (const int code = prepareAnalysis(argv[2], argv[3], workDir / "job.inp", jobs)) return code;
+        if (!webOut.empty() && jobs.size() != 1) { std::cerr << "--web shows the results of one job: the model has " << jobs.size() << " jobs\n"; return 2; }
         std::error_code ec;
-        for (const char* ext : {".frd", ".dat", ".sta", ".cvg"}) std::filesystem::remove(workDir / (std::string("job") + ext), ec);
-        OpenModel::ProcessRunner runner;
-        const auto startError = runner.start({solver, "-i", "job"}, workDir);
-        if (!startError.empty()) { std::cerr << startError << "\n"; return 1; }
-        // Stream the log while the solver runs.
-        for (;;) {
-            const auto status = runner.poll();
-            for (const auto& line : status.newLines) std::cout << line << "\n";
-            std::cout.flush();
-            if (status.state != OpenModel::ProcessState::Running) {
-                if (status.state != OpenModel::ProcessState::Finished) { std::cerr << "The solver failed (exit code " << status.exitCode << ")\n"; return 1; }
-                break;
-            }
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        }
         std::vector<std::filesystem::path> files;
-        for (const char* ext : {".frd", ".dat"}) {
-            const auto f = workDir / (std::string("job") + ext);
-            if (std::filesystem::is_regular_file(f, ec) && std::filesystem::file_size(f, ec) > 0) files.push_back(f);
+        // One solver session per job, in script order; each job's results are <job>.frd and <job>.dat.
+        for (const auto& jobId : jobs) {
+            for (const char* ext : {".frd", ".dat", ".sta", ".cvg"}) std::filesystem::remove(workDir / (jobId + ext), ec);
+            OpenModel::ProcessRunner runner;
+            const auto startError = runner.start({solver, "-i", jobId}, workDir);
+            if (!startError.empty()) { std::cerr << startError << "\n"; return 1; }
+            // Stream the log while the solver runs.
+            for (;;) {
+                const auto status = runner.poll();
+                for (const auto& line : status.newLines) std::cout << line << "\n";
+                std::cout.flush();
+                if (status.state != OpenModel::ProcessState::Running) {
+                    if (status.state != OpenModel::ProcessState::Finished) { std::cerr << "The solver failed on job " << jobId << " (exit code " << status.exitCode << ")\n"; return 1; }
+                    break;
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            }
+            std::vector<std::filesystem::path> jobFiles;
+            for (const char* ext : {".frd", ".dat"}) {
+                const auto f = workDir / (jobId + ext);
+                if (std::filesystem::is_regular_file(f, ec) && std::filesystem::file_size(f, ec) > 0) jobFiles.push_back(f);
+            }
+            if (jobFiles.empty()) { std::cerr << "The solver wrote no results for job " << jobId << " (" << jobId << ".frd missing)\n"; return 1; }
+            std::cout << (jobs.size() > 1 ? "Results of " + jobId + ":" : std::string("Results:"));
+            for (const auto& f : jobFiles) std::cout << " " << f.string();
+            std::cout << "\n";
+            files.insert(files.end(), jobFiles.begin(), jobFiles.end());
         }
-        if (files.empty()) { std::cerr << "The solver wrote no results (job.frd missing)\n"; return 1; }
-        std::cout << "Results:";
-        for (const auto& f : files) std::cout << " " << f.string();
-        std::cout << "\n";
         if (!webOut.empty()) {
             MeshData mesh;
             if (const int code = loadMeshFile(argv[2], mesh)) return code;

@@ -15,10 +15,19 @@ force plane:x=10 F=0,-100,0 [amp=A1]               # TOTAL force, shared equally
 pressure group:Top p=2.5 [amp=A1]                   # surface group; positive = into the body
 gravity g=0,0,-9810                                 # acceleration (needs rho)
 amplitude name=A1 t=0,0,1,1,2,0.5                   # time-dependent factor: (time, factor) pairs, increasing times
-step static                                         # or: step frequency modes=6
-step dynamic dt=0.01 period=1 [dtmin=1e-5] [dtmax=0.1]   # transient, implicit; needs rho and supports
+job SETTLE                                        # a job is one solver session; its steps run in order
+step static [loads=F1,gravity] [reset]           # loads=: active loads (ids; default all); reset: zero the loads of the earlier steps
+step frequency modes=6                           # or: step dynamic dt=0.01 period=1 [dtmin=1e-5] [dtmax=0.1]   # transient, implicit; needs rho and supports
 output element=auto|on|off                          # element S/E in the .dat (auto: up to 200000 elements)
 ```
+
+Jobs and steps. A model holds the loads once; a `job NAME` line starts a job (one solver session, one `NAME.inp` deck and one
+`NAME.frd` result set), and the `step` lines after it belong to that job. Without `job` the steps form the job `job`. A step
+lists its active loads with `loads=` (ids: `id=` on the load line, or the generated `force-N`, `pressure-N`; gravity is `gravity`).
+A load that is not active in a step keeps its last value in the solver, unless the step says `reset`: then the loads of the
+earlier steps of the same job that are not active there are set to zero. Supports (`fix`) hold in every step.
+The CalculiX writer writes every step of a job in one deck. `openmodel solve` runs one solver session per job, in script
+order. code_aster writes one job with one step for now (a job with several steps is refused).
 
 `amp=NAME` multiplies the load by the factor of the amplitude at the time of the step (CalculiX `AMPLITUDE=`). Loads without `amp` are constant: in a static step they are ramped over the step, in a dynamic step they act at full value from the start. A dynamic step without `dtmin`/`dtmax` uses min(dt, 1e-5 × period) and 1e30 (the CalculiX defaults).
 
@@ -42,7 +51,7 @@ The node constraints of `MeshData` (set in the GUI with *Mesh constraints*, or r
 
 * **The generated `.inp` has not been run through a real CalculiX** (not available here). Tests use `tests/support/fake_ccx.py`, which checks that the input has the expected sections and copies fixture results: they verify the plumbing, not the physics.
 * Forces are shared equally among nodes. For quadratic elements this is not the consistent load (a warning is issued); prefer `pressure`.
-* Pressure supports tetrahedra/hexahedra (linear and quadratic); no pyramids/wedges, no shell/beam elements, no contact, no nonlinear materials, one material, one step.
+* Pressure supports tetrahedra/hexahedra (linear and quadratic); no pyramids/wedges, no shell/beam elements, no contact, no nonlinear materials, one material.
 * Loads not written yet: body forces per element (`BX/BY/BZ`), centrifugal loads (`CENTRIF`: the manual does not state unambiguously the meaning of its first value), distributed traction (tangential), nodal moments (solid elements have no rotational degrees of freedom), thermal loads (out of scope). Each one needs its syntax checked against the solver manual before it is written.
 * Dynamic steps and amplitudes are not written to the code_aster case: `writeCodeAsterCase` refuses them with a message.
 * The results reader loads every increment of a dynamic run as its own step; the viewer shows the last one by default (`--time T` or `t=T` for another time). Animation over the time history is not implemented.

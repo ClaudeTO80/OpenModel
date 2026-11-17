@@ -60,11 +60,13 @@ struct CodeAsterExportResult {
  * Checks as for writeSolverInput() (material, supports for a static step, non-empty selections, pressure surfaces that are
  * boundary faces of exactly one volume element) plus: node and element ids must have at most 7 digits (code_aster names
  * are 8 characters), and the element types must be supported (everything except 27-node hexahedra).
- * Loads follow the CalculiX writer: a force is shared equally by the selected nodes (`FORCE_NODALE`), pressure is positive
+ * The job `jobId` (empty = the only job) is written; it must have one step, and only the loads active in that step are
+ * written (the other steps and the reset of loads are CalculiX features for now). Loads follow the CalculiX writer: a force is shared equally by the selected nodes (`FORCE_NODALE`), pressure is positive
  * into the body (`PRES_REP`), gravity is an acceleration (`PESANTEUR`), selected nodes are restricted to those of volume elements.
  */
 CodeAsterExportResult writeCodeAsterCase(const MeshData& mesh, const AnalysisModel& model,
-                                         const std::filesystem::path& directory, const CodeAsterOptions& options = {});
+                                         const std::filesystem::path& directory, const CodeAsterOptions& options = {},
+                                         const std::string& jobId = {});
 
 /**
  * @brief Write only the mesh in the code_aster "ASTER" text format.
