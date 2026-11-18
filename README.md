@@ -207,8 +207,10 @@ General options: `OPENMODEL_VERSION` (`0.1.3`, see [Version](#version)), `OPENMO
   | Node repositioning (`recombineNodeRepositioning`) | `Mesh.RecombineNodeRepositioning` | hexahedra, mixed |
   | Minimum quadrangle quality (`recombineMinimumQuality`) | `Mesh.RecombineMinimumQuality` | hexahedra, mixed |
 
-  The unstructured-mesh controls (minimum size, curvature adaptation, thin-face sizing) are not shown for Gmsh because they do
-  not create structure; they stay available through `MeshingOptions`. Not exposed: `setTransfiniteAutomatic` (it hides the node
+  The unstructured (tetrahedral) settings are shown in their own group of the workbench, under "Tetrahedra (Gmsh) settings":
+  minimum element size, curvature sizing and its points per circle, 2D and 3D algorithms, optimisation (Gmsh or Netgen,
+  threshold), smoothing passes, boundary size extension and CAD face auditing, with the defaults of Gmsh. They are
+  `TetrahedralGmshOptions` and the CAD sizing fields of `MeshingOptions`. Not exposed: `setTransfiniteAutomatic` (it hides the node
   counts, which OpenModel computes itself so that it can grade the curves), `Mesh.SubdivisionAlgorithm` (an all-hexahedra
   subdivision of an unstructured mesh) and the quasi-structured quad algorithm (not a structured mesh).
 - `logLevel` / `logFile`: Gmsh log detail, `Error` (default), `Warning`, `Info` or `Debug` (`General.Verbosity` 1, 2, 4, 99). From `Info` the
@@ -238,6 +240,7 @@ cmake/               package configuration template, Version.hpp.in (generated v
 - [Fatigue analysis — detailed MathJax HTML manual](docs/fatigue/index.html) – theory, FEM result contract, tensor history, Rainflow, S–N, strain-life, multiaxial extension contract, spectra, reports and C++ integration examples.
 - Fatigue module reference: [`FATIGUE_RESULT_CONTRACT.md`](docs/FATIGUE_RESULT_CONTRACT.md), [`FATIGUE_STRESS_HISTORY.md`](docs/FATIGUE_STRESS_HISTORY.md), [`FATIGUE_CYCLE_COUNTING.md`](docs/FATIGUE_CYCLE_COUNTING.md), [`FATIGUE_MULTIAxIAL_CYCLE_CONTRACT.md`](docs/FATIGUE_MULTIAxIAL_CYCLE_CONTRACT.md), [`FATIGUE_DAMAGE_MODELS.md`](docs/FATIGUE_DAMAGE_MODELS.md), [`FATIGUE_REPORT.md`](docs/FATIGUE_REPORT.md), [`FATIGUE_SPECTRUM_REPORT.md`](docs/FATIGUE_SPECTRUM_REPORT.md), [`FATIGUE_DAMAGE_MAP.md`](docs/FATIGUE_DAMAGE_MAP.md)
 - [`docs/SOLVER.md`](docs/SOLVER.md) – analysis script, solver launch, picking and groups
+- [`docs/context/`](docs/context/README.md) – project notes for developers and coding assistants: architecture, build and tests, Gmsh meshing, GUI transport, conventions and current status
 - [`docs/CODE_ASTER.md`](docs/CODE_ASTER.md) – code_aster export, run, mesh import and result tables
 - [`docs/FEM_RESULTS.md`](docs/FEM_RESULTS.md) – result formats and how they are bound to a mesh
 - [`docs/MESH_IMPORTERS.md`](docs/MESH_IMPORTERS.md) – mesh importers
