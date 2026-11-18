@@ -58,6 +58,31 @@ function check(ok, msg) { if (!ok) throw new Error("check failed: " + msg); cons
     await matRow("steel").locator(".sbeye").click();
     const hidden = await page.evaluate(() => [...viewerVis.hidden].sort().join());
     check(hidden === "Bolt,Bracket", "steel eye hides the groups of steel only");
+    // CAD eye: hides the surface blocks (CAD geometry) and leaves the volume block alone.
+    await page.evaluate(() => {
+      // A fake viewer in the iframe window: the GUI reads its state and records what it is told to draw.
+      const frame = document.getElementById("viewer").contentWindow;
+      frame.OpenModelViewer = {
+        state: { model: { meta: { groups: [], blocks: [
+          { name: "Surface", dimension: 2, elements: 10 },
+          { name: "Volume", dimension: 3, elements: 50 },
+          { name: "Face", dimension: 2, elements: 4 },
+        ] } }, vis: new Uint32Array([1, 1, 1]), gvis: new Uint32Array(1).fill(1) },
+        set: (o) => { window.__lastSet = o; },
+      };
+      viewerModel = () => frame.OpenModelViewer.state.model;  // undo the material fake above
+      viewerVis.geometry = true;
+      renderTree();
+    });
+    const cadEye = () => catNode("cad").locator(":scope > .sbrow > .sbeye");
+    check((await cadEye().getAttribute("aria-pressed")) === "true", "CAD eye on by default");
+    await cadEye().click();
+    check((await cadEye().getAttribute("aria-pressed")) === "false", "CAD eye toggles off");
+    const blockOn = await page.evaluate(() => window.__lastSet.blockOn);
+    check(JSON.stringify(blockOn) === JSON.stringify({ 0: false, 2: false }), "CAD eye hides the surface blocks only");
+    await cadEye().click();
+    const again = await page.evaluate(() => window.__lastSet.blockOn);
+    check(JSON.stringify(again) === JSON.stringify({ 0: true, 2: true }), "CAD eye shows them again");
     await page.locator("#sbTreeBody .sbadd").nth(2).click();
     check(await page.locator('.spanel[data-spanel="mat"]').isVisible(), "'+' on Material opens the material panel");
   } finally {

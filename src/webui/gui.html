@@ -950,7 +950,7 @@ const SB_CATEGORIES = [
  * What the 3D viewer draws, as set from the sidebar tree.
  * hidden: names of the mesh groups hidden in the viewer (the others stay visible).
  */
-const viewerVis = {hidden: new Set(), constraints: true, axes: true, deform: true};
+const viewerVis = {hidden: new Set(), constraints: true, axes: true, deform: true, geometry: true};
 /** True while a model is loading into the viewer; the viewer state is not read back then. */
 let viewerLoading = false;
 /** Incremented each time a model has finished loading, so that the viewer branch is rebuilt for it. */
@@ -979,14 +979,28 @@ function readViewerVis() {
   viewerVis.axes = !!st.axes;
   viewerVis.deform = !!st.defOn;
   viewerVis.hidden = new Set(st.model.meta.groups.filter((g, i) => !st.gvis[i + 1]).map((g) => g.name));
+  const surface = surfaceBlockIndices(st.model.meta);
+  if (surface.length) viewerVis.geometry = surface.every((i) => st.vis[i]);
+}
+/**
+ * @brief Indices of the blocks of lower dimension than the volume: the CAD geometry drawn before and
+ * beside the volume mesh.
+ * @param meta model metadata of the viewer
+ * @return block indices
+ */
+function surfaceBlockIndices(meta) {
+  return meta.blocks.flatMap((b, i) => (b.dimension < 3 ? [i] : []));
 }
 /** @brief Pushes viewerVis to the viewer through its public API. Call it after every model load. */
 function applyViewerVis() {
   const w = viewerApi();
   if (!w) return;
+  const m = viewerModel();
+  const blockOn = {};
+  if (m) surfaceBlockIndices(m.meta).forEach((i) => { blockOn[i] = viewerVis.geometry; });
   w.OpenModelViewer.set({
     hideGroups: [...viewerVis.hidden], constraints: viewerVis.constraints,
-    axes: viewerVis.axes, deform: {on: viewerVis.deform},
+    axes: viewerVis.axes, deform: {on: viewerVis.deform}, blockOn,
   });
 }
 /**
@@ -1178,7 +1192,7 @@ function renderTree() {
   all.type = "button"; all.className = "sbmini"; all.textContent = "Show all";
   all.title = "Show everything in the 3D viewer";
   all.addEventListener("click", () => {
-    viewerVis.hidden.clear(); viewerVis.constraints = viewerVis.axes = viewerVis.deform = true;
+    viewerVis.hidden.clear(); viewerVis.constraints = viewerVis.axes = viewerVis.deform = viewerVis.geometry = true;
     applyViewerVis(); renderTree();
   });
   head.append(title, all); box.append(head);
@@ -1187,6 +1201,7 @@ function renderTree() {
   const names = root ? namesUnder(root) : [];
   const flag = (k) => () => { viewerVis[k] = !viewerVis[k]; applyViewerVis(); renderTree(); };
   const eyes = {
+    cad: {state: viewerVis.geometry ? "on" : "off", toggle: flag("geometry")},
     cons: {state: viewerVis.constraints ? "on" : "off", toggle: flag("constraints")},
     loads: {state: viewerVis.deform ? "on" : "off", toggle: flag("deform")},
   };
@@ -1218,7 +1233,7 @@ function renderTree() {
 function syncTree() {
   readViewerVis();
   const m = viewerModel();
-  const sig = JSON.stringify([viewerSeq, m ? [...viewerVis.hidden].sort() : null, viewerVis.constraints, viewerVis.axes, viewerVis.deform]);
+  const sig = JSON.stringify([viewerSeq, m ? [...viewerVis.hidden].sort() : null, viewerVis.constraints, viewerVis.axes, viewerVis.deform, viewerVis.geometry]);
   if (sig !== viewerSig) { viewerSig = sig; renderTree(); }
 }
 /**

@@ -1708,6 +1708,10 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
         dofs: names.filter((_, d) => (m.consMask[i] >> d) & 1), prescribed: (m.consMask[i] & 256) !== 0,
       }));
     },
+    /**
+     * Sets what is drawn. Only the options present change; `blockOn` maps a block index to its visibility and
+     * leaves the other blocks as the viewer panel has them.
+     */
     set(options) {
       if (!S.model) return;
       if ("mode" in options) { $("colorMode").value = options.mode; S.mode = options.mode; }
@@ -1726,6 +1730,13 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
       if ("deform" in options) {
         if ("on" in options.deform) { S.defOn = !!options.deform.on; $("defOn").checked = S.defOn; }
         if ("factor" in options.deform) { S.defFactor = options.deform.factor; $("defFactor").value = trim(S.defFactor); }
+      }
+      if ("blockOn" in options) {
+        for (const [key, on] of Object.entries(options.blockOn)) {
+          const i = Number(key);
+          if (Number.isInteger(i) && i >= 0 && i < S.vis.length) S.vis[i] = on ? 1 : 0;
+        }
+        refreshVisibility();
       }
       if ("hideGroups" in options) {
         S.gvis.fill(1);
