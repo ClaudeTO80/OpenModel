@@ -26,6 +26,17 @@ function check(ok, msg) { if (!ok) throw new Error("check failed: " + msg); cons
     const cats = await page.$$eval("#sbTreeBody > .sbgroup > .sbrow > .sbname[data-cat]", (n) => n.map((x) => x.dataset.cat));
     check(cats.join() === "cad,mesh,mat,cons,loads,jobs", "six categories in tree order");
     check((await page.locator("#sbTreeBody .sbadd").count()) === 6, "one '+' per category");
+    // Details overlay: closed on load, opened by a category name, closed by × and by Escape.
+    check(!(await page.locator("#inspector").isVisible()), "details overlay closed on load");
+    check((await page.locator("aside .spanel").count()) === 0, "details are not under the tree");
+    await page.locator('#sbTreeBody .sbname[data-cat="loads"]').click();
+    check(await page.locator("#inspector").isVisible(), "clicking a category opens the overlay");
+    check((await page.locator("#inspTitle").textContent()) === "Load cases", "overlay title is the category");
+    await page.locator("#inspClose").click();
+    check(!(await page.locator("#inspector").isVisible()), "× closes the overlay");
+    await page.locator('#sbTreeBody .sbname[data-cat="cons"]').click();
+    await page.keyboard.press("Escape");
+    check(!(await page.locator("#inspector").isVisible()), "Escape closes the overlay");
     const catNode = (key) => page.locator("#sbTreeBody > .sbgroup", { has: page.locator(`.sbname[data-cat="${key}"]`) }).first();
     /** Opens a category node if it is closed, so that its children can be clicked. */
     const openNode = async (key) => {

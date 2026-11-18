@@ -35,6 +35,7 @@ Nella GUI, le chiavi si costruiscono nel `const generate = () => act("openmodel_
 - Gli occhi di Mesh, Constraints e Load cases controllano il viewer (`viewerVis` → `applyViewerVis()`). L'occhio di CAD nasconde i blocchi di dimensione inferiore a 3 (`blockOn` di `OpenModelViewer.set()`). Gli assi stanno sotto CAD.
 - Il "+" di ogni categoria è `SB_ADD`: apre l'azione della categoria; Jobs porta alla casella dello script. Non crea ancora elementi vuoti nello script.
 - `point` e `RBE2` non esistono né nel parser né nel solver: non sono nell'albero.
+- I pannelli di dettaglio (`.spanel`) stanno nell'overlay `#inspector` sopra il viewer, non sotto l'albero: si aprono cliccando il nome di una categoria o un "+", si chiudono con × o Esc. `showSidebarTab()` apre, `closeInspector()` chiude, `highlightTree()` segna la riga aperta.
 - Test: `tests/webgl/gui_tree_smoke.js` (serve la pagina via HTTP).
 
 ## Viewer

@@ -39,6 +39,11 @@ button.primary{background:var(--prim);border-color:var(--prim-line);color:var(--
 #result.bad{color:var(--bad)} #result.good{color:var(--good)}
 main{position:relative;min-width:0}
 iframe{display:block;width:100%;height:100%;border:0;background:var(--viewport)}
+.inspector{position:absolute;top:10px;right:10px;bottom:10px;width:min(400px,calc(100% - 20px));display:grid;grid-template-rows:auto minmax(0,1fr);background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.18);z-index:5}
+.inspector[hidden]{display:none}
+.inspHead{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;border-bottom:1px solid var(--line);font-weight:600}
+#inspClose{padding:0 8px;font-size:18px;line-height:1.2}
+#inspBody{overflow:auto;min-height:0;padding:8px 10px}
 [hidden]{display:none!important}
 .modal{position:fixed;inset:0;background:var(--scrim);display:grid;place-items:center;z-index:10}
 .dialog{background:var(--panel);border:1px solid var(--line);border-radius:10px;width:min(640px,92vw);max-height:80vh;display:grid;grid-template-rows:auto auto 1fr auto;padding:12px;gap:8px}
@@ -630,7 +635,11 @@ details.node details.node{margin-top:8px;background:transparent}
   <section><h2>Messages</h2><pre id="result">Ready. Import a CAD model, load a mesh or try the demo model.</pre></section>
 </aside>
 
-<main><iframe id="viewer" src="viewer.html" title="FEM viewer"></iframe></main>
+<main><iframe id="viewer" src="viewer.html" title="FEM viewer"></iframe>
+<section id="inspector" class="inspector" hidden aria-label="Details">
+  <header class="inspHead"><span id="inspTitle"></span><button type="button" id="inspClose" aria-label="Close details" title="Close (Esc)">×</button></header>
+  <div id="inspBody"></div>
+</section></main>
 </div>
 
 <div class="modal" id="modal" hidden>
@@ -1031,7 +1040,7 @@ function namesUnder(node) {
 /** Keys of the tree nodes that are open. Every node starts closed on each load and nothing is kept. */
 let sbExpanded = new Set();
 /** Category key of the panel currently shown in the sidebar. */
-let sbActiveCat = "cad";
+let sbActiveCat = null;
 /**
  * @brief Makes one row of the tree: a name, optionally selectable, and optional eye and "+" buttons.
  * @param o.label     text of the row
@@ -1285,7 +1294,7 @@ function renderTree() {
     row.querySelector(".sbname").dataset.cat = key;
     box.append(sbNode("cat:" + key, row, kids));
   });
-  if (document.querySelector(`.spanel[data-spanel="${sbActiveCat}"]`)) showSidebarTab(sbActiveCat);
+  highlightTree();
 }
 /**
  * @brief Keeps the tree in step with the viewer and rebuilds it only when something it shows changed.
@@ -1303,8 +1312,23 @@ function syncTree() {
  */
 function showSidebarTab(name) {
   sbActiveCat = name;
-  document.querySelectorAll("#sbTreeBody .sbname[data-cat]").forEach((n) => n.classList.toggle("active", n.dataset.cat === name));
-  document.querySelectorAll(".spanel").forEach((p) => { p.hidden = p.dataset.spanel !== name; });
+  highlightTree();
+  const panel = document.querySelector(`#inspBody .spanel[data-spanel="${name}"]`);
+  if (!panel) return;
+  document.querySelectorAll("#inspBody .spanel").forEach((p) => { p.hidden = p !== panel; });
+  const label = document.querySelector(`#sbTreeBody .sbname[data-cat="${name}"]`);
+  $("inspTitle").textContent = label ? label.textContent : name;
+  $("inspector").hidden = false;
+}
+/** @brief Hides the details overlay; the tree keeps its state. */
+function closeInspector() {
+  $("inspector").hidden = true;
+  sbActiveCat = null;
+  highlightTree();
+}
+/** @brief Marks the tree row of the category whose details are open. */
+function highlightTree() {
+  document.querySelectorAll("#sbTreeBody .sbname[data-cat]").forEach((n) => n.classList.toggle("active", n.dataset.cat === sbActiveCat));
 }
 function focusSection(id) {
   const el = $(id); if (!el) return;
@@ -1314,6 +1338,13 @@ function focusSection(id) {
   el.scrollIntoView({behavior: "smooth", block: "nearest"});
   el.classList.add("flash"); setTimeout(() => el.classList.remove("flash"), 1200);
 }
+/** The details of each category live in the overlay over the viewer, not under the tree. */
+(function moveDetails() {
+  const body = $("inspBody");
+  document.querySelectorAll(".spanel").forEach((p) => { p.hidden = true; body.append(p); });
+})();
+$("inspClose").addEventListener("click", closeInspector);
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("inspector").hidden) closeInspector(); });
 renderTree();
 setInterval(syncTree, 700);
 var RIBBON_EXTRA = {};
