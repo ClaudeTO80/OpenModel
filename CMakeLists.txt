@@ -241,10 +241,11 @@ if(OPENMODEL_BUILD_TESTS)
     openmodel_add_test(cad_face_mapper_test tests/cad_face_mapper_test.cpp)
     openmodel_add_test(mesh_bodies_test tests/mesh_bodies_test.cpp)
     openmodel_add_test(mesh_runs_test tests/mesh_runs_test.cpp)
+    openmodel_add_test(rigid_link_test tests/rigid_link_test.cpp)
     openmodel_add_test(gmsh_settings_test tests/gmsh_settings_test.cpp)
     set(_openmodel_core_test_names core_smoke_test mesh_validation_test abaqus_writer_test physical_groups_test
         mesh_topology_test surface_mesher_test gltf_writer_test surface_refiner_test
-        web_view_writer_test mesh_binary_io_test openmodel_project_test mesh_importer_test fem_results_test analysis_setup_test mesh_selection_test mesh_constraints_test material_database_test material_library_test code_aster_test mesh_quality_test cad_face_mapper_test mesh_bodies_test mesh_runs_test gmsh_settings_test)
+        web_view_writer_test mesh_binary_io_test openmodel_project_test mesh_importer_test fem_results_test analysis_setup_test mesh_selection_test mesh_constraints_test material_database_test material_library_test code_aster_test mesh_quality_test cad_face_mapper_test mesh_bodies_test mesh_runs_test rigid_link_test gmsh_settings_test)
     if(OPENMODEL_BUILD_CLI)
         list(APPEND _openmodel_core_test_names openmodel_cli_info openmodel_cli_validate_demo)
     endif()

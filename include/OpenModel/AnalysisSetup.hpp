@@ -74,6 +74,31 @@ struct FixedSupport {
 };
 
 /**
+ * @brief Rigid coupling of a set of nodes to a reference point (CalculiX `*RIGID BODY`), typically a bolt hole.
+ *
+ * The reference node is not a mesh node: it is created in the solver deck at `reference`, with the next free node id.
+ * All six degrees of freedom of the slave nodes follow the reference node (the coupling has no per-direction mask,
+ * because `*RIGID BODY` does not offer one). Only volume elements take part in the deck, so the slave nodes must
+ * belong to solid elements. A node may belong to at most one link.
+ */
+struct RigidLink {
+    std::string id;                    ///< Stable condition identifier (generated for holes: "rbe2-N").
+    std::array<double, 3> reference{{0.0, 0.0, 0.0}}; ///< Position of the reference node, model length units.
+    std::vector<NodeIndex> slaves;     ///< Mesh nodes coupled to the reference node.
+};
+
+/**
+ * @brief Circle fitted to the nodes of a hole edge: centre, unit axis, radius and the worst relative deviation of the
+ * nodes from an ideal circle (radial and axial).
+ */
+struct HoleFit {
+    std::array<double, 3> centre{{0.0, 0.0, 0.0}};
+    std::array<double, 3> axis{{0.0, 0.0, 1.0}};
+    double radius = 0.0;
+    double maxDeviation = 0.0;         ///< Relative to the radius; 0 for a perfect circle.
+};
+
+/**
  * @brief Time dependence of a load: a piecewise linear table of (time, factor) pairs. The load is the nominal value
  * multiplied by the factor. Written to the solver as *AMPLITUDE, referenced by the loads through AMPLITUDE=.
  */
@@ -141,6 +166,7 @@ struct AnalysisModel {
     std::vector<FixedSupport> supports;
     std::vector<NodalForce> forces;
     std::vector<SurfacePressure> pressures;
+    std::vector<RigidLink> rigidLinks; ///< Written after the supports; shared by all jobs.
     bool hasGravity = false;
     std::array<double, 3> gravity{{0.0, 0.0, 0.0}};
     std::vector<AnalysisAmplitude> amplitudes;
@@ -267,6 +293,28 @@ AnalysisModel withMeshConstraints(const MeshData& mesh, const AnalysisModel& mod
 
 /** @brief Add supportConstraints() to the constraints of `mesh` (a degree of freedom already constrained takes the new value). */
 void applySupports(MeshData& mesh, const AnalysisModel& model, std::vector<ImportDiagnostic>& diagnostics);
+
+/**
+ * @brief Least-squares-style circle through the nodes of a hole edge.
+ *
+ * The centre is the centroid of the nodes and the axis is the direction of smallest spread of the nodes (the normal of
+ * the plane of the edge). The radius is the mean in-plane distance from the centre. Returns false when fewer than three
+ * nodes are given or when they all coincide. Exact for a uniformly meshed ring; for an irregular ring the centroid is
+ * an approximation and `maxDeviation` shows how far the nodes are from a circle.
+ */
+bool fitHoleCircle(const MeshData& mesh, const std::vector<NodeIndex>& edge, HoleFit& fit);
+
+/**
+ * @brief One RigidLink per hole: each hole edge is fitted with fitHoleCircle() and coupled to `reference`.
+ *
+ * The reference point is the one the user picks outside the part. Warnings (not errors): a reference farther than 5 % of
+ * the radius from the hole axis (`RBE2_OFF_AXIS`), a hole whose nodes deviate more than 5 % from a circle
+ * (`RBE2_NOT_CIRCULAR`). Ids are "rbe2-1", "rbe2-2", ... in the order of `holes`. Returns an empty vector and sets
+ * `error` when a hole cannot be fitted.
+ */
+std::vector<RigidLink> holeRigidLinks(const MeshData& mesh, const std::vector<std::vector<NodeIndex>>& holes,
+                                      const std::array<double, 3>& reference, std::vector<ImportDiagnostic>& diagnostics,
+                                      std::string& error);
 
 /** @brief Resolve a selector to node indices (sorted, unique). Empty result + `error` when nothing matches or the name is unknown. */
 std::vector<NodeIndex> selectNodes(const MeshData& mesh, const NodeSelector& selector, std::string& error);
