@@ -7,6 +7,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ## [Unreleased]
 
 ### Added
+- Core: rigid links for holes. `RigidLink` couples mesh nodes to a reference point through CalculiX `*RIGID BODY` (all six degrees of freedom); the reference is created in the deck at the given point. `fitHoleCircle()` fits a hole edge, `holeRigidLinks()` makes one link per hole with warnings `RBE2_OFF_AXIS` and `RBE2_NOT_CIRCULAR`. The writer refuses a node in two links. Test: `rigid_link_test`. Not verified with a real CalculiX run; no script syntax or GUI yet.
 - Core: MeshRunRegistry keeps the meshing runs of a session (whole assembly or one part), with one active mesh; only the active mesh is shown, solved and exported. Not yet connected to the WebUI.
 
 ### Changed
