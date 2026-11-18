@@ -7,6 +7,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ## [Unreleased]
 
 ### Changed
+- GUI: the sidebar is one collapsible tree (CAD, Mesh, Material, Constraints, Load cases) replacing the two branches. Each category has an eye for the 3D viewer (Mesh: mesh groups, Constraints: constraint symbols, Load cases: deformed shape; CAD also has the axes) and a "+" that opens its first action. The eyes of CAD and Material have no viewer layer yet.
 - Viewer: the constraint symbols are less intrusive: default size 2.2 % of the model radius (was 3 %), cones about a third thinner (base radius 0.28 of the size, was 0.42) and smaller rotation rings. The size is still adjustable in the viewer panel.
 
 ### Changed

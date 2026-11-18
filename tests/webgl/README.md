@@ -87,3 +87,11 @@ a run without result file, and the ribbon tab. It tests the plumbing, not Calcul
 `viewer_pick_smoke.js <index.html> <model.mgwv> <model.inp> [shots]` (registered as `webgl_pick_smoke`; the `.inp` is parsed as an independent oracle).
 `gui_pick_e2e.js <beam dir> <fake_ccx.py> [work] [shots]` needs a freshly started `openmodel-webui`: mouse selection of faces/nodes, groups, script lines,
 the written `*DLOAD` lines against CalculiX face numbers computed in the test, and a run with the fake solver.
+
+## Sidebar tree (`gui_tree_smoke.js`)
+Checks the single model tree of the GUI without a backend: the five categories, collapsing with reload persistence, a viewer eye and the "+" of Material. Serve `gui.html` over HTTP (from `file://` the viewer iframe throws cross-origin errors):
+
+```bash
+python3 -m http.server 8765 --directory src/webui &
+node tests/webgl/gui_tree_smoke.js http://localhost:8765/gui.html
+```

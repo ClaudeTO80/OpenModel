@@ -87,6 +87,13 @@ iframe{display:block;width:100%;height:100%;border:0;background:var(--viewport)}
 .sbmini{padding:2px 8px;font-size:11px;font-weight:600}
 .sbgroup{display:grid;gap:1px}
 .sbkids{display:grid;gap:1px;margin-left:12px;padding-left:8px;border-left:1px solid var(--line)}
+.sbkids[hidden]{display:none}
+.sbcaret,.sbgap{flex:0 0 14px;width:14px;padding:0;font-size:10px;line-height:1;background:transparent;border-color:transparent;color:var(--muted)}
+.sbgap{display:inline-block}
+.sbcaret:hover:not(:disabled){background:var(--btn-hover)}
+.sbadd{flex:0 0 auto;padding:0 6px;font-size:13px;line-height:1.3;background:transparent;border-color:transparent}
+.sbadd:hover:not(:disabled){background:var(--btn-hover)}
+.sbadd:focus-visible,.sbcaret:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .sbrow{display:flex;align-items:center;gap:4px;min-height:28px;padding:2px 3px 2px 6px;border-radius:6px}
 .sbrow:hover{background:var(--hover)}
 .sbname{flex:1;min-width:0;padding:3px 6px;border-radius:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -292,8 +299,7 @@ details.node details.node{margin-top:8px;background:transparent}
   </details>
 
   <nav class="sbtree" id="sbTree" aria-label="Model browser">
-    <div id="sbSetup"></div>
-    <div id="sbViewer"></div>
+    <div id="sbTreeBody"></div>
   </nav>
 
   <div class="spanel" data-spanel="cad">
@@ -1015,15 +1021,32 @@ function groupHierarchy(meta) {
 function namesUnder(node) {
   return [...node.own, ...[...node.children.values()].flatMap(namesUnder)];
 }
+/** Node keys that are collapsed in the sidebar tree; kept between sessions. */
+let sbCollapsed = sbLoadCollapsed();
+/** Category key of the panel currently shown in the sidebar. */
+let sbActiveCat = "cad";
 /**
- * @brief Makes one row of the tree: a name, optionally selectable, and an optional eye that shows or hides it.
- * @param label   text of the row
- * @param state   "on", "off" or "mixed" (some of the groups under it hidden); drives the eye and the look
- * @param onPick  called when the name is activated, or null for a plain label
- * @param onEye   called when the eye is pressed, or null for a row without eye
+ * @brief Reads the collapsed tree nodes saved by an earlier session.
+ * @return set of node keys; empty when nothing is saved or storage is unavailable
+ */
+function sbLoadCollapsed() {
+  try { return new Set(JSON.parse(localStorage.getItem("openmodel.sbCollapsed") || "[]")); } catch (e) { return new Set(); }
+}
+/** @brief Saves the collapsed tree nodes; when storage is unavailable they last for this page only. */
+function sbSaveCollapsed() {
+  try { localStorage.setItem("openmodel.sbCollapsed", JSON.stringify([...sbCollapsed])); } catch (e) { /* storage may be unavailable */ }
+}
+/**
+ * @brief Makes one row of the tree: a name, optionally selectable, and optional eye and "+" buttons.
+ * @param o.label     text of the row
+ * @param o.state     "on", "off" or "mixed": dims the name when off (used by the mesh group rows)
+ * @param o.eyeState  state of the eye; defaults to o.state
+ * @param o.onPick    called when the name is activated, or null for a plain label
+ * @param o.onEye     called when the eye is pressed, or null for a row without eye
+ * @param o.onAdd     called when the "+" is pressed, or null for a row without it
  * @return the row element
  */
-function sbRow(label, state, onPick, onEye) {
+function sbRow({label, state = null, eyeState = state, onPick = null, onEye = null, onAdd = null}) {
   const row = document.createElement("div");
   row.className = "sbrow" + (state === "off" ? " off" : "") + (state === "mixed" ? " mixed" : "");
   const name = document.createElement("span");
@@ -1036,132 +1059,156 @@ function sbRow(label, state, onPick, onEye) {
   row.append(name);
   if (onEye) {
     const eye = document.createElement("button");
-    const shown = state !== "off";
+    const shown = eyeState !== "off";
     eye.type = "button"; eye.className = "sbeye";
     eye.textContent = shown ? "👁" : "🙈";
-    eye.title = (shown ? "Hide " : "Show ") + label;
+    eye.title = (shown ? "Hide " : "Show ") + label + " in the 3D viewer";
     eye.setAttribute("aria-pressed", String(shown));
     eye.addEventListener("click", onEye);
     row.append(eye);
   }
+  if (onAdd) {
+    const add = document.createElement("button");
+    add.type = "button"; add.className = "sbadd"; add.textContent = "+";
+    add.title = "Add a child to " + label;
+    add.setAttribute("aria-label", "Add a child to " + label);
+    add.addEventListener("click", onAdd);
+    row.append(add);
+  }
   return row;
 }
 /**
- * @brief Builds the model setup branch: one group per category, one row per section of its panel.
- * Section ids are generated when missing, so that every section can be reached by id.
+ * @brief Makes a collapsible tree node: its row with a caret when it has children, and the children below it.
+ * @param key   stable key of the node, used to remember whether it is collapsed
+ * @param row   the row element (see sbRow)
+ * @param kids  child elements; an empty list makes a leaf
+ * @return the node element
  */
-function buildSetupTree() {
-  const box = $("sbSetup");
-  box.innerHTML = "";
-  const head = document.createElement("div"); head.className = "sbhead";
-  head.innerHTML = "<span>Model setup</span>";
-  box.append(head);
-  SB_CATEGORIES.forEach(({key, label}) => {
-    const panel = document.querySelector(`.spanel[data-spanel="${key}"]`);
-    if (!panel) return;
-    const group = document.createElement("div"); group.className = "sbgroup";
-    const catRow = sbRow(label, null, () => showSidebarTab(key), null);
-    catRow.querySelector(".sbname").dataset.cat = key;
-    group.append(catRow);
-    const kids = document.createElement("div"); kids.className = "sbkids";
-    [...panel.querySelectorAll(":scope > details")].forEach((d, i) => {
-      if (!d.id) d.id = `sb-${key}-${i}`;
-      const summary = d.querySelector(":scope > summary");
-      kids.append(sbRow(summary ? summary.textContent.trim() : d.id, null, () => focusSection(d.id), null));
-    });
-    group.append(kids); box.append(group);
-  });
-  showSidebarTab("cad");
-}
-/**
- * @brief Makes the eye row of a set of mesh groups: the state follows how many of them are hidden.
- * @param label text of the row
- * @param names group names the eye acts on
- * @return the row element
- */
-function groupEyeRow(label, names) {
-  const hidden = names.filter((n) => viewerVis.hidden.has(n)).length;
-  const state = hidden === 0 ? "on" : hidden === names.length ? "off" : "mixed";
-  return sbRow(label, state, null, () => {
-    if (state === "on") names.forEach((n) => viewerVis.hidden.add(n));
-    else names.forEach((n) => viewerVis.hidden.delete(n));
-    applyViewerVis(); renderViewerBranch();
-  });
-}
-/**
- * @brief Makes a group of the mesh hierarchy and, under it, its sub-groups.
- * @param name name of this level of the hierarchy
- * @param node hierarchy node
- * @return the group element
- */
-function groupNode(name, node) {
+function sbNode(key, row, kids) {
   const wrap = document.createElement("div"); wrap.className = "sbgroup";
-  wrap.append(groupEyeRow(name, namesUnder(node)));
-  if (node.children.size) {
-    const kids = document.createElement("div"); kids.className = "sbkids";
-    [...node.children].forEach(([n, c]) => kids.append(groupNode(n, c)));
-    wrap.append(kids);
-  }
+  const caret = document.createElement("button");
+  caret.type = "button"; caret.className = kids.length ? "sbcaret" : "sbgap";
+  if (!kids.length) { caret.tabIndex = -1; caret.setAttribute("aria-hidden", "true"); row.prepend(caret); wrap.append(row); return wrap; }
+  const box = document.createElement("div"); box.className = "sbkids";
+  kids.forEach((k) => box.append(k));
+  const label = row.querySelector(".sbname").textContent;
+  const paint = () => {
+    const collapsed = sbCollapsed.has(key);
+    box.hidden = collapsed;
+    caret.textContent = collapsed ? "▸" : "▾";
+    caret.setAttribute("aria-expanded", String(!collapsed));
+    caret.title = (collapsed ? "Expand " : "Collapse ") + label;
+  };
+  caret.addEventListener("click", () => {
+    if (sbCollapsed.has(key)) sbCollapsed.delete(key); else sbCollapsed.add(key);
+    sbSaveCollapsed(); paint();
+  });
+  row.prepend(caret);
+  wrap.append(row, box); paint();
   return wrap;
 }
 /**
- * @brief Rebuilds the "3D viewer" branch of the tree: the mesh groups, the constraints, the deformed shape
- * and the axes, each with an eye that shows or hides it in the viewer.
+ * @brief Eye state and toggle for a set of mesh groups: the state follows how many of them are hidden.
+ * @param names group names the eye acts on
+ * @return {state, toggle}
  */
-function renderViewerBranch() {
-  const box = $("sbViewer");
+function eyeFor(names) {
+  const hidden = names.filter((n) => viewerVis.hidden.has(n)).length;
+  const state = hidden === 0 ? "on" : hidden === names.length ? "off" : "mixed";
+  return {state, toggle: () => {
+    if (state === "on") names.forEach((n) => viewerVis.hidden.add(n));
+    else names.forEach((n) => viewerVis.hidden.delete(n));
+    applyViewerVis(); renderTree();
+  }};
+}
+/**
+ * @brief Makes a mesh group of the hierarchy and, under it, its sub-groups; each has an eye.
+ * @param name name of this level of the hierarchy
+ * @param node hierarchy node
+ * @param path full name of this level, used as the collapse key
+ * @return the group element
+ */
+function groupNode(name, node, path) {
+  const eye = eyeFor(namesUnder(node));
+  const row = sbRow({label: name, state: eye.state, onEye: eye.toggle});
+  return sbNode("grp:" + path, row, [...node.children].map(([n, c]) => groupNode(n, c, path + "/" + n)));
+}
+/** Adds a sidebar section's first control: CAD opens the file picker, the others open their panel. */
+const SB_ADD = {
+  cad: () => RIBBON_ACTIONS.cad(),
+  mesh: () => focusSection("secMesh"),
+  mat: () => { showSidebarTab("mat"); newKnownMaterial(); },
+  cons: () => focusFirst("cons"),
+  loads: () => focusFirst("loads"),
+};
+/** @brief Opens the first section of a category panel. @param key data-spanel value of the panel */
+function focusFirst(key) {
+  const d = document.querySelector(`.spanel[data-spanel="${key}"] > details`);
+  if (d) focusSection(d.id);
+}
+/**
+ * @brief Rebuilds the single model tree: the categories (CAD, Mesh, Material, Constraints, Load cases), each
+ * collapsible, with its panel sections and its viewer eye. The viewer groups hang under Mesh, the constraints
+ * under Constraints, the deformed shape under Load cases and the axes under CAD.
+ */
+function renderTree() {
+  const box = $("sbTreeBody");
   box.innerHTML = "";
   const head = document.createElement("div"); head.className = "sbhead";
-  const title = document.createElement("span"); title.textContent = "3D viewer";
+  const title = document.createElement("span"); title.textContent = "Model";
   const all = document.createElement("button");
   all.type = "button"; all.className = "sbmini"; all.textContent = "Show all";
   all.title = "Show everything in the 3D viewer";
   all.addEventListener("click", () => {
     viewerVis.hidden.clear(); viewerVis.constraints = viewerVis.axes = viewerVis.deform = true;
-    applyViewerVis(); renderViewerBranch();
+    applyViewerVis(); renderTree();
   });
   head.append(title, all); box.append(head);
   const m = viewerModel();
-  if (!m) {
-    const p = document.createElement("p"); p.className = "hint";
-    p.textContent = "Import or open a model to choose what the 3D viewer shows.";
-    box.append(p); return;
-  }
-  const flag = (key) => () => { viewerVis[key] = !viewerVis[key]; applyViewerVis(); renderViewerBranch(); };
-  const root = groupHierarchy(m.meta);
-  if (root.children.size) {
-    const wrap = document.createElement("div"); wrap.className = "sbgroup";
-    wrap.append(groupEyeRow("Mesh groups", namesUnder(root)));
-    const kids = document.createElement("div"); kids.className = "sbkids";
-    [...root.children].forEach(([n, c]) => kids.append(groupNode(n, c)));
-    wrap.append(kids); box.append(wrap);
-  }
-  const extras = document.createElement("div"); extras.className = "sbgroup";
-  if (m.consVertex && m.consVertex.length) {
-    extras.append(sbRow("Constraints", viewerVis.constraints ? "on" : "off", null, flag("constraints")));
-  }
-  if (m.disp && m.meta.deformation) {
-    extras.append(sbRow("Deformed shape", viewerVis.deform ? "on" : "off", null, flag("deform")));
-  }
-  extras.append(sbRow("Axes", viewerVis.axes ? "on" : "off", null, flag("axes")));
-  box.append(extras);
+  const root = m ? groupHierarchy(m.meta) : null;
+  const names = root ? namesUnder(root) : [];
+  const flag = (k) => () => { viewerVis[k] = !viewerVis[k]; applyViewerVis(); renderTree(); };
+  const eyes = {
+    cons: {state: viewerVis.constraints ? "on" : "off", toggle: flag("constraints")},
+    loads: {state: viewerVis.deform ? "on" : "off", toggle: flag("deform")},
+  };
+  if (names.length) eyes.mesh = eyeFor(names);
+  SB_CATEGORIES.forEach(({key, label}) => {
+    const panel = document.querySelector(`.spanel[data-spanel="${key}"]`);
+    if (!panel) return;
+    const eye = eyes[key];
+    const row = sbRow({label, onPick: () => showSidebarTab(key), eyeState: eye && eye.state,
+      onEye: eye ? eye.toggle : null, onAdd: SB_ADD[key]});
+    row.querySelector(".sbname").dataset.cat = key;
+    const kids = [];
+    if (key === "mesh" && root) [...root.children].forEach(([n, c]) => kids.push(groupNode(n, c, n)));
+    [...panel.querySelectorAll(":scope > details")].forEach((d, i) => {
+      if (!d.id) d.id = `sb-${key}-${i}`;
+      const summary = d.querySelector(":scope > summary");
+      kids.push(sbNode("sec:" + d.id, sbRow({label: summary ? summary.textContent.trim() : d.id, onPick: () => focusSection(d.id)}), []));
+    });
+    if (key === "cad") kids.push(sbNode("axes", sbRow({label: "Axes", eyeState: viewerVis.axes ? "on" : "off", onEye: flag("axes")}), []));
+    box.append(sbNode("cat:" + key, row, kids));
+  });
+  showSidebarTab(sbActiveCat);
 }
 /**
- * @brief Keeps the viewer branch in step with the viewer and rebuilds it only when something it shows changed.
+ * @brief Keeps the tree in step with the viewer and rebuilds it only when something it shows changed.
  * Called on a timer, so the eyes follow changes made in the viewer's own panel.
  */
-function syncViewerBranch() {
+function syncTree() {
   readViewerVis();
   const m = viewerModel();
   const sig = JSON.stringify([viewerSeq, m ? [...viewerVis.hidden].sort() : null, viewerVis.constraints, viewerVis.axes, viewerVis.deform]);
-  if (sig !== viewerSig) { viewerSig = sig; renderViewerBranch(); }
+  if (sig !== viewerSig) { viewerSig = sig; renderTree(); }
 }
 /**
  * @brief Shows one model setup category (CAD, Mesh, Material, Constraints, Load cases) and hides the others.
  * @param name category key, the data-spanel value of its panel
  */
 function showSidebarTab(name) {
-  document.querySelectorAll("#sbSetup .sbname[data-cat]").forEach((n) => n.classList.toggle("active", n.dataset.cat === name));
+  sbActiveCat = name;
+  document.querySelectorAll("#sbTreeBody .sbname[data-cat]").forEach((n) => n.classList.toggle("active", n.dataset.cat === name));
   document.querySelectorAll(".spanel").forEach((p) => { p.hidden = p.dataset.spanel !== name; });
 }
 function focusSection(id) {
@@ -1172,9 +1219,8 @@ function focusSection(id) {
   el.scrollIntoView({behavior: "smooth", block: "nearest"});
   el.classList.add("flash"); setTimeout(() => el.classList.remove("flash"), 1200);
 }
-buildSetupTree();
-renderViewerBranch();
-setInterval(syncViewerBranch, 700);
+renderTree();
+setInterval(syncTree, 700);
 var RIBBON_EXTRA = {};
 RIBBON_EXTRA["pick-node"] = () => setPickMode("node");
 RIBBON_EXTRA["pick-element"] = () => setPickMode("element");

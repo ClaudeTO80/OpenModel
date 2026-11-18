@@ -27,6 +27,13 @@ Nella GUI, le chiavi si costruiscono nel `const generate = () => act("openmodel_
 - Controllo di sintassi del JavaScript senza browser: estrarre i `<script>` di `gui.html` e lanciare `node --check`.
 - Il comportamento della pagina (visibilità, ordine degli argomenti) richiede un test nel browser: `tests/webgl/gui_*.js` con Playwright, dove disponibile.
 
+## Albero della sidebar
+
+- Un solo albero (`#sbTreeBody`, funzione `renderTree()`): le categorie CAD, Mesh, Material, Constraints, Load cases sono nodi collassabili (stato in `localStorage`, chiave `openmodel.sbCollapsed`).
+- L'occhio di Mesh, Constraints e Load cases controlla il viewer (`viewerVis` → `applyViewerVis()`); gli occhi di CAD e Material non hanno ancora un layer nel viewer. Gli assi stanno sotto CAD.
+- Il "+" di ogni categoria è `SB_ADD`: apre l'azione della categoria, non crea ancora un elemento vuoto nello script.
+- Test: `tests/webgl/gui_tree_smoke.js` (serve la pagina via HTTP).
+
 ## Viewer
 
 - `examples/webgl-fem-viewer/index.html` è incorporato nel binario come byte array via CMake e caricato come iframe nella GUI.
