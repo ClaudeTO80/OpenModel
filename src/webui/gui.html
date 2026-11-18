@@ -728,9 +728,15 @@ $("viewer").addEventListener("load", () => {
 
 const importModel = () => act("openmodel_import_model", $("cadPath").value.trim(), $("linear").value, $("angular").value);
 const retessellate = () => act("openmodel_retessellate", $("linear").value, $("angular").value);
-const generate = () => act("openmodel_generate_volume", $("mesher").value, $("size").value, $("order").value, $("iface").value, $("logLevel").value,
-  $("shape").value, $("tcType").value, $("tcCoef").value, $("tsArr").value, $("recAlg").value, $("recAngle").value, $("recOpt").value, $("recMove").checked ? "1" : "0", $("recMinQ").value,
-  $("struct").value, $("thinF").value, $("cadF").value, $("cadSmall").value, $("bodyDims").value);
+// One JSON object argument: WebUI does not deliver calls with more than 17 arguments.
+// Keys must match kVolumeKeys in src/webui/main.cpp.
+const generate = () => act("openmodel_generate_volume", JSON.stringify({
+  mesher: $("mesher").value, size: $("size").value, order: $("order").value, iface: $("iface").value,
+  logLevel: $("logLevel").value, shape: $("shape").value, tcType: $("tcType").value, tcCoef: $("tcCoef").value,
+  tsArr: $("tsArr").value, recAlg: $("recAlg").value, recAngle: $("recAngle").value, recOpt: $("recOpt").value,
+  recMove: $("recMove").checked ? "1" : "0", recMinQ: $("recMinQ").value, struct: $("struct").value,
+  thinF: $("thinF").value, cadF: $("cadF").value, cadSmall: $("cadSmall").value, bodyDims: $("bodyDims").value
+}));
 const loadMesh = () => act("openmodel_load_mesh", $("loadPath").value.trim());
 const loadResults = () => act("openmodel_load_results", $("resPath").value.trim(), $("resStep").value.trim());
 const save = (fn, ext) => act(fn, $("outBase").value.trim(), ext);
