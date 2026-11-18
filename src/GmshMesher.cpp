@@ -672,13 +672,45 @@ bool GmshMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Mesh
                     : "CAD file contains no 2D surface entities");
             }
 
-            try {
-                trace("Meshing in " + std::to_string(meshDimension) + "D (" + std::to_string(entities.size()) + " entities of that dimension) at " + elapsed() + " s");
-                gmsh::model::mesh::generate(meshDimension);
-                trace("Gmsh meshing finished at " + elapsed() + " s");
-            } catch (const std::exception& e) {
+            // Automatic recombination: BlossomFullQuad needs an even number of segments on the boundary of every face,
+            // which a swept hexahedral model does not always have. When the user left the choice automatic, the
+            // attempts go on to Blossom and then Simple, which accept any boundary. An explicit choice is never changed.
+            std::vector<int> recombinationAttempts{-1};
+            const bool recombines = structuredApplied && (options.structuredShape == StructuredElementShape::Hexahedron ||
+                                                          options.structuredShape == StructuredElementShape::Mixed);
+            if (recombines && options.structuredGmsh.recombinationAlgorithm == RecombinationAlgorithm::Automatic)
+                recombinationAttempts = options.structuredShape == StructuredElementShape::Hexahedron
+                                            ? std::vector<int>{3, 1, 0}
+                                            : std::vector<int>{1, 0};
+
+            bool meshed = false;
+            std::string generationError;
+            for (std::size_t attempt = 0; attempt < recombinationAttempts.size() && !meshed; ++attempt) {
+                const int algorithm = recombinationAttempts[attempt];
+                if (algorithm >= 0) {
+                    if (attempt > 0) gmsh::model::mesh::clear();
+                    gmsh::option::setNumber("Mesh.RecombinationAlgorithm", algorithm);
+                }
+                try {
+                    trace("Meshing in " + std::to_string(meshDimension) + "D (" + std::to_string(entities.size()) + " entities of that dimension) at " + elapsed() + " s");
+                    gmsh::model::mesh::generate(meshDimension);
+                    trace("Gmsh meshing finished at " + elapsed() + " s");
+                    meshed = true;
+                } catch (const std::exception& e) {
+                    if (attempt + 1 == recombinationAttempts.size()) {
+                        generationError = e.what();
+                    } else {
+                        const int next = recombinationAttempts[attempt + 1];
+                        m_diagnostics.push_back("Recombination algorithm " + std::to_string(algorithm) + " failed (" +
+                                                e.what() + "): retried with algorithm " + std::to_string(next) + ".");
+                        trace("Recombination algorithm " + std::to_string(algorithm) + " failed, retrying with " +
+                              std::to_string(next));
+                    }
+                }
+            }
+            if (!meshed) {
                 std::string message = std::string(meshDimension == 3 ? "Gmsh 3D meshing" : "Gmsh 2D meshing") +
-                                      " failed: " + e.what();
+                                      " failed: " + generationError;
                 if (meshDimension == 3) {
                     // The boundary mesh is built first; a "PLC Error" or an HXT failure means that it
                     // self-intersects, which happens when it is too coarse for thin or strongly curved
