@@ -400,6 +400,40 @@ details.node details.node{margin-top:8px;background:transparent}
         <label for="bodyDims">Dimension of each CAD body, in order (3 = volume, 2 = surface)</label>
         <input id="bodyDims" placeholder="e.g. 3,2,3">
         <p class="hint">One entry per top-level body of the CAD file, in the order they are imported. Empty = every body in the global dimension. A volume body is exported with its volume elements only; a surface body with its surface elements.</p>
+        <details class="node" open>
+          <summary>Tetrahedra (Gmsh) settings</summary>
+          <label for="tMinSize">Minimum element size (0 = Gmsh default)</label>
+          <input id="tMinSize" type="number" min="0" step="any" value="0">
+          <label class="check"><input type="checkbox" id="tCurv" checked> Size from curvature of the faces</label>
+          <label for="tCurvPts">Points per circle on curved faces (curvature sizing)</label>
+          <input id="tCurvPts" type="number" min="3" step="any" value="12">
+          <label for="tAlg2D">2D algorithm (surfaces)</label>
+          <select id="tAlg2D">
+            <option value="6">Frontal-Delaunay (Gmsh default)</option>
+            <option value="5">Delaunay</option>
+            <option value="1">MeshAdapt</option>
+            <option value="2">Automatic</option>
+            <option value="7">BAMG</option>
+            <option value="8">Frontal-Delaunay for quads</option>
+            <option value="9">Packing of parallelograms</option>
+          </select>
+          <label for="tAlg3D">3D algorithm (volume)</label>
+          <select id="tAlg3D">
+            <option value="1">Delaunay (Gmsh default)</option>
+            <option value="4">Frontal</option>
+            <option value="10">HXT (parallel)</option>
+            <option value="7">MMG3D</option>
+          </select>
+          <label class="check"><input type="checkbox" id="tOpt" checked> Optimise the tetrahedra after meshing</label>
+          <label class="check"><input type="checkbox" id="tOptNetgen"> Use the Netgen optimiser</label>
+          <label for="tOptThr">Optimise only tetrahedra below this quality (0 to 1)</label>
+          <input id="tOptThr" type="number" min="0" max="1" step="any" value="0.3">
+          <label for="tSmooth">Smoothing passes of the volume mesh</label>
+          <input id="tSmooth" type="number" min="0" step="1" value="1">
+          <label class="check"><input type="checkbox" id="tExtend" checked> Extend the boundary element size into the volume</label>
+          <label class="check"><input type="checkbox" id="tAudit" checked> Map every CAD face after meshing (slow on large models)</label>
+          <p class="hint">The defaults are Gmsh's own. Use the minimum element size and the curvature points to refine curved faces; the 2D and 3D algorithms and the optimisation change the element quality.</p>
+        </details>
       </div>
     </div>
     <div data-f="iface"><label for="iface">Solids in contact</label>
@@ -729,14 +763,20 @@ $("viewer").addEventListener("load", () => {
 const importModel = () => act("openmodel_import_model", $("cadPath").value.trim(), $("linear").value, $("angular").value);
 const retessellate = () => act("openmodel_retessellate", $("linear").value, $("angular").value);
 // One JSON object argument: WebUI does not deliver calls with more than 17 arguments.
-// Keys must match kVolumeKeys in src/webui/main.cpp.
+// Keys must match kVolumeKeys in src/webui/main.cpp; the tetrahedral keys are read from the object by name.
 const generate = () => act("openmodel_generate_volume", JSON.stringify({
   mesher: $("mesher").value, size: $("size").value, order: $("order").value, iface: $("iface").value,
   logLevel: $("logLevel").value, shape: $("shape").value, tcType: $("tcType").value, tcCoef: $("tcCoef").value,
   tsArr: $("tsArr").value, recAlg: $("recAlg").value, recAngle: $("recAngle").value, recOpt: $("recOpt").value,
   recMove: $("recMove").checked ? "1" : "0", recMinQ: $("recMinQ").value, struct: $("struct").value,
-  thinF: $("thinF").value, cadF: $("cadF").value, cadSmall: $("cadSmall").value, bodyDims: $("bodyDims").value
+  thinF: $("thinF").value, cadF: $("cadF").value, cadSmall: $("cadSmall").value, bodyDims: $("bodyDims").value,
+  minSize: $("tMinSize").value, curvature: checkedFlag("tCurv"), curvaturePoints: $("tCurvPts").value,
+  alg2D: $("tAlg2D").value, alg3D: $("tAlg3D").value, optimize: checkedFlag("tOpt"), optimizeNetgen: checkedFlag("tOptNetgen"),
+  optimizeThreshold: $("tOptThr").value, smoothing: $("tSmooth").value, extendBoundary: checkedFlag("tExtend"),
+  auditCadFaces: checkedFlag("tAudit")
 }));
+/* "1" when the checkbox is checked, "0" otherwise. */
+function checkedFlag(id) { return $(id).checked ? "1" : "0"; }
 const loadMesh = () => act("openmodel_load_mesh", $("loadPath").value.trim());
 const loadResults = () => act("openmodel_load_results", $("resPath").value.trim(), $("resStep").value.trim());
 const save = (fn, ext) => act(fn, $("outBase").value.trim(), ext);

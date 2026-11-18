@@ -278,6 +278,19 @@ std::string validateStructuredOptions(const StructuredGmshOptions& s) {
     return {};
 }
 
+/** @return an error message when a tetrahedral-mesh setting is out of range, empty otherwise. */
+std::string validateTetrahedralOptions(const TetrahedralGmshOptions& t) {
+    const auto allowed = [](int value, std::initializer_list<int> values) {
+        return std::find(values.begin(), values.end(), value) != values.end();
+    };
+    if (!allowed(t.algorithm2D, {1, 2, 5, 6, 7, 8, 9})) return "unknown 2D meshing algorithm";
+    if (!allowed(t.algorithm3D, {1, 4, 7, 10})) return "unknown 3D meshing algorithm";
+    if (!std::isfinite(t.optimizeThreshold) || t.optimizeThreshold <= 0.0 || t.optimizeThreshold > 1.0)
+        return "the optimisation threshold must be in (0, 1]";
+    if (t.smoothingSteps < 0) return "the number of smoothing passes must not be negative";
+    return {};
+}
+
 /**
  * @brief Turn the model into a structured one with the structured-meshing tools of Gmsh.
  *
@@ -670,6 +683,20 @@ bool GmshMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Mesh
                 return fail(meshDimension == 3
                     ? "CAD file contains no 3D volume entities"
                     : "CAD file contains no 2D surface entities");
+            }
+
+            // Unstructured volume: the tetrahedral settings. Their defaults are Gmsh's own, so nothing changes unless set.
+            if (options.structure == MeshStructure::Unstructured) {
+                const std::string invalidTetrahedral = validateTetrahedralOptions(options.tetrahedralGmsh);
+                if (!invalidTetrahedral.empty()) return fail("Invalid tetrahedral mesh setting: " + invalidTetrahedral + ".");
+                const TetrahedralGmshOptions& t = options.tetrahedralGmsh;
+                gmsh::option::setNumber("Mesh.Algorithm", t.algorithm2D);
+                gmsh::option::setNumber("Mesh.Algorithm3D", t.algorithm3D);
+                gmsh::option::setNumber("Mesh.Optimize", t.optimize ? 1.0 : 0.0);
+                gmsh::option::setNumber("Mesh.OptimizeNetgen", t.optimizeNetgen ? 1.0 : 0.0);
+                gmsh::option::setNumber("Mesh.OptimizeThreshold", t.optimizeThreshold);
+                gmsh::option::setNumber("Mesh.Smoothing", t.smoothingSteps);
+                gmsh::option::setNumber("Mesh.MeshSizeExtendFromBoundary", t.extendSizeFromBoundary ? 1.0 : 0.0);
             }
 
             // Automatic recombination: BlossomFullQuad needs an even number of segments on the boundary of every face,

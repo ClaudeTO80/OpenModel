@@ -104,6 +104,28 @@ struct StructuredGmshOptions {
     double recombineMinimumQuality = 0.01;
 };
 
+/**
+ * @brief The Gmsh settings of an unstructured (tetrahedral) volume mesh, and only those.
+ *
+ * The defaults are Gmsh's own, so a mesh built without touching them is the same as before these options existed.
+ */
+struct TetrahedralGmshOptions {
+    /** `Mesh.Algorithm`: 2D algorithm of the surfaces. Allowed: 1, 2, 5, 6, 7, 8, 9 (6 = Frontal-Delaunay). */
+    int algorithm2D = 6;
+    /** `Mesh.Algorithm3D`: 3D algorithm of the volume. Allowed: 1, 4, 7, 10 (1 = Delaunay, 10 = HXT). */
+    int algorithm3D = 1;
+    /** `Mesh.Optimize`: optimise the quality of the tetrahedra after meshing. */
+    bool optimize = true;
+    /** `Mesh.OptimizeNetgen`: use the Netgen optimiser instead of the Gmsh one. */
+    bool optimizeNetgen = false;
+    /** `Mesh.OptimizeThreshold`: only tetrahedra whose quality is below this value are optimised, in (0, 1]. */
+    double optimizeThreshold = 0.3;
+    /** `Mesh.Smoothing`: number of smoothing passes of the volume mesh, 0 or more. */
+    int smoothingSteps = 1;
+    /** `Mesh.MeshSizeExtendFromBoundary`: the size of the boundary elements is extended into the volume. */
+    bool extendSizeFromBoundary = true;
+};
+
 struct MeshingOptions {
     MeshDimension dimension = MeshDimension::Volume;
     // Legacy volume target size; retained for source compatibility.
@@ -135,6 +157,8 @@ struct MeshingOptions {
     StructuredElementShape structuredShape = StructuredElementShape::Hexahedron;
     /** Gmsh only: the settings of a structured mesh (transfinite curves and surfaces, recombination). */
     StructuredGmshOptions structuredGmsh;
+    /** Gmsh only: the settings of an unstructured (tetrahedral) mesh (see TetrahedralGmshOptions). */
+    TetrahedralGmshOptions tetrahedralGmsh;
     /**
      * Gmsh only: when a structured mesh is requested but a solid is neither a hexahedral block nor a straight
      * prism, fall back to the unstructured tetrahedral mesh (true, a diagnostic explains why) or fail (false).

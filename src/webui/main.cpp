@@ -17,6 +17,7 @@
 #include <OpenModel/CADModel.hpp>
 #include <OpenModel/FemResults.hpp>
 #include <OpenModel/GltfWriter.hpp>
+#include <OpenModel/GmshSettings.hpp>
 #include <OpenModel/MeshBinaryIO.hpp>
 #include <OpenModel/MeshData.hpp>
 #include <OpenModel/MeshSelection.hpp>
@@ -949,6 +950,8 @@ const char* const kVolumeKeys[] = {
 /** Values of a generate-volume request, indexed as kVolumeKeys. Missing keys read as empty strings. */
 struct VolumeArgs {
     std::vector<std::string> values;
+    /** Every field of the request object, by key (the tetrahedral settings are read from here). */
+    std::map<std::string, std::string> fields;
 
     /** @return the string at index, or "" when absent */
     std::string text(std::size_t index) const {
@@ -978,6 +981,7 @@ struct VolumeArgs {
 bool parseVolumeArgs(const std::string& json, VolumeArgs& out, std::string& error) {
     std::map<std::string, std::string> fields;
     if (!OpenModel::FlatJson::parseStringObject(json, fields, error)) return false;
+    out.fields = fields;
     out.values.clear();
     for (const char* key : kVolumeKeys) {
         const auto it = fields.find(key);
@@ -1047,12 +1051,12 @@ void generateVolumeLocked(webui_event_t* e, const VolumeArgs& args) {
     if (mesherId == "gmsh" && structure == "unstructured") {
         options.structure = MeshStructure::Unstructured;
         options.structuredFallback = false;
-        options.curvatureAdaptation = true;
-        options.thinFaceSizeFactor = args.number(15, 0.0);
-        options.cadFaceSizeFactor = args.number(16, 0.0);
-        options.cadSmallFaceLength = args.number(17, 0.0);
+        // The tetrahedral settings: absent keys keep the Gmsh defaults (see OpenModel/GmshSettings.hpp).
+        std::string bodyDimensions;
+        const std::string settingsError = applyUnstructuredGmshSettings(args.fields, options, bodyDimensions);
+        if (!settingsError.empty()) { reply(e, false, "Invalid mesh settings: " + settingsError + "."); return; }
         std::string dimensionError;
-        if (!parseBodyDimensions(args.text(18), options.bodyDimensions, dimensionError)) {
+        if (!parseBodyDimensions(bodyDimensions, options.bodyDimensions, dimensionError)) {
             reply(e, false, dimensionError); return;
         }
     } else if (mesherId == "gmsh") {
