@@ -6,6 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+- Core: MeshRunRegistry keeps the meshing runs of a session (whole assembly or one part), with one active mesh; only the active mesh is shown, solved and exported. Not yet connected to the WebUI.
+
 ### Changed
 - GUI: the sidebar is one collapsible tree (CAD, Mesh, Material, Constraints, Load cases) replacing the two branches. Each category has an eye for the 3D viewer (Mesh: mesh groups, Constraints: constraint symbols, Load cases: deformed shape; CAD also has the axes) and a "+" that opens its first action. Under Material there is one eye per material, which hides the groups that carry it. The CAD eye hides the surface blocks (CAD geometry) and keeps the volume mesh; the viewer gets a `blockOn` option in `set()` for it.
 - GUI: the details of the selected tree node open in an overlay over the viewer and close with × or Escape; they no longer sit under the tree.
