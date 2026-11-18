@@ -40,6 +40,24 @@ function check(ok, msg) { if (!ok) throw new Error("check failed: " + msg); cons
     await eye().click();
     check((await eye().getAttribute("aria-pressed")) === "false", "constraints eye toggles off");
 
+    // Material eyes: with a fake model in the viewer metadata, one row per material hides its groups.
+    await page.evaluate(() => {
+      viewerModel = () => ({ meta: { groups: [
+        { name: "Bracket", dimension: 3, tag: 1, material: "steel" },
+        { name: "Bolt", dimension: 3, tag: 2, material: "steel" },
+        { name: "Plate", dimension: 3, tag: 3, material: "alu" },
+        { name: "Free", dimension: 3, tag: 4, material: "" },
+      ], blocks: [] } });
+      renderTree();
+    });
+    const matRow = (mat) => catNode("mat").locator(".sbrow").filter({ has: page.locator(".sbname", { hasText: new RegExp("^" + mat + "$") }) });
+    check((await matRow("steel").count()) === 1 && (await matRow("alu").count()) === 1, "one row per material, none for groups without one");
+    // Scoped to the Material node: the Mesh node lists every group, including "Free".
+    const matNode = catNode("mat");
+    check((await matNode.locator(".sbrow").filter({ has: page.locator(".sbname", { hasText: /^Free$/ }) }).count()) === 0, "group without material has no material row");
+    await matRow("steel").locator(".sbeye").click();
+    const hidden = await page.evaluate(() => [...viewerVis.hidden].sort().join());
+    check(hidden === "Bolt,Bracket", "steel eye hides the groups of steel only");
     await page.locator("#sbTreeBody .sbadd").nth(2).click();
     check(await page.locator('.spanel[data-spanel="mat"]').isVisible(), "'+' on Material opens the material panel");
   } finally {

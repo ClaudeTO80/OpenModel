@@ -1147,6 +1147,24 @@ function focusFirst(key) {
   if (d) focusSection(d.id);
 }
 /**
+ * @brief One eye per material of the mesh: hides or shows the groups that carry that material.
+ * Only the volume groups with a material in the script have one; the others are not listed.
+ * @param meta model metadata of the viewer
+ * @return the material rows of the Material category
+ */
+function materialRows(meta) {
+  const byMaterial = new Map();
+  meta.groups.forEach((g) => {
+    if (!g.material) return;
+    if (!byMaterial.has(g.material)) byMaterial.set(g.material, []);
+    byMaterial.get(g.material).push(g.name);
+  });
+  return [...byMaterial].map(([mat, names]) => {
+    const eye = eyeFor(names);
+    return sbNode("mat:" + mat, sbRow({label: mat, state: eye.state, onEye: eye.toggle}), []);
+  });
+}
+/**
  * @brief Rebuilds the single model tree: the categories (CAD, Mesh, Material, Constraints, Load cases), each
  * collapsible, with its panel sections and its viewer eye. The viewer groups hang under Mesh, the constraints
  * under Constraints, the deformed shape under Load cases and the axes under CAD.
@@ -1187,6 +1205,7 @@ function renderTree() {
       const summary = d.querySelector(":scope > summary");
       kids.push(sbNode("sec:" + d.id, sbRow({label: summary ? summary.textContent.trim() : d.id, onPick: () => focusSection(d.id)}), []));
     });
+    if (key === "mat" && m) materialRows(m.meta).forEach((r) => kids.push(r));
     if (key === "cad") kids.push(sbNode("axes", sbRow({label: "Axes", eyeState: viewerVis.axes ? "on" : "off", onEye: flag("axes")}), []));
     box.append(sbNode("cat:" + key, row, kids));
   });

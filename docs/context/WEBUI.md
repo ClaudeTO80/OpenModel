@@ -30,7 +30,7 @@ Nella GUI, le chiavi si costruiscono nel `const generate = () => act("openmodel_
 ## Albero della sidebar
 
 - Un solo albero (`#sbTreeBody`, funzione `renderTree()`): le categorie CAD, Mesh, Material, Constraints, Load cases sono nodi collassabili (stato in `localStorage`, chiave `openmodel.sbCollapsed`).
-- L'occhio di Mesh, Constraints e Load cases controlla il viewer (`viewerVis` → `applyViewerVis()`); gli occhi di CAD e Material non hanno ancora un layer nel viewer. Gli assi stanno sotto CAD.
+- L'occhio di Mesh, Constraints e Load cases controlla il viewer (`viewerVis` → `applyViewerVis()`). Sotto Material c'è un occhio per materiale (`materialRows()`), che nasconde i gruppi con quel `material` nei metadati MGWV. L'occhio di CAD non ha ancora un layer: gli assi stanno sotto CAD.
 - Il "+" di ogni categoria è `SB_ADD`: apre l'azione della categoria, non crea ancora un elemento vuoto nello script.
 - Test: `tests/webgl/gui_tree_smoke.js` (serve la pagina via HTTP).
 

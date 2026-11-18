@@ -89,7 +89,7 @@ a run without result file, and the ribbon tab. It tests the plumbing, not Calcul
 the written `*DLOAD` lines against CalculiX face numbers computed in the test, and a run with the fake solver.
 
 ## Sidebar tree (`gui_tree_smoke.js`)
-Checks the single model tree of the GUI without a backend: the five categories, collapsing with reload persistence, a viewer eye and the "+" of Material. Serve `gui.html` over HTTP (from `file://` the viewer iframe throws cross-origin errors):
+Checks the single model tree of the GUI without a backend: the five categories, collapsing with reload persistence, a viewer eye, the material eyes (checked with a fake model in the viewer metadata) and the "+" of Material. Serve `gui.html` over HTTP (from `file://` the viewer iframe throws cross-origin errors):
 
 ```bash
 python3 -m http.server 8765 --directory src/webui &
