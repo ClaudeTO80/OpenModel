@@ -8,6 +8,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 - GUI: the sidebar is one collapsible tree (CAD, Mesh, Material, Constraints, Load cases) replacing the two branches. Each category has an eye for the 3D viewer (Mesh: mesh groups, Constraints: constraint symbols, Load cases: deformed shape; CAD also has the axes) and a "+" that opens its first action. Under Material there is one eye per material, which hides the groups that carry it. The CAD eye hides the surface blocks (CAD geometry) and keeps the volume mesh; the viewer gets a `blockOn` option in `set()` for it.
+- GUI: the model tree is essential: every node starts closed; Mesh lists the meshes of the session, Constraints the fix lines, Load cases the loads, and a Jobs node shows each job with its steps and the loads each step uses, read from the analysis script.
 - Viewer: the constraint symbols are less intrusive: default size 2.2 % of the model radius (was 3 %), cones about a third thinner (base radius 0.28 of the size, was 0.42) and smaller rotation rings. The size is still adjustable in the viewer panel.
 
 ### Changed
