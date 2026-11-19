@@ -24,16 +24,37 @@ function check(ok, msg) { if (!ok) throw new Error("check failed: " + msg); cons
     await page.goto(url);
     await page.waitForTimeout(800);
     const cats = await page.$$eval("#sbTreeBody > .sbgroup > .sbrow > .sbname[data-cat]", (n) => n.map((x) => x.dataset.cat));
-    check(cats.join() === "cad,mesh,mat,cons,loads", "five categories in tree order");
-    check((await page.locator("#sbTreeBody .sbadd").count()) === 5, "one '+' per category");
+    check(cats.join() === "cad,mesh,mat,cons,loads,jobs", "six categories in tree order");
+    check((await page.locator("#sbTreeBody .sbadd").count()) === 6, "one '+' per category");
+    // Details overlay: closed on load, opened by a category name, closed by × and by Escape.
+    check(!(await page.locator("#inspector").isVisible()), "details overlay closed on load");
+    check((await page.locator("aside .spanel").count()) === 0, "details are not under the tree");
+    await page.locator('#sbTreeBody .sbname[data-cat="loads"]').click();
+    check(await page.locator("#inspector").isVisible(), "clicking a category opens the overlay");
+    check((await page.locator("#inspTitle").textContent()) === "Load cases", "overlay title is the category");
+    await page.locator("#inspClose").click();
+    check(!(await page.locator("#inspector").isVisible()), "× closes the overlay");
+    await page.locator('#sbTreeBody .sbname[data-cat="cons"]').click();
+    await page.keyboard.press("Escape");
+    check(!(await page.locator("#inspector").isVisible()), "Escape closes the overlay");
     const catNode = (key) => page.locator("#sbTreeBody > .sbgroup", { has: page.locator(`.sbname[data-cat="${key}"]`) }).first();
+    /** Opens a category node if it is closed, so that its children can be clicked. */
+    const openNode = async (key) => {
+      if (!(await catNode(key).locator(":scope > .sbkids").isVisible())) await catNode(key).locator(":scope > .sbrow > .sbcaret").click();
+    };
 
-    const kids = catNode("mesh").locator(":scope > .sbkids");
-    check(await kids.isVisible(), "mesh children shown by default");
-    await catNode("mesh").locator(":scope > .sbrow > .sbcaret").click();
-    check(!(await kids.isVisible()), "mesh collapses on caret click");
+    // Constraints needs a fix line in the script to have children to open.
+    await page.evaluate(() => {
+      document.getElementById("anScript").value = "fix plane:x=0\n";
+      renderTree();
+    });
+    const kids = catNode("cons").locator(":scope > .sbkids");
+    check(!(await kids.isVisible()), "every node starts closed");
+    await catNode("cons").locator(":scope > .sbrow > .sbcaret").click();
+    check(await kids.isVisible(), "constraints opens on caret click");
     await page.reload(); await page.waitForTimeout(800);
-    check(!(await catNode("mesh").locator(":scope > .sbkids").isVisible()), "collapsed state kept after reload");
+    await page.evaluate(() => { document.getElementById("anScript").value = "fix plane:x=0\n"; renderTree(); });
+    check(!(await catNode("cons").locator(":scope > .sbkids").isVisible()), "closed again after reload (nothing is kept)");
 
     const eye = () => catNode("cons").locator(":scope > .sbrow > .sbeye");
     check((await eye().getAttribute("aria-pressed")) === "true", "constraints eye on by default");
@@ -55,6 +76,7 @@ function check(ok, msg) { if (!ok) throw new Error("check failed: " + msg); cons
     // Scoped to the Material node: the Mesh node lists every group, including "Free".
     const matNode = catNode("mat");
     check((await matNode.locator(".sbrow").filter({ has: page.locator(".sbname", { hasText: /^Free$/ }) }).count()) === 0, "group without material has no material row");
+    await openNode("mat");
     await matRow("steel").locator(".sbeye").click();
     const hidden = await page.evaluate(() => [...viewerVis.hidden].sort().join());
     check(hidden === "Bolt,Bracket", "steel eye hides the groups of steel only");
@@ -83,6 +105,30 @@ function check(ok, msg) { if (!ok) throw new Error("check failed: " + msg); cons
     await cadEye().click();
     const again = await page.evaluate(() => window.__lastSet.blockOn);
     check(JSON.stringify(again) === JSON.stringify({ 0: true, 2: true }), "CAD eye shows them again");
+    // Script tree: jobs, steps and the loads each step uses, read the way the solver reads the script.
+    const parsed = await page.evaluate(() => {
+      const text = "fix plane:x=0\nforce all F=1,0,0  # first load\njob SETTLE\nstep static loads=force-1\nstep static reset\n";
+      return parseScript(text);
+    });
+    check(JSON.stringify(parsed.fixes.map((f) => f.id)) === '["fix-1"]', "fix line gets a generated id");
+    check(JSON.stringify(parsed.loads.map((l) => l.id)) === '["force-1"]', "force line gets a generated id");
+    check(parsed.jobs.length === 1 && parsed.jobs[0].name === "SETTLE", "job line starts a job");
+    check(JSON.stringify(parsed.jobs[0].steps.map((s) => [s.kind, s.loads, s.reset])) ===
+      '[["static",["force-1"],false],["static",null,true]]', "steps keep their loads= and reset");
+    await page.evaluate(() => {
+      document.getElementById("anScript").value = "fix plane:x=0\nforce all F=1,0,0\njob SETTLE\nstep static loads=force-1\nstep static reset\n";
+      renderTree();
+    });
+    // Session mesh history: the same mesh loaded twice (e.g. with a result) is listed once.
+    const runs = await page.evaluate(() => {
+      const meta = { counts: { nodes: 10, elements: 20 }, bbox: [0, 1] };
+      recordMesh(meta); recordMesh(meta); recordMesh({ counts: { nodes: 11, elements: 20 }, bbox: [0, 1] });
+      return meshHistory.length;
+    });
+    check(runs === 2, "same mesh listed once, a different mesh listed");
+    await catNode("jobs").locator(":scope > .sbrow > .sbcaret").click();
+    check(await page.locator("#sbTreeBody").getByText("job SETTLE", { exact: true }).isVisible(), "job row shows under Jobs");
+
     await page.locator("#sbTreeBody .sbadd").nth(2).click();
     check(await page.locator('.spanel[data-spanel="mat"]').isVisible(), "'+' on Material opens the material panel");
   } finally {
