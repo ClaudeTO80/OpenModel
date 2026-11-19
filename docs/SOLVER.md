@@ -9,7 +9,9 @@ OpenModel meshes carry no material, supports or loads. The **analysis script** a
 One command per line, `#` starts a comment.
 
 ```
-material E=210000 nu=0.3 rho=7.85e-9 [name=STEEL]   # one material for all volume blocks
+material E=210000 nu=0.3 rho=7.85e-9 [name=STEEL]   # default material: every volume block without an assign
+material id=ALU E=70000 nu=0.33 rho=2.7e-9 [name=ALU] # further materials (after the first one), each with its id=
+assign Housing material=ALU                         # material of one volume part (a mesh block); names are case-sensitive
 fix plane:x=0 [dof=1,2,3] [tol=1e-6]                # default: all translations
 force plane:x=10 F=0,-100,0 [amp=A1]               # TOTAL force, shared equally by the selected nodes
 pressure group:Top p=2.5 [amp=A1]                   # surface group; positive = into the body
@@ -57,7 +59,7 @@ Not yet: the script syntax for rigid links, the grouping of selected faces into 
 
 * **The generated `.inp` has not been run through a real CalculiX** (not available here). Tests use `tests/support/fake_ccx.py`, which checks that the input has the expected sections and copies fixture results: they verify the plumbing, not the physics.
 * Forces are shared equally among nodes. For quadratic elements this is not the consistent load (a warning is issued); prefer `pressure`.
-* Pressure supports tetrahedra/hexahedra (linear and quadratic); no pyramids/wedges, no shell/beam elements, no contact, no nonlinear materials, one material.
+* Pressure supports tetrahedra/hexahedra (linear and quadratic); no pyramids/wedges, no shell/beam elements, no contact, no nonlinear materials. Per-part materials (`assign`) are written by CalculiX only; code_aster takes one material.
 * Loads not written yet: body forces per element (`BX/BY/BZ`), centrifugal loads (`CENTRIF`: the manual does not state unambiguously the meaning of its first value), distributed traction (tangential), nodal moments (solid elements have no rotational degrees of freedom), thermal loads (out of scope). Each one needs its syntax checked against the solver manual before it is written.
 * Dynamic steps and amplitudes are not written to the code_aster case: `writeCodeAsterCase` refuses them with a message.
 * The results reader loads every increment of a dynamic run as its own step; the viewer shows the last one by default (`--time T` or `t=T` for another time). Animation over the time history is not implemented.

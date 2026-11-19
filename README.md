@@ -267,7 +267,7 @@ What is **not** verified:
 - The fatigue module has no workbench panel. Its tool `openmodel-fatigue` (`analyze`, `spectrum`) takes JSON material and spectrum files; it was tested with the analytic beam fixture only, not against measured or solver-validated fatigue data. The material unit must equal the unit of the results exactly (no conversion), and CalculiX result files need `--unit SYMBOL:SCALE` (or `resultUnit`) because they do not declare one. It is covered by unit tests but was not validated against test data of a real component; it applies no safety, size, surface or notch factors, and multiaxial cycle counting is only a contract, not an implementation ([`docs/fatigue/methods.html`](docs/fatigue/methods.html)).
 - `OpenModelProject` is a library API only; neither the CLI nor the workbench reads or writes `.omproj` files yet.
 - The workbench CAD face groups need the Open CASCADE backend, and Gmsh for the volume mesh; only face groups are editable (named CAD groups of other dimensions are shown read-only).
-- Nodal forces are shared equally among the selected nodes (not consistent for quadratic elements; use `pressure`); one material and one step per analysis; no contact or nonlinear materials.
+- Nodal forces are shared equally among the selected nodes (not consistent for quadratic elements; use `pressure`); one step per analysis; per-part materials (`assign`) are CalculiX only; no contact or nonlinear materials.
 - Groups cannot yet be deleted or renamed; picking performance with very large selections and touch input are untested.
 - The code base is C++17; migration to C++23 (`std::expected`) is not done.
 

@@ -259,7 +259,8 @@ void testParser() {
     CHECK(hasCode(bad.diagnostics, "SCRIPT_NO_MATERIAL"));
 
     CHECK(!parseAnalysisScript("").success);
-    CHECK(!parseAnalysisScript("material E=1 nu=0.3\nmaterial E=2 nu=0.3\n").success);
+    CHECK(parseAnalysisScript("material E=1 nu=0.3\nmaterial E=2 nu=0.3\n").success);   // further materials are allowed
+    CHECK(!parseAnalysisScript("material E=1 nu=0.3\nmaterial id=m E=2 nu=0.3\nmaterial id=m E=3 nu=0.3\n").success);
     CHECK(!parseAnalysisScript("material E=1 nu=0.3 E=2\n").success);
     CHECK(parseAnalysisScript(exampleAnalysisScript()).success);
     CHECK(parseAnalysisScript("material E=1 nu=0.3\n").success);   // default step: warning only
@@ -729,6 +730,68 @@ void testJobsStepsAndLoads() {
     }
 }
 
+/** Two volume blocks ("Housing" and "Insert") side by side, for the per-part material tests. */
+MeshData makeTwoBlocks() {
+    MeshData m;
+    const double c[8][3] = {{0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {0, 1, 0}, {0, 0, 1}, {1, 0, 1}, {1, 1, 1}, {0, 1, 1}};
+    for (int i = 0; i < 8; ++i) m.addNode(11 + i, c[i][0], c[i][1], c[i][2]);
+    for (int i = 0; i < 8; ++i) m.addNode(21 + i, c[i][0] + 1.0, c[i][1], c[i][2]);
+    m.addElement("Housing", ElementType::Hexahedron8, 1, {0, 1, 2, 3, 4, 5, 6, 7});
+    m.addElement("Insert", ElementType::Hexahedron8, 2, {8, 9, 10, 11, 12, 13, 14, 15});
+    return m;
+}
+
+/** Per-part materials: `assign` lines, the default material for unassigned parts, and the CalculiX/code_aster writers. */
+void testPartMaterials() {
+    const std::string base = "material id=STEEL E=210000 nu=0.3 rho=7.85e-9 name=STEEL\n"
+                             "material id=ALU E=70000 nu=0.33 rho=2.7e-9 name=ALU\n";
+    {
+        const auto r = parseAnalysisScript(base + "assign Housing material=ALU\nfix all\n");
+        CHECK(r.success);
+        CHECK(r.model.material.id == "STEEL" && r.model.materials.size() == 1 && r.model.materials[0].id == "ALU");
+        CHECK(r.model.partMaterials.size() == 1 && r.model.partMaterials[0].part == "Housing");
+        CHECK(materialForPart(r.model, "Housing").name == "ALU");
+        CHECK(materialForPart(r.model, "Insert").name == "STEEL");   // unassigned: the default material
+        CHECK(findAnalysisMaterial(r.model, "ALU") != nullptr && findAnalysisMaterial(r.model, "nope") == nullptr);
+
+        const std::string text = serializeAnalysisScript(r.model);
+        CHECK(contains(text, "material id=ALU E=70000"));
+        CHECK(contains(text, "assign Housing material=ALU"));
+        const auto back = parseAnalysisScript(text);
+        CHECK(back.success && back.model.partMaterials.size() == 1 && back.model.materials.size() == 1);
+    }
+    CHECK(hasCode(parseAnalysisScript(base + "assign Housing material=BRASS\nfix all\n").diagnostics, "SCRIPT_UNKNOWN_MATERIAL"));
+    CHECK(hasCode(parseAnalysisScript(base + "assign Housing\nfix all\n").diagnostics, "SCRIPT_ASSIGN"));
+    CHECK(hasCode(parseAnalysisScript(base + "assign Housing material=ALU\nassign Housing material=STEEL\nfix all\n").diagnostics,
+                  "SCRIPT_DUPLICATE"));
+    CHECK(hasCode(parseAnalysisScript(base + "material id=ALU E=1 nu=0.3\n").diagnostics, "SCRIPT_DUPLICATE_ID"));
+
+    const fs::path dir = tempDir();
+    const MeshData two = makeTwoBlocks();
+    {
+        const auto model = parseOk(base + "assign Housing material=ALU\nfix plane:x=0\nforce plane:x=2 F=0,0,-1\n");
+        const auto r = writeSolverInput(two, model, dir / "job.inp");
+        CHECK(r.success);
+        if (r.success) {
+            const std::string deck = slurp(dir / "job.inp");
+            CHECK(contains(deck, "*MATERIAL, NAME=STEEL") && contains(deck, "*MATERIAL, NAME=ALU"));
+            CHECK(contains(deck, "*SOLID SECTION, ELSET=HOUSING, MATERIAL=ALU"));
+            CHECK(contains(deck, "*SOLID SECTION, ELSET=INSERT, MATERIAL=STEEL"));
+        }
+        CodeAsterOptions options;
+        options.jobName = "parts";
+        CHECK(!writeCodeAsterCase(two, model, dir, options).success);   // one material only in code_aster
+    }
+    // Writer refusals: unknown part, two materials with the same CalculiX name, a missing density in a frequency analysis.
+    CHECK(!writeSolverInput(two, parseOk(base + "assign Missing material=ALU\nfix all\n"), dir / "bad.inp").success);
+    CHECK(!writeSolverInput(two, parseOk("material id=A E=1 nu=0.3 name=SAME\nmaterial id=B E=2 nu=0.3 name=SAME\n"
+                                         "assign Housing material=B\nfix all\n"), dir / "dup.inp").success);
+    CHECK(!writeSolverInput(two, parseOk("material E=210000 nu=0.3 rho=7.85e-9\nmaterial id=PLAIN E=1 nu=0.3\n"
+                                         "assign Housing material=PLAIN\nfix all\nstep frequency modes=2\n"),
+                            dir / "freq.inp").success);
+    fs::remove_all(dir);
+}
+
 int main() {
     testParser();
     testStableConditionIds();
@@ -739,6 +802,7 @@ int main() {
     testTetFaces();
     testWriterFrequencyAndValidation();
     testTimeLoadsAndDynamic();
+    testPartMaterials();
     testJobsStepsAndLoads();
     testRunner();
     if (g_failures) {
