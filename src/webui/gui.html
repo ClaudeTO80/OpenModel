@@ -1266,9 +1266,11 @@ function materialTreeKids(meta) {
   const lines = $("anScript").value.split(/\r?\n/);
   const assigned = partAssignments(lines);
   const fallback = scriptMaterialIds(lines)[0] || "none";
-  const parts = volumeParts().map((part) => sbNode("part:" + part,
+  const parts = volumeParts().map((part) => sbNode("matpart:" + part,
     sbRow({label: part + " : " + (assigned.get(part) || fallback), onPick: () => focusSection("matPartsSection")}), []));
-  return [...parts, ...materialRows(meta)];
+  // Same shape as Mesh > Groups: each group of the mesh with the material it takes; the material eyes follow.
+  const groups = parts.length ? [sbNode("matgroups", sbRow({label: "Groups"}), parts)] : [];
+  return [...groups, ...materialRows(meta)];
 }
 /**
  * @brief Called after every viewer load: the backend records the mesh as a run of the session, so the page reloads the list.
@@ -1288,14 +1290,25 @@ async function refreshMeshRuns() {
  * @brief A mesh of the session as a row of the Mesh branch: the eye shows it in the viewer, the × removes it.
  * @param run {index, name, nodes, elements, shown} as the backend lists it
  */
-function meshRunRow(run) {
+function meshRunRow(run, under = "") {
   const row = sbRow({
     label: run.name + " · " + run.nodes + " nodes · " + run.elements + " elements",
     eyeState: run.shown ? "on" : "off",
     onEye: () => selectMeshRun(run.index),
     onDel: () => removeMeshRun(run.index),
   });
-  return sbNode("run:" + run.index, row, []);
+  return sbNode("run:" + under + run.index, row, []);
+}
+/** Part names of the Groups node: the volume parts of the shown mesh, then the parts the session meshes cover. */
+function groupPartNames() {
+  const names = [...volumeParts()];
+  meshRuns.forEach((run) => (run.parts || []).forEach((p) => { if (!names.includes(p)) names.push(p); }));
+  return names;
+}
+/** One node per part under Groups: the session meshes that cover it. A run appears under every part it covers. */
+function meshPartNodes() {
+  return groupPartNames().map((part) => sbNode("mpart:" + part, sbRow({label: part}),
+    meshRuns.filter((run) => (run.parts || []).includes(part)).map((run) => meshRunRow(run, "p:" + part + ":"))));
 }
 /** Shows the mesh with this index in the viewer. */
 async function selectMeshRun(index) {
@@ -1390,8 +1403,10 @@ function renderTree() {
   const script = parseScript($("anScript").value);
   const cadName = $("cadPath").value.trim().split(/[\\/]/).pop();
   const groupKids = root ? [...root.children].map(([n, c]) => groupNode(n, c, n)) : [];
-  const meshKids = meshRuns.map((run) => meshRunRow(run));
-  if (groupKids.length) meshKids.push(sbNode("groups", sbRow({label: "Groups"}), groupKids));
+  // Runs that cover no part stay at the top of Mesh; the others are listed under their parts in Groups.
+  const meshKids = meshRuns.filter((run) => !(run.parts || []).length).map((run) => meshRunRow(run));
+  const partKids = meshPartNodes();
+  if (partKids.length || groupKids.length) meshKids.push(sbNode("groups", sbRow({label: "Groups"}), [...partKids, ...groupKids]));
   const jobKids = script.jobs.map((j, ji) => sbNode("job:" + ji, sbRow({label: "job " + j.name}), j.steps.map((st, si) => {
     const ids = st.loads === null ? script.loads.map((l) => l.id) : st.loads;
     const label = "step " + st.kind + (st.reset ? " (reset)" : "");

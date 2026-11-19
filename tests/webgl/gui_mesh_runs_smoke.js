@@ -23,8 +23,8 @@ function check(ok, msg) { if (!ok) throw new Error("check failed: " + msg); cons
     await page.addInitScript(() => {
       window.__calls = [];
       window.__runs = [
-        { index: 0, name: "Bracket, 2 mm", nodes: 120, elements: 300, shown: true },
-        { index: 1, name: "Shaft, 1 mm", nodes: 80, elements: 190, shown: false },
+        { index: 0, name: "Bracket, 2 mm", nodes: 120, elements: 300, shown: true, parts: ["Bracket"] },
+        { index: 1, name: "Shaft, 1 mm", nodes: 80, elements: 190, shown: false, parts: ["Shaft"] },
       ];
       window.webui = {
         isConnected: () => true,
@@ -51,19 +51,35 @@ function check(ok, msg) { if (!ok) throw new Error("check failed: " + msg); cons
     await page.goto(url);
     await page.waitForTimeout(400);
 
-    // Open the Mesh branch of the tree, as the user does, and load the runs.
+    // Opens a closed tree node by its label, as the user does with its caret.
+    const openNode = async (label) => {
+      await page.evaluate((text) => {
+        const name = [...document.querySelectorAll(".sbname")].find((n) => n.textContent.trim() === text);
+        const caret = name && name.parentElement.querySelector(".sbcaret");
+        if (caret && caret.getAttribute("aria-expanded") !== "true") caret.click();
+      }, label);
+      await page.waitForTimeout(100);
+    };
+
+    // Open the Mesh branch, its Groups node and the parts, then load the runs.
     await page.evaluate(() => refreshMeshRuns());
     await page.waitForTimeout(200);
-    await page.evaluate(() => {
-      const name = [...document.querySelectorAll(".sbname")].find((n) => n.textContent.trim() === "Mesh");
-      const caret = name && name.parentElement.querySelector(".sbcaret");
-      if (caret) caret.click();
-    });
-    await page.waitForTimeout(200);
+    await openNode("Mesh");
+    await openNode("Groups");
+    await openNode("Bracket");
+    await openNode("Shaft");
 
     const rowOf = (text) => page.locator(".sbrow").filter({ hasText: text }).first();
     check((await rowOf("Bracket, 2 mm").count()) === 1, "the session meshes are listed under Mesh");
     check((await rowOf("Shaft, 1 mm").count()) === 1, "the second mesh is listed");
+    const underPart = await page.evaluate(() => {
+      const kids = (part) => [...document.querySelectorAll(".sbgroup")]
+        .find((g) => g.firstElementChild && g.firstElementChild.querySelector(".sbname")?.textContent.trim() === part);
+      return { bracket: kids("Bracket")?.textContent, shaft: kids("Shaft")?.textContent };
+    });
+    check(underPart.bracket.includes("Bracket, 2 mm") && !underPart.bracket.includes("Shaft, 1 mm"),
+      "each mesh is attributed to its part under Groups");
+    check(underPart.shaft.includes("Shaft, 1 mm"), "the Shaft part lists its mesh");
     check((await rowOf("Bracket, 2 mm").locator(".sbeye").textContent()).includes("👁"), "the shown mesh has an open eye");
 
     // Show the other mesh.

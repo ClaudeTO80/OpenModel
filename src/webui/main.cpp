@@ -1829,9 +1829,15 @@ void meshRunsHandler(webui_event_t* e) {
     for (std::size_t i = 0; i < g.runs.size(); ++i) {
         const auto& run = g.runs.run(i);
         if (i) out << ",";
+        // The parts a run covers, as the registry defines it: its own part, or else every body of the assembly.
+        std::vector<std::string> covered;
+        if (!run.part.empty()) covered.push_back(run.part);
+        else for (const auto& body : run.mesh.getBodies()) covered.push_back(body.name);
         out << "{\"index\":" << i << ",\"name\":" << jsonString(run.name)
             << ",\"nodes\":" << run.mesh.getNumNodes() << ",\"elements\":" << run.mesh.getNumElements()
-            << ",\"shown\":" << (g.runs.selected() == i ? "true" : "false") << "}";
+            << ",\"shown\":" << (g.runs.selected() == i ? "true" : "false") << ",\"parts\":[";
+        for (std::size_t k = 0; k < covered.size(); ++k) out << (k ? "," : "") << jsonString(covered[k]);
+        out << "]}";
     }
     out << "]}";
     webui_return_string(e, out.str().c_str());
