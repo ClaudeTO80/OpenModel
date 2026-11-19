@@ -766,6 +766,17 @@ void testPartMaterials() {
                   "SCRIPT_DUPLICATE"));
     CHECK(hasCode(parseAnalysisScript(base + "material id=ALU E=1 nu=0.3\n").diagnostics, "SCRIPT_DUPLICATE_ID"));
 
+    {
+        // Editing and removing an additional material; removing it drops the assign lines that use it.
+        auto model = parseOk(base + "assign Housing material=ALU\nfix all\n");
+        AnalysisMaterial alu = model.materials[0];
+        alu.youngModulus = 1234.0;
+        std::string err;
+        CHECK(updateMaterial(model, "ALU", alu, err) && model.materials[0].youngModulus == 1234.0);
+        CHECK(!updateMaterial(model, "NOPE", alu, err));
+        CHECK(!eraseMaterial(model, "STEEL"));   // the default material stays
+        CHECK(eraseMaterial(model, "ALU") && model.materials.empty() && model.partMaterials.empty());
+    }
     const fs::path dir = tempDir();
     const MeshData two = makeTwoBlocks();
     {
