@@ -489,9 +489,24 @@ const FixedSupport* findSupport(const AnalysisModel& m, const std::string& id) {
 const NodalForce* findForce(const AnalysisModel& m, const std::string& id) { return findCondition(m.forces, id); }
 const SurfacePressure* findPressure(const AnalysisModel& m, const std::string& id) { return findCondition(m.pressures, id); }
 bool updateMaterial(AnalysisModel& m, const std::string& id, const AnalysisMaterial& r, std::string& e) {
-    if (m.material.id != id) { e = "Material not found: " + id; return false; }
     if (!validConditionId(id)) { e = "Invalid condition ID: " + id; return false; }
-    m.material = r; m.material.id = id; e.clear(); return true;
+    if (m.material.id == id) { m.material = r; m.material.id = id; e.clear(); return true; }
+    for (auto& extra : m.materials) {
+        if (extra.id == id) { extra = r; extra.id = id; e.clear(); return true; }
+    }
+    e = "Material not found: " + id;
+    return false;
+}
+bool eraseMaterial(AnalysisModel& m, const std::string& id) {
+    if (m.material.id == id) return false;   // the default material stays
+    const auto it = std::find_if(m.materials.begin(), m.materials.end(),
+                                 [&](const AnalysisMaterial& x) { return x.id == id; });
+    if (it == m.materials.end()) return false;
+    m.materials.erase(it);
+    m.partMaterials.erase(std::remove_if(m.partMaterials.begin(), m.partMaterials.end(),
+                                         [&](const PartMaterial& pm) { return pm.materialId == id; }),
+                          m.partMaterials.end());
+    return true;
 }
 bool updateSupport(AnalysisModel& m, const std::string& id, const FixedSupport& r, std::string& e) { return replaceCondition(m.supports, id, r, e); }
 bool updateForce(AnalysisModel& m, const std::string& id, const NodalForce& r, std::string& e) { return replaceCondition(m.forces, id, r, e); }

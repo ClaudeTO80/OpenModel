@@ -203,6 +203,8 @@ const SurfacePressure* findPressure(const AnalysisModel& model, const std::strin
 
 /** Replace a condition while preserving its ID. Returns false and sets error if the ID is absent or invalid. */
 bool updateMaterial(AnalysisModel& model, const std::string& id, const AnalysisMaterial& replacement, std::string& error);
+/** @brief Removes an additional material and the assign lines that use it. The default material cannot be removed. */
+bool eraseMaterial(AnalysisModel& model, const std::string& id);
 bool updateSupport(AnalysisModel& model, const std::string& id, const FixedSupport& replacement, std::string& error);
 bool updateForce(AnalysisModel& model, const std::string& id, const NodalForce& replacement, std::string& error);
 bool updatePressure(AnalysisModel& model, const std::string& id, const SurfacePressure& replacement, std::string& error);

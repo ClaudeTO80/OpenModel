@@ -1489,6 +1489,10 @@ void analysisUpdate(webui_event_t* e) {
             return;
         }
         updated = OpenModel::updateMaterial(g.analysis, id, parsed.model.material, error);
+    } else if (!id.empty() && OpenModel::findAnalysisMaterial(g.analysis, id)) {
+        const auto* replacement = OpenModel::findAnalysisMaterial(parsed.model, id);
+        if (!replacement) { reply(e, false, "The candidate does not contain the material with ID " + id); return; }
+        updated = OpenModel::updateMaterial(g.analysis, id, *replacement, error);
     } else if (OpenModel::findSupport(g.analysis, id)) {
         const auto* replacement = OpenModel::findSupport(parsed.model, id);
         if (!replacement) { reply(e, false, "The candidate does not contain the support with ID " + id); return; }
@@ -1520,7 +1524,8 @@ void analysisDelete(webui_event_t* e) {
     if (!lock.ok()) { replyBusy(e); return; }
     if (!g.hasAnalysis) { reply(e, false, "No analysis model loaded."); return; }
     const std::string id = getStringArg(e, 0);
-    bool removed = OpenModel::eraseSupport(g.analysis, id) ||
+    bool removed = OpenModel::eraseMaterial(g.analysis, id) ||
+                   OpenModel::eraseSupport(g.analysis, id) ||
                    OpenModel::eraseForce(g.analysis, id) ||
                    OpenModel::erasePressure(g.analysis, id);
     if (!removed) { reply(e, false, "Condition not found or cannot be deleted: " + id); return; }
