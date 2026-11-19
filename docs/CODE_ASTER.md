@@ -103,6 +103,6 @@ connectivity and groups (tested for every supported type).
 * Element node order is assumed to follow Abaqus; tetrahedra with negative signed volume produce a warning (code_aster may refuse them). 15-node wedge reordering is from memory of the code_aster/MED numbering.
 * Element-based results (`SIEF_ELGA`, `SIGM_ELEM`) are not exported; only nodal fields (the viewer derives von Mises, principal stresses etc. from them).
 * Nodal results from `SIGM_NOEU` are averaged across elements by code_aster; at material interfaces this differs from CalculiX's output.
-* Forces are shared equally among nodes (not consistent for quadratic elements; use `pressure`), one material, one step, linear elasticity only.
+* Forces are shared equally among nodes (not consistent for quadratic elements; use `pressure`), one material (per-part materials are CalculiX only), one step, linear elasticity only.
 * Mode shapes use code_aster's default normalisation; amplitudes are arbitrary (as for any mode shape).
 * Paths in `job.export` are absolute: move the folder and rewrite the case. The launcher runs without sandbox, POSIX only.

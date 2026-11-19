@@ -45,6 +45,7 @@ bool parseVector3(const std::string& text, std::array<double, 3>& out) {
 struct Parser {
     AnalysisParseResult result;
     bool haveMaterial = false, haveStep = false;
+    std::set<std::string> assignedParts;
     std::set<std::string> jobIds;
     std::size_t line = 0;
     std::map<std::string, std::size_t> idCounters;
@@ -139,7 +140,6 @@ struct Parser {
         const std::size_t errorsBefore = result.diagnostics.size();
 
         if (command == "material") {
-            if (haveMaterial) { error("SCRIPT_DUPLICATE", "Only one material is supported"); return; }
             AnalysisMaterial m;
             number("e", m.youngModulus, true);
             number("nu", m.poisson, true);
@@ -149,7 +149,22 @@ struct Parser {
             m.id = conditionId("material", keys);
             if (!positional.empty()) error("SCRIPT_UNEXPECTED", "Unexpected '" + positional[0] + "' after material");
             leftovers();
-            if (result.diagnostics.size() == errorsBefore) { result.model.material = m; haveMaterial = true; }
+            if (result.diagnostics.size() == errorsBefore) {
+                if (haveMaterial) result.model.materials.push_back(m);
+                else { result.model.material = m; haveMaterial = true; }
+            }
+        } else if (command == "assign") {
+            std::string materialId;
+            if (positional.size() != 1 || !take("material", materialId)) {
+                error("SCRIPT_ASSIGN", "assign needs a part name and material=ID, e.g. assign Housing material=ALU");
+                return;
+            }
+            leftovers();
+            if (assignedParts.count(positional[0])) { error("SCRIPT_DUPLICATE", "Part '" + positional[0] + "' is assigned twice"); return; }
+            if (result.diagnostics.size() == errorsBefore) {
+                result.model.partMaterials.push_back(PartMaterial{positional[0], materialId});
+                assignedParts.insert(positional[0]);
+            }
         } else if (command == "fix") {
             FixedSupport f;
             if (positional.size() != 1 || !selector(positional[0], f.where)) { error("SCRIPT_SELECTOR", "fix needs one selector: all, group:NAME or plane:x=VALUE"); return; }
@@ -308,7 +323,7 @@ struct Parser {
             }
             leftovers();
         } else {
-            error("SCRIPT_UNKNOWN_COMMAND", "Unknown command '" + tokens[0] + "' (material, fix, force, pressure, gravity, amplitude, job, step, output)");
+            error("SCRIPT_UNKNOWN_COMMAND", "Unknown command '" + tokens[0] + "' (material, assign, fix, force, pressure, gravity, amplitude, job, step, output)");
         }
     }
 };
@@ -330,6 +345,9 @@ AnalysisParseResult parseAnalysisScript(const std::string& text) {
         p.warning("SCRIPT_DEFAULT_STEP", "No 'step' line: a static analysis is assumed");
         if (p.result.model.jobs.empty()) p.result.model.jobs.push_back(AnalysisJob{"job", {AnalysisStep{}}});
     }
+    for (const auto& pm : p.result.model.partMaterials)
+        if (!findAnalysisMaterial(p.result.model, pm.materialId))
+            p.error("SCRIPT_UNKNOWN_MATERIAL", "assign: no material '" + pm.materialId + "' (define it with a material line id=...)");
     for (const auto& job : p.result.model.jobs)
         if (job.steps.empty()) p.error("SCRIPT_EMPTY_JOB", "Job '" + job.id + "' has no step");
     // Load ids named by a step must exist (checked here, because the loads may follow the job line).
@@ -359,10 +377,14 @@ AnalysisParseResult parseAnalysisScript(const std::string& text) {
 std::string serializeAnalysisScript(const AnalysisModel& model) {
     std::ostringstream out;
     out << std::setprecision(17);
-    out << "material";
-    if (!model.material.id.empty()) out << " id=" << model.material.id;
-    out << " E=" << model.material.youngModulus << " nu=" << model.material.poisson
-        << " rho=" << model.material.density << " name=" << model.material.name << '\n';
+    auto materialLine = [&out](const AnalysisMaterial& m) {
+        out << "material";
+        if (!m.id.empty()) out << " id=" << m.id;
+        out << " E=" << m.youngModulus << " nu=" << m.poisson << " rho=" << m.density << " name=" << m.name << '\n';
+    };
+    materialLine(model.material);
+    for (const auto& m : model.materials) materialLine(m);
+    for (const auto& pm : model.partMaterials) out << "assign " << pm.part << " material=" << pm.materialId << '\n';
     auto selectorText = [](const NodeSelector& selector) {
         if (selector.kind == SelectorKind::All) return std::string("all");
         if (selector.kind == SelectorKind::Group) return std::string("group:") + selector.name;
@@ -465,6 +487,18 @@ template<class T> bool replaceCondition(std::vector<T>& values, const std::strin
     return true;
 }
 }
+const AnalysisMaterial* findAnalysisMaterial(const AnalysisModel& model, const std::string& id) {
+    if (model.material.id == id) return &model.material;
+    for (const auto& m : model.materials) if (m.id == id) return &m;
+    return nullptr;
+}
+
+const AnalysisMaterial& materialForPart(const AnalysisModel& model, const std::string& part) {
+    for (const auto& pm : model.partMaterials)
+        if (pm.part == part) if (const auto* m = findAnalysisMaterial(model, pm.materialId)) return *m;
+    return model.material;
+}
+
 const AnalysisJob* findJob(const AnalysisModel& m, const std::string& id) {
     if (id.empty()) return m.jobs.size() == 1 ? &m.jobs.front() : nullptr;
     for (const auto& job : m.jobs) if (job.id == id) return &job;
@@ -750,9 +784,12 @@ SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& sc
         return failed(r, jobId.empty() ? std::string("The model has no job") : "No job '" + jobId + "'");
     }
     if (job->steps.empty()) return failed(r, "Job '" + job->id + "' has no step");
-    const auto& m = model.material;
-    if (!(m.youngModulus > 0.0) || !std::isfinite(m.youngModulus)) return failed(r, "Young's modulus must be positive");
-    if (!(m.poisson > -1.0 && m.poisson < 0.5)) return failed(r, "Poisson's ratio must lie between -1 and 0.5 (exclusive)");
+    std::vector<const AnalysisMaterial*> allMaterials{&model.material};
+    for (const auto& extra : model.materials) allMaterials.push_back(&extra);
+    for (const AnalysisMaterial* mat : allMaterials) {
+        if (!(mat->youngModulus > 0.0) || !std::isfinite(mat->youngModulus)) return failed(r, "Young's modulus must be positive");
+        if (!(mat->poisson > -1.0 && mat->poisson < 0.5)) return failed(r, "Poisson's ratio must lie between -1 and 0.5 (exclusive)");
+    }
     bool needDensity = false;
     for (const auto& step : job->steps) {
         const auto active = activeLoadIds(model, step);
@@ -760,7 +797,8 @@ SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& sc
         if (model.hasGravity && std::find(active.begin(), active.end(), std::string(kGravityLoadId)) != active.end())
             needDensity = true;
     }
-    if (needDensity && !(m.density > 0.0)) return failed(r, "A frequency analysis and gravity need the density (rho=)");
+    for (const AnalysisMaterial* mat : allMaterials)
+        if (needDensity && !(mat->density > 0.0)) return failed(r, "A frequency analysis and gravity need the density (rho=)");
     for (const auto& f : model.forces)
         if (!f.amplitude.empty() && !std::any_of(model.amplitudes.begin(), model.amplitudes.end(), [&](const AnalysisAmplitude& a) { return a.name == f.amplitude; }))
             return failed(r, "force uses the undefined amplitude '" + f.amplitude + "'");
@@ -789,6 +827,7 @@ SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& sc
     // Volume part of the mesh only.
     MeshData solid;
     std::vector<std::string> volumeSets;
+    std::vector<std::string> volumeParts;   // raw block names, parallel to volumeSets
     for (std::size_t i = 0; i < mesh.getNumNodes(); ++i) {
         const auto c = mesh.nodeCoordinates(static_cast<NodeIndex>(i));
         solid.addNode(mesh.nodeId(static_cast<NodeIndex>(i)), c[0], c[1], c[2]);
@@ -806,8 +845,22 @@ SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& sc
             volumeIds.push_back(block.ids[e]);
         }
         volumeSets.push_back(AbaqusInpWriter::sanitizeName(block.name));
+        volumeParts.push_back(block.name);
     }
     if (volumeIds.empty()) return failed(r, "The mesh has no volume elements: generate a volume mesh first (surface meshes cannot be analysed here)");
+    auto materialName = [](const AnalysisMaterial& mat) { return AbaqusInpWriter::sanitizeName(mat.name.empty() ? "MATERIAL" : mat.name); };
+    for (const auto& pm : model.partMaterials) {
+        if (std::find(volumeParts.begin(), volumeParts.end(), pm.part) == volumeParts.end())
+            return failed(r, "assign: '" + pm.part + "' is not a volume part of the mesh");
+    }
+    std::vector<std::string> sectionMaterials;   // CalculiX material name of each volume part
+    for (const auto& part : volumeParts) sectionMaterials.push_back(materialName(materialForPart(model, part)));
+    {
+        std::set<std::string> names;
+        for (const AnalysisMaterial* mat : allMaterials)
+            if (!names.insert(materialName(*mat)).second)
+                return failed(r, "Two materials have the same name in the CalculiX input ('" + materialName(*mat) + "'): give them different name=");
+    }
     {
         std::unordered_map<ElementId, char> inVolume;
         for (const ElementId id : volumeIds) inVolume.emplace(id, 1);
@@ -932,11 +985,12 @@ SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& sc
     }
     out << "*ELSET, ELSET=MG_EALL\n";
     for (std::size_t i = 0; i < volumeSets.size(); ++i) out << volumeSets[i] << (i + 1 < volumeSets.size() ? ",\n" : "\n");
-    out << "*MATERIAL, NAME=" << AbaqusInpWriter::sanitizeName(m.name.empty() ? "MATERIAL" : m.name) << "\n*ELASTIC\n"
-        << m.youngModulus << ", " << m.poisson << "\n";
-    if (m.density > 0.0) out << "*DENSITY\n" << m.density << "\n";
-    const std::string materialName = AbaqusInpWriter::sanitizeName(m.name.empty() ? "MATERIAL" : m.name);
-    for (const auto& setName : volumeSets) out << "*SOLID SECTION, ELSET=" << setName << ", MATERIAL=" << materialName << "\n";
+    for (const AnalysisMaterial* mat : allMaterials) {
+        out << "*MATERIAL, NAME=" << materialName(*mat) << "\n*ELASTIC\n" << mat->youngModulus << ", " << mat->poisson << "\n";
+        if (mat->density > 0.0) out << "*DENSITY\n" << mat->density << "\n";
+    }
+    for (std::size_t i = 0; i < volumeSets.size(); ++i)
+        out << "*SOLID SECTION, ELSET=" << volumeSets[i] << ", MATERIAL=" << sectionMaterials[i] << "\n";
     for (std::size_t i = 0; i < model.supports.size(); ++i) {
         out << "*NSET, NSET=MG_FIX" << i + 1 << "\n" << idList(mesh, supportNodes[i]);
     }
@@ -1056,7 +1110,8 @@ SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& sc
     }
     std::ostringstream summary;
     summary << "Job " << job->id << ": " << job->steps.size() << " step(s) of " << r.elements << " volume elements, " << r.nodes
-            << " nodes; E = " << m.youngModulus << ", nu = " << m.poisson;
+            << " nodes; " << allMaterials.size() << " material(s), default E = " << model.material.youngModulus
+            << ", nu = " << model.material.poisson;
     if (r.fixedNodes) summary << "; " << r.fixedNodes << " constrained nodes";
     if (r.loadedNodes) summary << "; force on " << r.loadedNodes << " nodes";
     if (r.pressureFaces) summary << "; pressure on " << r.pressureFaces << " faces";

@@ -23,6 +23,8 @@
  * Script syntax (one command per line, `#` starts a comment, names must not contain blanks):
  * @code
  * material E=210000 nu=0.3 rho=7.85e-9 [name=STEEL]
+ * material id=ALU E=70000 nu=0.33 rho=2.7e-9        # further materials (after the first one)
+ * assign Housing material=ALU                         # material of one volume part (mesh block)
  * fix plane:x=0 [dof=1,2,3] [value=0,0,0] [tol=1e-6] # prescribed ux,uy,uz; defaults to zero
  * fix group:BladeRoot_NODES dof=1,2,3           # Node Set generated from a CAD face group
  * force plane:x=10 F=0,-100,0                   # total force, shared equally by the selected nodes
@@ -136,8 +138,16 @@ struct AnalysisJob {
     std::vector<AnalysisStep> steps;    ///< At least one step.
 };
 
+/** @brief Material of one volume part of the mesh (a mesh element block), set by an `assign` line. */
+struct PartMaterial {
+    std::string part;        ///< Name of a volume element block of the mesh.
+    std::string materialId;  ///< Id of a material of the model.
+};
+
 struct AnalysisModel {
-    AnalysisMaterial material;
+    AnalysisMaterial material;                  ///< Default material: every volume part without an assignment.
+    std::vector<AnalysisMaterial> materials;    ///< Further materials, from the `material` lines after the first.
+    std::vector<PartMaterial> partMaterials;    ///< `assign` lines: at most one material per volume part.
     std::vector<FixedSupport> supports;
     std::vector<NodalForce> forces;
     std::vector<SurfacePressure> pressures;
@@ -181,6 +191,12 @@ AnalysisParseResult parseAnalysisScript(const std::string& text);
 
 /** @brief Id of the job `id` (empty = the only job of the model, an error when there are several). Null when absent. */
 const AnalysisJob* findJob(const AnalysisModel& model, const std::string& id);
+
+/** @brief Material with id `id` (the default material included). Null when absent. */
+const AnalysisMaterial* findAnalysisMaterial(const AnalysisModel& model, const std::string& id);
+
+/** @brief Material of the volume part `part`: its assignment, else the default material. */
+const AnalysisMaterial& materialForPart(const AnalysisModel& model, const std::string& part);
 
 /** @brief Ids of the loads active in `step`: its own list, or every load of the model when `step.allLoads`. */
 std::vector<std::string> activeLoadIds(const AnalysisModel& model, const AnalysisStep& step);

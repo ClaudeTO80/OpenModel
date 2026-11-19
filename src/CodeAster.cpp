@@ -383,6 +383,8 @@ CodeAsterExportResult writeCodeAsterCase(const MeshData& mesh, const AnalysisMod
     model.pressures.erase(std::remove_if(model.pressures.begin(), model.pressures.end(), [&](const SurfacePressure& p) { return !isActive(p.id); }), model.pressures.end());
     model.hasGravity = model.hasGravity && isActive(kGravityLoadId);
 
+    if (!model.materials.empty() || !model.partMaterials.empty())
+        return fail(r, "code_aster writes one material for the whole mesh: per-part materials (assign ...) are supported by the CalculiX solver only");
     const auto& m = model.material;
     if (!(m.youngModulus > 0.0) || !std::isfinite(m.youngModulus)) return fail(r, "Young's modulus must be positive");
     if (!(m.poisson > -1.0 && m.poisson < 0.5)) return fail(r, "Poisson's ratio must lie between -1 and 0.5 (exclusive)");
