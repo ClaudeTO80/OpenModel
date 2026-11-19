@@ -520,11 +520,16 @@ details.node details.node{margin-top:8px;background:transparent}
       <label for="matNote">Note</label>
       <input id="matNote" placeholder="Source of the values">
       <div class="grid2"><button type="button" id="btnMatSave" class="primary" onclick="saveKnownMaterial()">Save as known</button><button type="button" onclick="setMaterial()">Set in script</button></div>
-      <p class="hint">Saving writes the material to the materials file at once. Built-in materials cannot be changed: save a copy with another identifier. Set in script writes the values of the form as the material line of the script, with the identifier as its name; the script takes one material, and all its values must be in the units of the script.</p>
+      <p class="hint">Saving writes the material to the materials file at once. Built-in materials cannot be changed: save a copy with another identifier. Set in script writes the values of the form as the material line of the script, with the identifier as its name; the first material line of the script is the default material; further materials are added with an id= and assigned to parts below. All values must be in the units of the script.</p>
     </details>
     <details class="node">
       <summary>Material in the script</summary>
       <ul id="condMaterial" class="conds"></ul>
+    </details>
+    <details class="node" id="matPartsSection">
+      <summary>Material per part</summary>
+      <p class="hint">Each volume part of the mesh takes the default material unless another one is chosen here. The choice is written to the script as an <code>assign</code> line.</p>
+      <ul id="condParts" class="conds"></ul>
     </details>
   </div>
 
@@ -1178,6 +1183,79 @@ function materialRows(meta) {
     return sbNode("mat:" + mat, sbRow({label: mat, state: eye.state, onEye: eye.toggle}), []);
   });
 }
+/** Volume parts of the mesh: the blocks of dimension 3, by name. */
+function volumeParts() {
+  const m = viewerModel();
+  return m ? m.meta.blocks.filter((b) => b.dimension === 3).map((b) => b.name) : [];
+}
+/** Ids of the material lines of the script, in script order: the first one is the default material. */
+function scriptMaterialIds(lines) {
+  return lines.filter((l) => analysisCommand(l) === "material").map((l) => {
+    const m = /(?:^|\s)id=([A-Za-z0-9_.-]+)/.exec(l.trim());
+    return m ? m[1] : null;
+  }).filter((id) => id !== null);
+}
+/** Part name -> material id, from the assign lines of the script. */
+function partAssignments(lines) {
+  const out = new Map();
+  lines.forEach((l) => {
+    if (analysisCommand(l) !== "assign") return;
+    const part = l.trim().split(/\s+/)[1];
+    const m = /(?:^|\s)material=(\S+)/i.exec(l);
+    if (part && m) out.set(part, m[1]);
+  });
+  return out;
+}
+/** Writes the material of one part into the script: an assign line, or none when it is the default material. */
+async function assignPartMaterial(part, id) {
+  const kept = $("anScript").value.split(/\r?\n/)
+    .filter((l) => !(analysisCommand(l) === "assign" && l.trim().split(/\s+/)[1] === part));
+  if (id !== scriptMaterialIds(kept)[0]) kept.push("assign " + part + " material=" + id);
+  const r = await act("openmodel_analysis_load", kept.join("\n"));
+  if (!r || !r.ok) { renderPartMaterials(); return; }
+  $("anScript").value = r.message;
+  renderAnalysisConditions();
+  renderTree();
+}
+/** Lists the volume parts with the material each one takes (the default one unless assigned). */
+function renderPartMaterials() {
+  const box = $("condParts");
+  if (!box) return;
+  box.replaceChildren();
+  const lines = $("anScript").value.split(/\r?\n/);
+  const ids = scriptMaterialIds(lines);
+  const assigned = partAssignments(lines);
+  const parts = volumeParts();
+  if (!ids.length || !parts.length) {
+    const none = document.createElement("li");
+    none.className = "hint";
+    none.textContent = !ids.length ? "Add a material first." : "Generate or load a volume mesh to list its parts.";
+    box.append(none);
+    return;
+  }
+  parts.forEach((part) => {
+    const item = document.createElement("li");
+    item.style.cssText = "display:flex;gap:6px;align-items:center;margin:4px 0";
+    const name = document.createElement("code");
+    name.textContent = part;
+    name.style.flex = "1";
+    const select = document.createElement("select");
+    ids.forEach((id, k) => {
+      const opt = document.createElement("option");
+      opt.value = id;
+      opt.textContent = id + (k === 0 ? " (default)" : "");
+      select.append(opt);
+    });
+    select.value = assigned.get(part) || ids[0];
+    if (/\s/.test(part)) {
+      select.disabled = true;
+      select.title = "A part name with spaces cannot be assigned in the script.";
+    }
+    select.addEventListener("change", () => assignPartMaterial(part, select.value));
+    item.append(name, select);
+    box.append(item);
+  });
+}
 /**
  * @brief Rebuilds the single model tree: the categories (CAD, Mesh, Material, Constraints, Load cases), each
  * collapsible, with its panel sections and its viewer eye. The viewer groups hang under Mesh, the constraints
@@ -1220,10 +1298,18 @@ function renderTree() {
       const summary = d.querySelector(":scope > summary");
       kids.push(sbNode("sec:" + d.id, sbRow({label: summary ? summary.textContent.trim() : d.id, onPick: () => focusSection(d.id)}), []));
     });
-    if (key === "mat" && m) materialRows(m.meta).forEach((r) => kids.push(r));
+    if (key === "mat" && m) {
+      const lines = $("anScript").value.split(/\r?\n/);
+      const assigned = partAssignments(lines);
+      const fallback = scriptMaterialIds(lines)[0] || "none";
+      volumeParts().forEach((part) => kids.push(sbNode("part:" + part,
+        sbRow({label: part + " : " + (assigned.get(part) || fallback), onPick: () => focusSection("matPartsSection")}), [])));
+      materialRows(m.meta).forEach((r) => kids.push(r));
+    }
     if (key === "cad") kids.push(sbNode("axes", sbRow({label: "Axes", eyeState: viewerVis.axes ? "on" : "off", onEye: flag("axes")}), []));
     box.append(sbNode("cat:" + key, row, kids));
   });
+  renderPartMaterials();
   showSidebarTab(sbActiveCat);
 }
 /**
@@ -1530,7 +1616,7 @@ async function makeGroup(kind, name, prefix) {
   if (r && r.ok) { $("grpName").value = ""; }
   return r;
 }
-const ANALYSIS_COMMANDS = new Set(["material", "fix", "force", "pressure", "gravity", "amplitude", "job", "step", "output"]);
+const ANALYSIS_COMMANDS = new Set(["material", "assign", "fix", "force", "pressure", "gravity", "amplitude", "job", "step", "output"]);
 function analysisCommand(line) {
   const text = line.trim();
   if (!text || text.startsWith("#")) return null;
@@ -1646,9 +1732,10 @@ function renderAnalysisConditions() {
   const lines = $("anScript").value.split(/\r?\n/);
   lines.forEach((line, index) => {
     const command = analysisCommand(line);
-    if (!command) return;
+    if (!command || command === "assign") return;
     const list = $(CONDITION_LIST[command]);
-    if (command === "material") fillMaterialFields(line);
+    // The form shows the default material, the first material line of the script.
+    if (command === "material" && index === lines.findIndex((l) => analysisCommand(l) === "material")) fillMaterialFields(line);
     const item = document.createElement("li");
     item.style.cssText = "display:flex;gap:6px;align-items:center;margin:4px 0;padding:5px;border:1px solid var(--border,#bbb);border-radius:4px";
     const content = document.createElement("code");
@@ -1696,6 +1783,7 @@ function renderAnalysisConditions() {
     empty.className = "hint";
     l.append(empty);
   }
+  renderPartMaterials();
 }
 $("anScript").addEventListener("input", renderAnalysisConditions);
 /** Copies the values of the material line into the Material form, so that editing one field keeps the others. */
