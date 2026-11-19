@@ -43,6 +43,12 @@ The mesh through `AbaqusInpWriter` (**volume elements only**; surface/line eleme
 
 The node constraints of `MeshData` (set in the GUI with *Mesh constraints*, or read from `*BOUNDARY`) are added to the script's supports when the input is written (`withMeshConstraints()`): one `fix` per set of blocked translations and prescribed values, id `mesh-constraint-N`. A conflict with a script support is refused with the usual message. Rotations (rx, ry, rz) are not written, because the solid elements have no rotational degrees of freedom: the warning `CONSTRAINT_ROTATION_IGNORED` is reported.
 
+### Rigid links (holes)
+
+A `RigidLink` (`AnalysisModel::rigidLinks`) couples a set of mesh nodes to a reference point with CalculiX `*RIGID BODY`. The reference node is not a mesh node: the writer creates it at the given position with the next free node id after the mesh, and writes `*NSET, NSET=MG_RBS<n>` and `*RIGID BODY, NSET=MG_RBS<n>, REF NODE=<id>` after the `*BOUNDARY` block. All six degrees of freedom of the slave nodes follow the reference node. A node may belong to one link only (refused before writing otherwise). `holeRigidLinks()` makes one link per hole from the node sets of the hole edges: each hole is fitted with a circle (`fitHoleCircle()`, centre = centroid, axis = smallest-spread direction), and the reference is the point given by the user outside the part. Warnings: `RBE2_OFF_AXIS` (reference more than 5 % of the radius off the hole axis), `RBE2_NOT_CIRCULAR` (nodes more than 5 % off a circle).
+
+Not yet: the script syntax for rigid links, the grouping of selected faces into holes, the GUI. The deck syntax has not been run through CalculiX (not installed here).
+
 ## Use
 
 * GUI: ribbon tab **Analisi** or section *6 · Analisi e solver*. Job argument: a path ending in `.inp` is the input file, anything else is a folder containing `job.inp`; empty = `./openmodel_job/job.inp`. Solver empty = `ccx` in `PATH`. The log is shown live; *Annulla* sends SIGTERM to the process group, then SIGKILL after 3 s. On success the results are loaded automatically.

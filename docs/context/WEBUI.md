@@ -29,9 +29,13 @@ Nella GUI, le chiavi si costruiscono nel `const generate = () => act("openmodel_
 
 ## Albero della sidebar
 
-- Un solo albero (`#sbTreeBody`, funzione `renderTree()`): le categorie CAD, Mesh, Material, Constraints, Load cases sono nodi collassabili (stato in `localStorage`, chiave `openmodel.sbCollapsed`).
-- L'occhio di Mesh, Constraints e Load cases controlla il viewer (`viewerVis` → `applyViewerVis()`). Sotto Material c'è un occhio per materiale (`materialRows()`), che nasconde i gruppi con quel `material` nei metadati MGWV. L'occhio di CAD nasconde i blocchi di dimensione inferiore a 3 (la geometria superficiale), tramite `blockOn` di `OpenModelViewer.set()`: gli altri blocchi restano come li ha impostati il pannello del viewer. Gli assi stanno sotto CAD.
-- Il "+" di ogni categoria è `SB_ADD`: apre l'azione della categoria, non crea ancora un elemento vuoto nello script.
+- Un solo albero (`#sbTreeBody`, funzione `renderTree()`). Ogni nodo parte chiuso a ogni caricamento; lo stato aperto non viene salvato (`sbExpanded`).
+- Categorie: CAD (figlio: la parte importata, più gli assi), Mesh (figli: le mesh della sessione da `recordMesh()`, poi i gruppi), Material (un occhio per materiale, `materialRows()`), Constraints (le righe `fix` dello script), Load cases (le righe di carico dello script), Jobs (job → step → carichi usati dallo step).
+- Lo script si legge con `parseScript()`, con le stesse regole di `src/AnalysisSetup.cpp`: id dati o generati (`force-N`, `pressure-N`, `fix-N`), `job NAME` apre un job, `step` appartiene all'ultimo job, `loads=` elenca i carichi attivi, senza `loads=` valgono tutti.
+- Gli occhi di Mesh, Constraints e Load cases controllano il viewer (`viewerVis` → `applyViewerVis()`). L'occhio di CAD nasconde i blocchi di dimensione inferiore a 3 (`blockOn` di `OpenModelViewer.set()`). Gli assi stanno sotto CAD.
+- Il "+" di ogni categoria è `SB_ADD`: apre l'azione della categoria; Jobs porta alla casella dello script. Non crea ancora elementi vuoti nello script.
+- `point` e `RBE2` non esistono né nel parser né nel solver: non sono nell'albero.
+- I pannelli di dettaglio (`.spanel`) stanno nell'overlay `#inspector` sopra il viewer, non sotto l'albero: si aprono cliccando il nome di una categoria o un "+", si chiudono con × o Esc. `showSidebarTab()` apre, `closeInspector()` chiude, `highlightTree()` segna la riga aperta.
 - Test: `tests/webgl/gui_tree_smoke.js` (serve la pagina via HTTP).
 
 ## Viewer
