@@ -99,6 +99,9 @@ iframe{display:block;width:100%;height:100%;border:0;background:var(--viewport)}
 .sbadd{flex:0 0 auto;padding:0 6px;font-size:13px;line-height:1.3;background:transparent;border-color:transparent}
 .sbadd:hover:not(:disabled){background:var(--btn-hover)}
 .sbadd:focus-visible,.sbcaret:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.sbdel{flex:0 0 auto;padding:0 6px;font-size:13px;line-height:1.3;background:transparent;border-color:transparent}
+.sbdel:hover:not(:disabled){background:var(--btn-hover)}
+.sbdel:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .sbrow{display:flex;align-items:center;gap:4px;min-height:28px;padding:2px 3px 2px 6px;border-radius:6px}
 .sbrow:hover{background:var(--hover)}
 .sbname{flex:1;min-width:0;padding:3px 6px;border-radius:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -1056,7 +1059,7 @@ let sbActiveCat = null;
  * @param o.onAdd     called when the "+" is pressed, or null for a row without it
  * @return the row element
  */
-function sbRow({label, state = null, eyeState = state, onPick = null, onEye = null, onAdd = null}) {
+function sbRow({label, state = null, eyeState = state, onPick = null, onEye = null, onAdd = null, onDel = null}) {
   const row = document.createElement("div");
   row.className = "sbrow" + (state === "off" ? " off" : "") + (state === "mixed" ? " mixed" : "");
   const name = document.createElement("span");
@@ -1076,6 +1079,14 @@ function sbRow({label, state = null, eyeState = state, onPick = null, onEye = nu
     eye.setAttribute("aria-pressed", String(shown));
     eye.addEventListener("click", onEye);
     row.append(eye);
+  }
+  if (onDel) {
+    const del = document.createElement("button");
+    del.type = "button"; del.className = "sbdel"; del.textContent = "×";
+    del.title = "Remove " + label + " from the session";
+    del.setAttribute("aria-label", "Remove " + label + " from the session");
+    del.addEventListener("click", onDel);
+    row.append(del);
   }
   if (onAdd) {
     const add = document.createElement("button");
@@ -1175,8 +1186,8 @@ function materialRows(meta) {
     return sbNode("mat:" + mat, sbRow({label: mat, state: eye.state, onEye: eye.toggle}), []);
   });
 }
-/** Mesh runs of this session, one per distinct mesh loaded. Kept only while the page is open. */
-const meshHistory = [];
+/** Meshes of this session as the backend lists them (see refreshMeshRuns). */
+let meshRuns = [];
 /** Volume parts of the mesh: the blocks of dimension 3, by name. */
 function volumeParts() {
   const m = viewerModel();
@@ -1260,18 +1271,41 @@ function materialTreeKids(meta) {
   return [...parts, ...materialRows(meta)];
 }
 /**
- * @brief Adds the loaded mesh to the session history, unless the same mesh is already there.
+ * @brief Called after every viewer load: the backend records the mesh as a run of the session, so the page reloads the list.
  * @param meta metadata of the loaded model
  */
 function recordMesh(meta) {
-  if (!meta.counts) return;
-  const cad = $("cadPath").value.trim();
-  const entry = {
-    part: cad ? cad.split(/[\\/]/).pop() : "Mesh",
-    nodes: meta.counts.nodes, elements: meta.counts.elements,
-    key: JSON.stringify([meta.counts.nodes, meta.counts.elements, meta.bbox]),
-  };
-  if (!meshHistory.some((e) => e.key === entry.key)) meshHistory.push(entry);
+  refreshMeshRuns();
+}
+/** Reloads the meshes of the session from the backend and rebuilds the tree. */
+async function refreshMeshRuns() {
+  const r = await act("openmodel_mesh_runs");
+  if (!r || !r.ok) return;
+  meshRuns = r.runs || [];
+  renderTree();
+}
+/**
+ * @brief A mesh of the session as a row of the Mesh branch: the eye shows it in the viewer, the × removes it.
+ * @param run {index, name, nodes, elements, shown} as the backend lists it
+ */
+function meshRunRow(run) {
+  const row = sbRow({
+    label: run.name + " · " + run.nodes + " nodes · " + run.elements + " elements",
+    eyeState: run.shown ? "on" : "off",
+    onEye: () => selectMeshRun(run.index),
+    onDel: () => removeMeshRun(run.index),
+  });
+  return sbNode("run:" + run.index, row, []);
+}
+/** Shows the mesh with this index in the viewer. */
+async function selectMeshRun(index) {
+  const r = await act("openmodel_mesh_select", String(index));
+  if (r && r.ok) refreshMeshRuns();
+}
+/** Removes the mesh with this index from the session. */
+async function removeMeshRun(index) {
+  const r = await act("openmodel_mesh_remove", String(index));
+  if (r && r.ok) refreshMeshRuns();
 }
 /**
  * @brief Reads the analysis script the way the solver does (AnalysisSetup.cpp): loads and supports get the id
@@ -1356,7 +1390,7 @@ function renderTree() {
   const script = parseScript($("anScript").value);
   const cadName = $("cadPath").value.trim().split(/[\\/]/).pop();
   const groupKids = root ? [...root.children].map(([n, c]) => groupNode(n, c, n)) : [];
-  const meshKids = meshHistory.map((e) => treeItem(`${e.part} · ${e.nodes} nodes · ${e.elements} elements`, "run:" + e.key));
+  const meshKids = meshRuns.map((run) => meshRunRow(run));
   if (groupKids.length) meshKids.push(sbNode("groups", sbRow({label: "Groups"}), groupKids));
   const jobKids = script.jobs.map((j, ji) => sbNode("job:" + ji, sbRow({label: "job " + j.name}), j.steps.map((st, si) => {
     const ids = st.loads === null ? script.loads.map((l) => l.id) : st.loads;

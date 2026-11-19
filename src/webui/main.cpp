@@ -20,6 +20,7 @@
 #include <OpenModel/GmshSettings.hpp>
 #include <OpenModel/MeshBinaryIO.hpp>
 #include <OpenModel/MeshData.hpp>
+#include <OpenModel/MeshRuns.hpp>
 #include <OpenModel/MeshSelection.hpp>
 #include <OpenModel/MeshImporter.hpp>
 #include <OpenModel/MaterialDatabase.hpp>
@@ -127,6 +128,7 @@ struct AppState {
     MeshData mesh;
     MeshOrigin origin = MeshOrigin::None;
     std::string meshLabel;
+    OpenModel::MeshRunRegistry runs;   ///< Meshes of this session; the one shown is also g.mesh.
     std::string source;
     double linearDeflection = kFinestLinearDeflection;   ///< CAD tessellation chordal tolerance (model units).
     double angularDeflection = kFinestAngularDeflection; ///< CAD tessellation angular tolerance (radians).
@@ -245,6 +247,21 @@ std::string diagnosticsText(const std::vector<OpenModel::ImportDiagnostic>& diag
  * Attaches the loaded results (if any) to the view options of the current mesh.
  * On failure the view stays plain and the reason is stored in g.resultsNote.
  */
+/** Keeps the mesh now in g.mesh as a run of the session and shows it. A run with the same name and element and
+    node counts is replaced, so loading the same mesh twice does not list it twice. */
+void recordRun(const std::string& name) {
+    for (std::size_t i = 0; i < g.runs.size(); ++i) {
+        const auto& run = g.runs.run(i);
+        if (run.name == name && run.mesh.getNumNodes() == g.mesh.getNumNodes()
+            && run.mesh.getNumElements() == g.mesh.getNumElements()) {
+            g.runs.remove(i);
+            break;
+        }
+    }
+    g.runs.add(OpenModel::MeshRun{name, std::string{}, g.mesh});
+    g.runs.select(g.runs.size() - 1);
+}
+
 OpenModel::BindResult attachResults(const MeshData& mesh, WebViewOptions& options) {
     OpenModel::BindResult bound;
     g.resultsNote.clear();
@@ -1211,6 +1228,7 @@ void generateVolumeLocked(webui_event_t* e, const VolumeArgs& args) {
     g.mesh = std::move(candidate);
     g.origin = MeshOrigin::Generated;
     g.meshLabel = "Mesh " + label;
+    recordRun(g.meshLabel);
     updateView();
     std::string noteText;
     for (const auto& note : notes) noteText += "\n" + note;
@@ -1269,6 +1287,7 @@ void loadMesh(webui_event_t* e) {
     g.origin = MeshOrigin::Loaded;
     g.meshLabel = file.filename().string();
     g.source = file.string();
+    recordRun(g.meshLabel);
     updateView();
     reply(e, true, "Mesh loaded from " + g.source + ".\n" + meshSummary() + note + (g.viewNote.empty() ? "" : "\n" + g.viewNote));
 }
@@ -1789,6 +1808,72 @@ void listGroupsHandler(webui_event_t* e) {
     StateLock lock;
     if (!lock.ok()) { replyBusy(e); return; }
     replyGroups(e, true, "");
+}
+
+/** Index argument of the mesh handlers; false when it is not a number. */
+bool runIndexArg(webui_event_t* e, std::size_t& index) {
+    try {
+        index = static_cast<std::size_t>(std::stoul(getStringArg(e, 0)));
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+/** Replies with the meshes of the session: index, name, node and element counts, and whether each is shown. */
+void meshRunsHandler(webui_event_t* e) {
+    StateLock lock;
+    if (!lock.ok()) { replyBusy(e); return; }
+    std::ostringstream out;
+    out << "{\"ok\":true,\"message\":\"\",\"runs\":[";
+    for (std::size_t i = 0; i < g.runs.size(); ++i) {
+        const auto& run = g.runs.run(i);
+        if (i) out << ",";
+        out << "{\"index\":" << i << ",\"name\":" << jsonString(run.name)
+            << ",\"nodes\":" << run.mesh.getNumNodes() << ",\"elements\":" << run.mesh.getNumElements()
+            << ",\"shown\":" << (g.runs.selected() == i ? "true" : "false") << "}";
+    }
+    out << "]}";
+    webui_return_string(e, out.str().c_str());
+}
+
+/** Argument: index of a mesh of the session. Shows that mesh in the viewer. */
+void meshRunSelectHandler(webui_event_t* e) {
+    StateLock lock;
+    if (!lock.ok()) { replyBusy(e); return; }
+    std::size_t index = 0;
+    if (!runIndexArg(e, index)) { reply(e, false, "The mesh index is not a number."); return; }
+    if (index >= g.runs.size()) { reply(e, false, "There is no mesh with index " + std::to_string(index) + "."); return; }
+    clearResults();
+    g.runs.select(index);
+    g.mesh = g.runs.activeMesh();
+    g.meshLabel = g.runs.run(index).name;
+    updateView();
+    reply(e, true, "");
+}
+
+/** Argument: index of a mesh of the session. Removes it from the session; if it was shown, the last mesh left is shown. */
+void meshRunRemoveHandler(webui_event_t* e) {
+    StateLock lock;
+    if (!lock.ok()) { replyBusy(e); return; }
+    std::size_t index = 0;
+    if (!runIndexArg(e, index)) { reply(e, false, "The mesh index is not a number."); return; }
+    if (index >= g.runs.size()) { reply(e, false, "There is no mesh with index " + std::to_string(index) + "."); return; }
+    const bool wasShown = g.runs.selected() == index;
+    g.runs.remove(index);
+    if (wasShown) {
+        clearResults();
+        if (g.runs.size() > 0) {
+            g.runs.select(g.runs.size() - 1);
+            g.mesh = g.runs.activeMesh();
+            g.meshLabel = g.runs.run(g.runs.size() - 1).name;
+        } else {
+            g.mesh = MeshData{};
+            g.meshLabel.clear();
+        }
+        updateView();
+    }
+    reply(e, true, "");
 }
 
 /** Argument: group name. Replies with the members as a selection that the page shows in the viewer. */
@@ -2492,6 +2577,9 @@ int main() {
     webui_bind(window, "openmodel_create_group", createGroupHandler);
     webui_bind(window, "openmodel_list_groups", listGroupsHandler);
     webui_bind(window, "openmodel_show_group", showGroupHandler);
+    webui_bind(window, "openmodel_mesh_runs", meshRunsHandler);
+    webui_bind(window, "openmodel_mesh_select", meshRunSelectHandler);
+    webui_bind(window, "openmodel_mesh_remove", meshRunRemoveHandler);
     webui_bind(window, "openmodel_constraint_apply", constraintApplyHandler);
     webui_bind(window, "openmodel_constraint_release", constraintReleaseHandler);
     webui_bind(window, "openmodel_constraint_clear", constraintClearHandler);
