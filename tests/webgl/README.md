@@ -111,3 +111,11 @@ filter, Clear and the polling, the bottom panel (Log and Solver tabs, hide), and
 ```bash
 NODE_PATH=... node tests/webgl/gui_log_smoke.js http://127.0.0.1:8765/gui.html
 ```
+
+## Workbench layout (`gui_workbench_smoke.js`)
+Checks that the Selection controls sit in the card over the viewer (same ids, initial state kept) and that each category of the
+model tree shows its state (CAD, mesh count and nodes, constraints, load cases, jobs). Same setup as `gui_log_smoke.js`.
+
+```bash
+NODE_PATH=... node tests/webgl/gui_workbench_smoke.js http://127.0.0.1:8765/gui.html
+```

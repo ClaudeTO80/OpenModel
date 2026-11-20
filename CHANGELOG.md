@@ -13,6 +13,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ### Changed
 - GUI: the Log moved from the bottom of the sidebar to a panel at the bottom of the window, with the Log and Solver tabs (the solver output left the Analysis section). The panel can be hidden and resized; its state is kept between sessions.
 - GUI: status bar at the bottom: the counts of the shown mesh, the latest message of the backend (kept after Clear), and the version.
+- GUI: the Selection controls moved from the top of the sidebar to a card over the viewer (same controls, the card can be collapsed).
+- GUI: each category of the model tree shows its state beside its name: CAD imported, mesh count and nodes, constraints, load cases, jobs with or without results.
 
 ## [0.1.5] - 2026-11-20
 

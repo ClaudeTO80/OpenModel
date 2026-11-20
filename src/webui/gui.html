@@ -55,6 +55,8 @@ main{position:relative;min-width:0;min-height:0}
 .dockTools{display:flex;gap:8px;align-items:end;margin-bottom:6px}
 .dockTools>div{display:grid;gap:2px}
 #progressLog,#solverLog{min-height:0;overflow:auto;font-family:monospace;font-size:11px;white-space:pre-wrap;margin:0}
+#selectionOverlay{position:absolute;top:10px;right:10px;z-index:4;width:min(300px,calc(100% - 20px));max-height:calc(100% - 20px);overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.18);padding:6px 10px}
+#selectionOverlay>details{margin:0}
 #statusbar{display:flex;align-items:center;gap:16px;padding:3px 10px;border-top:1px solid var(--line);background:var(--panel);color:var(--muted);font-size:11.5px;white-space:nowrap;min-width:0}
 #statusMesh{flex:none;color:var(--text)}
 .statusMsg{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;background:none;border:0;color:inherit;text-align:left;padding:0;cursor:pointer;font:inherit}
@@ -126,6 +128,7 @@ iframe{display:block;width:100%;height:100%;border:0;background:var(--viewport)}
 .sbrow{display:flex;align-items:center;gap:4px;min-height:28px;padding:2px 3px 2px 6px;border-radius:6px}
 .sbrow:hover{background:var(--hover)}
 .sbname{flex:1;min-width:0;padding:3px 6px;border-radius:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sbsub{flex:none;max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--muted);padding-right:4px}
 .sbrow>.sbname[role="treeitem"]{cursor:pointer}
 .sbgroup>.sbrow>.sbname{font-weight:700}
 .sbname:focus-visible,.sbeye:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
@@ -305,27 +308,6 @@ details.node details.node{margin-top:8px;background:transparent}
 <div id="shell">
 <aside>
   <div><h1>OpenModel Workbench</h1><div class="sub" id="version">CAD → FEM mesh → visualization</div></div>
-
-  <details id="secSel" class="node" open>
-    <summary>Selection</summary>
-    <label for="selMode">Select in the viewer</label>
-    <select id="selMode" onchange="setPickMode(this.value)">
-      <option value="off">Off</option><option value="node">Nodes</option><option value="element">Elements</option><option value="face">Faces</option>
-    </select>
-    <details class="node">
-      <summary>Advanced selection</summary>
-    <div class="grid2"><div><label for="selAngle">Face angle (°)</label><input id="selAngle" type="number" min="0" max="180" step="0.5" value="1" title="A click on a face also selects the connected faces whose plane is within this angle of the clicked one (0 = only the clicked face; 90 or more = every connected face)" onchange="setPickAngle(this.value)"></div>
-      <div><label for="selBoxOn">Box</label><input id="selBoxOn" type="checkbox" onchange="setPickBox(this.checked)"></div></div>
-    <label for="selGrowth">Face growth</label>
-    <select id="selGrowth" title="Same normal: the angle is measured against the clicked face, so a curved surface is not followed. Smooth surface: the angle is measured between neighbouring faces, so the selection follows a curved surface." onchange="setPickGrowth(this.value)">
-      <option value="same-normal">Same normal</option><option value="smooth">Smooth surface</option>
-    </select>
-    <div class="grid2"><div><label for="selHoles">Holes</label><input id="selHoles" type="checkbox" checked title="A click on the wall of a hole (a bolt hole, a bore) selects the whole wall" onchange="setPickHoles(this.checked)"></div>
-      <div><label for="selHoleArc">Hole arc (°)</label><input id="selHoleArc" type="number" min="30" max="360" step="10" value="330" title="Smallest angle around its axis a wall must cover to count as a hole: 330 = a closed hole, 170 also takes the half of a hole cut by a symmetry plane" onchange="setPickHoleArc(this.value)"></div></div>
-    </details>
-    <p class="hint" id="selInfo">Selection: none.</p>
-    <p class="hint" id="cadFaceInfo">CAD faces: none selected.</p>
-  </details>
 
   <nav class="sbtree" id="sbTree" aria-label="Model browser">
     <div id="sbTreeBody"></div>
@@ -673,6 +655,28 @@ details.node details.node{margin-top:8px;background:transparent}
 </aside>
 
 <div id="workarea"><main><iframe id="viewer" src="viewer.html" title="FEM viewer"></iframe>
+<div id="selectionOverlay">
+  <details id="secSel" class="node" open>
+    <summary>Selection</summary>
+    <label for="selMode">Select in the viewer</label>
+    <select id="selMode" onchange="setPickMode(this.value)">
+      <option value="off">Off</option><option value="node">Nodes</option><option value="element">Elements</option><option value="face">Faces</option>
+    </select>
+    <details class="node">
+      <summary>Advanced selection</summary>
+    <div class="grid2"><div><label for="selAngle">Face angle (°)</label><input id="selAngle" type="number" min="0" max="180" step="0.5" value="1" title="A click on a face also selects the connected faces whose plane is within this angle of the clicked one (0 = only the clicked face; 90 or more = every connected face)" onchange="setPickAngle(this.value)"></div>
+      <div><label for="selBoxOn">Box</label><input id="selBoxOn" type="checkbox" onchange="setPickBox(this.checked)"></div></div>
+    <label for="selGrowth">Face growth</label>
+    <select id="selGrowth" title="Same normal: the angle is measured against the clicked face, so a curved surface is not followed. Smooth surface: the angle is measured between neighbouring faces, so the selection follows a curved surface." onchange="setPickGrowth(this.value)">
+      <option value="same-normal">Same normal</option><option value="smooth">Smooth surface</option>
+    </select>
+    <div class="grid2"><div><label for="selHoles">Holes</label><input id="selHoles" type="checkbox" checked title="A click on the wall of a hole (a bolt hole, a bore) selects the whole wall" onchange="setPickHoles(this.checked)"></div>
+      <div><label for="selHoleArc">Hole arc (°)</label><input id="selHoleArc" type="number" min="30" max="360" step="10" value="330" title="Smallest angle around its axis a wall must cover to count as a hole: 330 = a closed hole, 170 also takes the half of a hole cut by a symmetry plane" onchange="setPickHoleArc(this.value)"></div></div>
+    </details>
+    <p class="hint" id="selInfo">Selection: none.</p>
+    <p class="hint" id="cadFaceInfo">CAD faces: none selected.</p>
+  </details>
+</div>
 <section id="inspector" class="inspector" hidden aria-label="Details">
   <header class="inspHead"><span id="inspTitle"></span><button type="button" id="inspClose" aria-label="Close details" title="Close (Esc)">×</button></header>
   <div id="inspBody"></div>
@@ -1284,7 +1288,7 @@ let sbActiveCat = null;
  * @param o.onAdd     called when the "+" is pressed, or null for a row without it
  * @return the row element
  */
-function sbRow({label, state = null, eyeState = state, onPick = null, onEye = null, onAdd = null, onDel = null, check = null}) {
+function sbRow({label, state = null, eyeState = state, onPick = null, onEye = null, onAdd = null, onDel = null, check = null, sub = ""}) {
   const row = document.createElement("div");
   row.className = "sbrow" + (state === "off" ? " off" : "") + (state === "mixed" ? " mixed" : "");
   const name = document.createElement("span");
@@ -1302,6 +1306,11 @@ function sbRow({label, state = null, eyeState = state, onPick = null, onEye = nu
     row.append(box);
   }
   row.append(name);
+  if (sub) {
+    const note = document.createElement("span");
+    note.className = "sbsub"; note.textContent = sub;
+    row.append(note);
+  }
   if (onEye) {
     const eye = document.createElement("button");
     const shown = eyeState !== "off";
@@ -1742,6 +1751,16 @@ function renderTree() {
     const label = "step " + st.kind + (st.reset ? " (reset)" : "");
     return sbNode("step:" + ji + ":" + si, sbRow({label}), ids.map((id) => treeItem(id, "use:" + ji + ":" + si + ":" + id)));
   })));
+  // Status of each category, shown beside its name so the state of the model is visible without opening it.
+  const shownRun = meshRuns.find((run) => run.shown) || meshRuns[0];
+  const solved = !!(m && m.meta && m.meta.results);
+  const subs = {
+    cad: cadName ? "imported" : "none",
+    mesh: meshRuns.length ? meshRuns.length + " · " + Number(shownRun.nodes).toLocaleString() + " nodes" : "not meshed",
+    cons: script.fixes.length ? script.fixes.length + " set" : "none",
+    loads: script.loads.length ? script.loads.length + " set" : "none",
+    jobs: script.jobs.length ? script.jobs.length + " · " + (solved ? "results" : "no results") : "none",
+  };
   const cats = [
     {key: "cad", label: "CAD", kids: [
       ...(cadName ? [treeItem(cadName, "cad:part")] : []),
@@ -1757,7 +1776,7 @@ function renderTree() {
   cats.forEach(({key, label, kids, pick}) => {
     const eye = eyes[key];
     const row = sbRow({label, onPick: pick || (() => showSidebarTab(key)), eyeState: eye && eye.state,
-      onEye: eye ? eye.toggle : null, onAdd: SB_ADD[key]});
+      onEye: eye ? eye.toggle : null, onAdd: SB_ADD[key], sub: subs[key] || ""});
     row.querySelector(".sbname").dataset.cat = key;
     box.append(sbNode("cat:" + key, row, kids));
   });
