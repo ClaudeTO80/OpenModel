@@ -2268,17 +2268,15 @@ function renderAnalysisConditions() {
     remove.type = "button"; remove.textContent = "Remove";
     remove.addEventListener("click", async () => {
       if (!confirm("Remove this condition?")) return;
-      const id = idMatch && idMatch[1];
-      if (id) {
-        const r = await act("openmodel_analysis_delete", id);
-        if (!r || !r.ok) return;
-        $("anScript").value = r.message;
-      } else {
-        lines.splice(index, 1);
-        $("anScript").value = lines.join("\n");
-        const synced = await act("openmodel_analysis_load", $("anScript").value);
-        if (!synced || !synced.ok) return;
-      }
+      // Edits the script text, then loads it: the backend does not hold the script when the example was only shown
+      // in the box, so deleting by id there failed without a message.
+      const current = $("anScript").value.split(/\r?\n/);
+      if (current[index] !== line) { show("The script changed: the list is out of date.", "bad"); renderAnalysisConditions(); return; }
+      current.splice(index, 1);
+      $("anScript").value = current.join("\n");
+      const synced = await act("openmodel_analysis_load", $("anScript").value);
+      if (!synced || !synced.ok) { renderAnalysisConditions(); return; }
+      $("anScript").value = synced.message;
       renderAnalysisConditions();
     });
     item.append(content, edit, remove);
