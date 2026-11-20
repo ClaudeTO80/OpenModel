@@ -1784,7 +1784,8 @@ function renderTree() {
     ]},
     {key: "mesh", label: "Mesh", kids: meshKids},
     {key: "mat", label: "Material", kids: m ? materialTreeKids(m.meta) : []},
-    {key: "cons", label: "Constraints", kids: script.fixes.map((f) => treeItem(f.id + " · " + f.line.replace(/^fix\s*/i, ""), "fix:" + f.id))},
+    {key: "cons", label: "Constraints", kids: script.fixes.map((f) => sbNode("fix:" + f.id,
+      sbRow({label: f.id + " · " + f.line.replace(/^fix\s*/i, ""), onPick: () => focusSection("condFix")}), []))},
     {key: "loads", label: "Load cases", kids: script.loads.map((l) => treeItem(l.id + " · " + l.kind, "load:" + l.id))},
     {key: "jobs", label: "Jobs", kids: jobKids, pick: () => $("anScript").focus()},
   ];
@@ -2538,7 +2539,6 @@ setInterval(syncRibbon, 700);
     const first = meshers.find((m) => m.available);
     if (first) $("mesher").value = first.id; else { noMesher = true; $("btnMesh").disabled = true; }
     mesherChanged();
-    analysisExample();
   } else show(d.message, "bad");
     })();
 </script>

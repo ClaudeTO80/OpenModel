@@ -25,6 +25,8 @@ function check(ok, msg) { if (!ok) throw new Error("check failed: " + msg); cons
         isConnected: () => true,
         call: async (name, text) => {
           if (name === "openmodel_analysis_load") return JSON.stringify({ ok: true, message: text });
+          if (name === "openmodel_defaults") return JSON.stringify({ ok: true, message: "", version: "0.1.1", outBase: "out", meshers: [{ id: "gmsh", name: "Gmsh", available: true, fields: [] }] });
+          if (name === "openmodel_default_analysis") return JSON.stringify({ ok: true, message: "material E=210000 nu=0.3 name=MATERIAL\nfix plane:x=0\nstep static" });
           if (name === "openmodel_analysis_delete") return JSON.stringify({ ok: false, message: "No analysis model loaded." });
           return JSON.stringify({ ok: false, message: "stub" });
         },
@@ -32,6 +34,8 @@ function check(ok, msg) { if (!ok) throw new Error("check failed: " + msg); cons
     });
     await page.goto(url);
     await page.waitForTimeout(500);
+    // The example is not loaded at startup: the user never added its constraint.
+    check(!/^fix\b/m.test(await page.locator("#anScript").inputValue()), "no constraint is in the script at startup");
     await page.evaluate(() => {
       $("anScript").value = "material E=210000 nu=0.3 name=MATERIAL\nfix id=fix-1 plane:x=0 dof=all value=0,0,0\nstep static";
       renderAnalysisConditions();
