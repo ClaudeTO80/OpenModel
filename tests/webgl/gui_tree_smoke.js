@@ -119,18 +119,28 @@ function check(ok, msg) { if (!ok) throw new Error("check failed: " + msg); cons
       document.getElementById("anScript").value = "fix plane:x=0\nforce all F=1,0,0\njob SETTLE\nstep static loads=force-1\nstep static reset\n";
       renderTree();
     });
-    // Session mesh history: the same mesh loaded twice (e.g. with a result) is listed once.
-    const runs = await page.evaluate(() => {
-      const meta = { counts: { nodes: 10, elements: 20 }, bbox: [0, 1] };
-      recordMesh(meta); recordMesh(meta); recordMesh({ counts: { nodes: 11, elements: 20 }, bbox: [0, 1] });
-      return meshHistory.length;
+    // Mesh branch: the rows come from the list of the session that the backend sends (meshRuns).
+    await page.evaluate(() => {
+      meshRuns = [{index: 0, name: "Plate", nodes: 10, elements: 20, shown: true},
+                  {index: 1, name: "Plate, coarse", nodes: 11, elements: 20, shown: false}];
+      renderTree();
     });
-    check(runs === 2, "same mesh listed once, a different mesh listed");
+    await catNode("mesh").locator(":scope > .sbrow > .sbcaret").click();
+    // The runs have no physical group here, so they are listed under Groups: open it, then check the row.
+    await catNode("mesh").locator(":scope > .sbkids > .sbgroup", { has: page.locator(".sbname", { hasText: /^Groups$/ }) })
+      .locator(":scope > .sbrow > .sbcaret").click();
+    check(await page.locator("#sbTreeBody").getByText("Plate, coarse · 11 nodes · 20 elements").isVisible(), "Mesh branch lists the session meshes under Groups");
     await catNode("jobs").locator(":scope > .sbrow > .sbcaret").click();
     check(await page.locator("#sbTreeBody").getByText("job SETTLE", { exact: true }).isVisible(), "job row shows under Jobs");
 
     await page.locator("#sbTreeBody .sbadd").nth(2).click();
     check(await page.locator('.spanel[data-spanel="mat"]').isVisible(), "'+' on Material opens the material panel");
+    const flush = await page.evaluate(() => {
+      const r = document.getElementById("inspector").getBoundingClientRect();
+      const a = document.querySelector("aside").getBoundingClientRect();
+      return Math.abs(r.left - a.right) < 1 && r.left >= a.right;
+    });
+    check(flush, "the material panel sits on the left, against the sidebar");
   } finally {
     await browser.close();
   }

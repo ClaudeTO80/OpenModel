@@ -800,6 +800,31 @@ void testPartMaterials() {
     CHECK(!writeSolverInput(two, parseOk("material E=210000 nu=0.3 rho=7.85e-9\nmaterial id=PLAIN E=1 nu=0.3\n"
                                          "assign Housing material=PLAIN\nfix all\nstep frequency modes=2\n"),
                             dir / "freq.inp").success);
+    {
+        // A volume group with a material of its own: its element leaves the block Insert and becomes the section BRACKET.
+        MeshData grouped = makeTwoBlocks();
+        grouped.addPhysicalGroup("Bracket", 3, 7, {2}, "");
+        const auto model = parseOk(base + "assign Bracket material=ALU\nfix plane:x=0\nforce plane:x=2 F=0,0,-1\n");
+        const auto r = writeSolverInput(grouped, model, dir / "group.inp");
+        if (!r.success) std::cerr << "group deck: " << r.error << "\n";
+        CHECK(r.success);
+        if (r.success) {
+            const std::string deck = slurp(dir / "group.inp");
+            CHECK(contains(deck, "*SOLID SECTION, ELSET=BRACKET, MATERIAL=ALU"));
+            CHECK(contains(deck, "*SOLID SECTION, ELSET=HOUSING, MATERIAL=STEEL"));   // the block keeps its default
+            CHECK(!contains(deck, "ELSET=INSERT"));                                    // its only element is in the group
+        }
+        // A group is assigned by name only when it is a volume group: a surface group is refused.
+        MeshData surface = makeTwoBlocks();
+        surface.addPhysicalGroup("Skin", 2, 8, {2}, "");
+        CHECK(!writeSolverInput(surface, parseOk(base + "assign Skin material=ALU\nfix all\n"), dir / "skin.inp").success);
+        // An element shared by two assigned groups has no single material: refused.
+        MeshData shared = makeTwoBlocks();
+        shared.addPhysicalGroup("A", 3, 9, {1, 2}, "");
+        shared.addPhysicalGroup("B", 3, 10, {2}, "");
+        CHECK(!writeSolverInput(shared, parseOk(base + "assign A material=ALU\nassign B material=STEEL\nfix all\n"),
+                                dir / "shared.inp").success);
+    }
     fs::remove_all(dir);
 }
 

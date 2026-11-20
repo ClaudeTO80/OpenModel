@@ -20,6 +20,7 @@
 #include <OpenModel/GmshSettings.hpp>
 #include <OpenModel/MeshBinaryIO.hpp>
 #include <OpenModel/MeshData.hpp>
+#include <OpenModel/MeshRuns.hpp>
 #include <OpenModel/MeshSelection.hpp>
 #include <OpenModel/MeshImporter.hpp>
 #include <OpenModel/MaterialDatabase.hpp>
@@ -127,6 +128,7 @@ struct AppState {
     MeshData mesh;
     MeshOrigin origin = MeshOrigin::None;
     std::string meshLabel;
+    OpenModel::MeshRunRegistry runs;   ///< Meshes of this session; the one shown is also g.mesh.
     std::string source;
     double linearDeflection = kFinestLinearDeflection;   ///< CAD tessellation chordal tolerance (model units).
     double angularDeflection = kFinestAngularDeflection; ///< CAD tessellation angular tolerance (radians).
@@ -245,6 +247,21 @@ std::string diagnosticsText(const std::vector<OpenModel::ImportDiagnostic>& diag
  * Attaches the loaded results (if any) to the view options of the current mesh.
  * On failure the view stays plain and the reason is stored in g.resultsNote.
  */
+/** Keeps the mesh now in g.mesh as a run of the session and shows it. A run with the same name and element and
+    node counts is replaced, so loading the same mesh twice does not list it twice. */
+void recordRun(const std::string& name, const std::string& part = std::string()) {
+    for (std::size_t i = 0; i < g.runs.size(); ++i) {
+        const auto& run = g.runs.run(i);
+        if (run.name == name && run.mesh.getNumNodes() == g.mesh.getNumNodes()
+            && run.mesh.getNumElements() == g.mesh.getNumElements()) {
+            g.runs.remove(i);
+            break;
+        }
+    }
+    g.runs.add(OpenModel::MeshRun{name, part, g.mesh});
+    g.runs.select(g.runs.size() - 1);
+}
+
 OpenModel::BindResult attachResults(const MeshData& mesh, WebViewOptions& options) {
     OpenModel::BindResult bound;
     g.resultsNote.clear();
@@ -1123,6 +1140,18 @@ void generateVolumeLocked(webui_event_t* e, const VolumeArgs& args) {
     options.linearDeflection = g.linearDeflection;
     options.angularDeflection = g.angularDeflection;
 
+    // One solid of the CAD tree (Gmsh only): the run holds that body alone and is named after its part.
+    const auto solidKey = args.fields.find("solids");
+    const std::string partName = args.fields.count("solidName") ? args.fields.at("solidName") : std::string();
+    if (solidKey != args.fields.end() && !solidKey->second.empty()) {
+        if (mesherId != "gmsh") { reply(e, false, "Only Gmsh meshes a single solid."); return; }
+        std::size_t used = 0;
+        int id = -1;
+        try { id = std::stoi(solidKey->second, &used); } catch (...) { used = 0; }
+        if (used != solidKey->second.size() || id < 0) { reply(e, false, "Invalid solid id '" + solidKey->second + "'."); return; }
+        options.solidIds = {id};
+    }
+
     const auto meshingStart = std::chrono::steady_clock::now();
     MeshData candidate;
     std::string label, failure;
@@ -1173,6 +1202,8 @@ void generateVolumeLocked(webui_event_t* e, const VolumeArgs& args) {
     // sets. Physical groups remain an optional backend/export representation.
     for (const auto& userGroup : g.cadFaceGroups) {
         const auto* mapped = candidate.getMeshGroupRegistry().find(userGroup.name);
+        // A part meshed alone has no faces of the groups that lie on the other parts: those groups are not its concern.
+        if (!mapped && !options.solidIds.empty()) continue;
         if (!mapped || mapped->dimension != 2 || mapped->elementIds.empty()) {
             std::string details;
             for (const auto& note : notes)
@@ -1210,7 +1241,8 @@ void generateVolumeLocked(webui_event_t* e, const VolumeArgs& args) {
     clearResults();
     g.mesh = std::move(candidate);
     g.origin = MeshOrigin::Generated;
-    g.meshLabel = "Mesh " + label;
+    g.meshLabel = partName.empty() ? "Mesh " + label : partName;
+    recordRun(g.meshLabel, partName);
     updateView();
     std::string noteText;
     for (const auto& note : notes) noteText += "\n" + note;
@@ -1269,6 +1301,7 @@ void loadMesh(webui_event_t* e) {
     g.origin = MeshOrigin::Loaded;
     g.meshLabel = file.filename().string();
     g.source = file.string();
+    recordRun(g.meshLabel);
     updateView();
     reply(e, true, "Mesh loaded from " + g.source + ".\n" + meshSummary() + note + (g.viewNote.empty() ? "" : "\n" + g.viewNote));
 }
@@ -1789,6 +1822,102 @@ void listGroupsHandler(webui_event_t* e) {
     StateLock lock;
     if (!lock.ok()) { replyBusy(e); return; }
     replyGroups(e, true, "");
+}
+
+/** Index argument of the mesh handlers; false when it is not a number. */
+bool runIndexArg(webui_event_t* e, std::size_t& index) {
+    try {
+        index = static_cast<std::size_t>(std::stoul(getStringArg(e, 0)));
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+/** Replies with the meshes of the session: index, name, node and element counts, and whether each is shown. */
+void meshRunsHandler(webui_event_t* e) {
+    StateLock lock;
+    if (!lock.ok()) { replyBusy(e); return; }
+    std::ostringstream out;
+    out << "{\"ok\":true,\"message\":\"\",\"runs\":[";
+    for (std::size_t i = 0; i < g.runs.size(); ++i) {
+        const auto& run = g.runs.run(i);
+        if (i) out << ",";
+        // Names of the physical groups of the run: the groups of the tree are attached to the meshes by these names.
+        out << "{\"index\":" << i << ",\"name\":" << jsonString(run.name)
+            << ",\"nodes\":" << run.mesh.getNumNodes() << ",\"elements\":" << run.mesh.getNumElements()
+            << ",\"shown\":" << (g.runs.selected() == i ? "true" : "false")
+            << ",\"part\":" << jsonString(run.part) << ",\"groups\":[";
+        const auto& groups = run.mesh.getPhysicalGroups();
+        for (std::size_t k = 0; k < groups.size(); ++k) out << (k ? "," : "") << jsonString(groups[k].name);
+        out << "]}";
+    }
+    out << "]}";
+    webui_return_string(e, out.str().c_str());
+}
+
+/** Argument: index of a mesh of the session. Shows that mesh in the viewer. */
+/**
+ * @brief Lists the components of the imported CAD model as the file gives them: the assembly tree, each with its parent
+ * index and the solids below it. The parts to mesh are chosen on this tree.
+ */
+void cadComponentsHandler(webui_event_t* e) {
+    StateLock lock;
+    if (!lock.ok()) { replyBusy(e); return; }
+    std::ostringstream out;
+    out << "{\"ok\":true,\"message\":\"\",\"components\":[";
+    if (g.cad) {
+        const auto& components = g.cad->getComponents();
+        for (std::size_t i = 0; i < components.size(); ++i) {
+            const auto& c = components[i];
+            if (i) out << ",";
+            out << "{\"id\":" << c.id << ",\"parent\":" << c.parent << ",\"name\":" << jsonString(c.name)
+                << ",\"path\":" << jsonString(c.path) << ",\"isAssembly\":" << (c.isAssembly ? "true" : "false")
+                << ",\"solidIds\":[";
+            for (std::size_t k = 0; k < c.solidIds.size(); ++k) out << (k ? "," : "") << c.solidIds[k];
+            out << "]}";
+        }
+    }
+    out << "]}";
+    webui_return_string(e, out.str().c_str());
+}
+
+void meshRunSelectHandler(webui_event_t* e) {
+    StateLock lock;
+    if (!lock.ok()) { replyBusy(e); return; }
+    std::size_t index = 0;
+    if (!runIndexArg(e, index)) { reply(e, false, "The mesh index is not a number."); return; }
+    if (index >= g.runs.size()) { reply(e, false, "There is no mesh with index " + std::to_string(index) + "."); return; }
+    clearResults();
+    g.runs.select(index);
+    g.mesh = g.runs.activeMesh();
+    g.meshLabel = g.runs.run(index).name;
+    updateView();
+    reply(e, true, "");
+}
+
+/** Argument: index of a mesh of the session. Removes it from the session; if it was shown, the last mesh left is shown. */
+void meshRunRemoveHandler(webui_event_t* e) {
+    StateLock lock;
+    if (!lock.ok()) { replyBusy(e); return; }
+    std::size_t index = 0;
+    if (!runIndexArg(e, index)) { reply(e, false, "The mesh index is not a number."); return; }
+    if (index >= g.runs.size()) { reply(e, false, "There is no mesh with index " + std::to_string(index) + "."); return; }
+    const bool wasShown = g.runs.selected() == index;
+    g.runs.remove(index);
+    if (wasShown) {
+        clearResults();
+        if (g.runs.size() > 0) {
+            g.runs.select(g.runs.size() - 1);
+            g.mesh = g.runs.activeMesh();
+            g.meshLabel = g.runs.run(g.runs.size() - 1).name;
+        } else {
+            g.mesh = MeshData{};
+            g.meshLabel.clear();
+        }
+        updateView();
+    }
+    reply(e, true, "");
 }
 
 /** Argument: group name. Replies with the members as a selection that the page shows in the viewer. */
@@ -2492,6 +2621,10 @@ int main() {
     webui_bind(window, "openmodel_create_group", createGroupHandler);
     webui_bind(window, "openmodel_list_groups", listGroupsHandler);
     webui_bind(window, "openmodel_show_group", showGroupHandler);
+    webui_bind(window, "openmodel_cad_components", cadComponentsHandler);
+    webui_bind(window, "openmodel_mesh_runs", meshRunsHandler);
+    webui_bind(window, "openmodel_mesh_select", meshRunSelectHandler);
+    webui_bind(window, "openmodel_mesh_remove", meshRunRemoveHandler);
     webui_bind(window, "openmodel_constraint_apply", constraintApplyHandler);
     webui_bind(window, "openmodel_constraint_release", constraintReleaseHandler);
     webui_bind(window, "openmodel_constraint_clear", constraintClearHandler);

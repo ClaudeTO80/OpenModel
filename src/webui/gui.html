@@ -39,7 +39,7 @@ button.primary{background:var(--prim);border-color:var(--prim-line);color:var(--
 #result.bad{color:var(--bad)} #result.good{color:var(--good)}
 main{position:relative;min-width:0}
 iframe{display:block;width:100%;height:100%;border:0;background:var(--viewport)}
-.inspector{position:absolute;top:10px;right:10px;bottom:10px;width:min(400px,calc(100% - 20px));display:grid;grid-template-rows:auto minmax(0,1fr);background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.18);z-index:5}
+.inspector{position:absolute;top:0;left:0;bottom:0;width:min(400px,calc(100% - 20px));display:grid;grid-template-rows:auto minmax(0,1fr);background:var(--panel);border:1px solid var(--line);border-radius:0 10px 10px 0;box-shadow:0 8px 24px rgba(0,0,0,.18);z-index:5}
 .inspector[hidden]{display:none}
 .inspHead{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;border-bottom:1px solid var(--line);font-weight:600}
 #inspClose{padding:0 8px;font-size:18px;line-height:1.2}
@@ -99,6 +99,9 @@ iframe{display:block;width:100%;height:100%;border:0;background:var(--viewport)}
 .sbadd{flex:0 0 auto;padding:0 6px;font-size:13px;line-height:1.3;background:transparent;border-color:transparent}
 .sbadd:hover:not(:disabled){background:var(--btn-hover)}
 .sbadd:focus-visible,.sbcaret:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.sbdel{flex:0 0 auto;padding:0 6px;font-size:13px;line-height:1.3;background:transparent;border-color:transparent}
+.sbdel:hover:not(:disabled){background:var(--btn-hover)}
+.sbdel:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .sbrow{display:flex;align-items:center;gap:4px;min-height:28px;padding:2px 3px 2px 6px;border-radius:6px}
 .sbrow:hover{background:var(--hover)}
 .sbname{flex:1;min-width:0;padding:3px 6px;border-radius:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -461,6 +464,7 @@ details.node details.node{margin-top:8px;background:transparent}
       </select>
       <p class="hint">Above Error the log is also saved as <code>_gmsh.log</code> next to the CAD file; Info adds the phase timings, Debug the internal Gmsh messages.</p></div>
     <button class="primary full" id="btnMesh" onclick="generate()">Generate volume mesh</button>
+    <button class="full" id="btnMeshParts" onclick="generateSelectedParts()">Mesh checked parts</button>
     <p class="hint" id="mesherHint"></p>
     </details>
     <details class="node">
@@ -530,6 +534,14 @@ details.node details.node{margin-top:8px;background:transparent}
     <details class="node">
       <summary>Material in the script</summary>
       <ul id="condMaterial" class="conds"></ul>
+    </details>
+    <details class="node" id="matAssignSection" open>
+      <summary>Assign to group</summary>
+      <p class="hint" id="matAssignGroup">Select a group in the tree (Material or Mesh &gt; Groups).</p>
+      <label for="matAssignSel">Material</label>
+      <select id="matAssignSel"></select>
+      <button type="button" id="btnMatAssign" class="primary full" onclick="assignSelectedGroup()" disabled>Assign to group</button>
+      <p class="hint">Gives the material chosen here to the group selected in the tree. The choice is written to the script as an <code>assign</code> line with the group name.</p>
     </details>
     <details class="node" id="matPartsSection">
       <summary>Material per part</summary>
@@ -726,6 +738,7 @@ async function act(name, ...args) {
   if (r.nativeCADGroups) renderNativeCADGroups(r.nativeCADGroups);
   if (r.meshGroups) renderGenericMeshGroups(r.meshGroups);
   else if (r.ok && ["openmodel_import_model", "openmodel_load_mesh", "openmodel_generate_volume"].includes(name)) await refreshCADFaceGroups();
+  if (r.ok && name === "openmodel_import_model") await refreshCadComponents();
   if (!r.groups && r.ok && ["openmodel_load_mesh", "openmodel_generate_volume"].includes(name)) refreshGroups();
   return r;
 }
@@ -785,7 +798,7 @@ const importModel = () => act("openmodel_import_model", $("cadPath").value.trim(
 const retessellate = () => act("openmodel_retessellate", $("linear").value, $("angular").value);
 // One JSON object argument: WebUI does not deliver calls with more than 17 arguments.
 // Keys must match kVolumeKeys in src/webui/main.cpp; the tetrahedral keys are read from the object by name.
-const generate = () => act("openmodel_generate_volume", JSON.stringify({
+const generate = (extra = {}) => act("openmodel_generate_volume", JSON.stringify({
   mesher: $("mesher").value, size: $("size").value, order: $("order").value, iface: $("iface").value,
   logLevel: $("logLevel").value, shape: $("shape").value, tcType: $("tcType").value, tcCoef: $("tcCoef").value,
   tsArr: $("tsArr").value, recAlg: $("recAlg").value, recAngle: $("recAngle").value, recOpt: $("recOpt").value,
@@ -794,10 +807,31 @@ const generate = () => act("openmodel_generate_volume", JSON.stringify({
   minSize: $("tMinSize").value, curvature: checkedFlag("tCurv"), curvaturePoints: $("tCurvPts").value,
   alg2D: $("tAlg2D").value, alg3D: $("tAlg3D").value, optimize: checkedFlag("tOpt"), optimizeNetgen: checkedFlag("tOptNetgen"),
   optimizeThreshold: $("tOptThr").value, smoothing: $("tSmooth").value, extendBoundary: checkedFlag("tExtend"),
-  auditCadFaces: checkedFlag("tAudit")
+  auditCadFaces: checkedFlag("tAudit"), ...extra
 }));
 /* "1" when the checkbox is checked, "0" otherwise. */
 function checkedFlag(id) { return $(id).checked ? "1" : "0"; }
+/**
+ * @brief Name of a CAD solid for its run: the component that holds only this solid, else Solid_<id>.
+ * @param id solid id, as the checks of the CAD tree give it
+ */
+function solidName(id) {
+  const c = cadComponents.find((x) => x.solidIds.length === 1 && x.solidIds[0] === id);
+  return c ? (c.name || c.path) : "Solid_" + id;
+}
+/**
+ * @brief Meshes each checked part of the CAD tree, one volume run per part, with the parameters of the form.
+ * The parts are meshed one after the other; a failure stops the list and keeps the runs made before it.
+ */
+async function generateSelectedParts() {
+  const ids = selectedSolidIds();
+  if (!ids.length) { show("Check at least one part in the CAD tree.", "bad"); return; }
+  for (const id of ids) {
+    const r = await generate({solids: String(id), solidName: solidName(id)});
+    if (!r || !r.ok) break;
+  }
+  refreshMeshRuns();
+}
 const loadMesh = () => act("openmodel_load_mesh", $("loadPath").value.trim());
 const loadResults = () => act("openmodel_load_results", $("resPath").value.trim(), $("resStep").value.trim());
 const save = (fn, ext) => act(fn, $("outBase").value.trim(), ext);
@@ -1056,7 +1090,7 @@ let sbActiveCat = null;
  * @param o.onAdd     called when the "+" is pressed, or null for a row without it
  * @return the row element
  */
-function sbRow({label, state = null, eyeState = state, onPick = null, onEye = null, onAdd = null}) {
+function sbRow({label, state = null, eyeState = state, onPick = null, onEye = null, onAdd = null, onDel = null, check = null}) {
   const row = document.createElement("div");
   row.className = "sbrow" + (state === "off" ? " off" : "") + (state === "mixed" ? " mixed" : "");
   const name = document.createElement("span");
@@ -1065,6 +1099,13 @@ function sbRow({label, state = null, eyeState = state, onPick = null, onEye = nu
     name.tabIndex = 0; name.setAttribute("role", "treeitem");
     name.addEventListener("click", onPick);
     name.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onPick(); } });
+  }
+  if (check) {
+    const box = document.createElement("input");
+    box.type = "checkbox"; box.className = "sbcheck"; box.checked = check.checked;
+    box.title = "Mesh " + label;
+    box.addEventListener("change", () => check.onToggle(box.checked));
+    row.append(box);
   }
   row.append(name);
   if (onEye) {
@@ -1076,6 +1117,14 @@ function sbRow({label, state = null, eyeState = state, onPick = null, onEye = nu
     eye.setAttribute("aria-pressed", String(shown));
     eye.addEventListener("click", onEye);
     row.append(eye);
+  }
+  if (onDel) {
+    const del = document.createElement("button");
+    del.type = "button"; del.className = "sbdel"; del.textContent = "×";
+    del.title = "Remove " + label + " from the session";
+    del.setAttribute("aria-label", "Remove " + label + " from the session");
+    del.addEventListener("click", onDel);
+    row.append(del);
   }
   if (onAdd) {
     const add = document.createElement("button");
@@ -1140,8 +1189,9 @@ function eyeFor(names) {
  */
 function groupNode(name, node, path) {
   const eye = eyeFor(namesUnder(node));
-  const row = sbRow({label: name, state: eye.state, onEye: eye.toggle});
-  return sbNode("grp:" + path, row, [...node.children].map(([n, c]) => groupNode(n, c, path + "/" + n)));
+  const row = sbRow({label: name, state: eye.state, onEye: eye.toggle, onPick: () => selectMaterialGroup(path)});
+  return sbNode("grp:" + path, row, [...node.children].map(([n, c]) => groupNode(n, c, path + "/" + n))
+    .concat(runsWithGroup(path, "g:" + path + ":")));
 }
 /** Adds a sidebar section's first control: CAD opens the file picker, the others open their panel. */
 const SB_ADD = {
@@ -1175,8 +1225,103 @@ function materialRows(meta) {
     return sbNode("mat:" + mat, sbRow({label: mat, state: eye.state, onEye: eye.toggle}), []);
   });
 }
-/** Mesh runs of this session, one per distinct mesh loaded. Kept only while the page is open. */
-const meshHistory = [];
+/** Meshes of this session as the backend lists them (see refreshMeshRuns). */
+let meshRuns = [];
+/** Known materials (built-in and personal) as the host lists them; loaded by loadMaterialDb. Declared early: the tree reads it. */
+let materialDb = [];
+/** Full name of the group selected in the tree for the material assignment, or null. */
+let selectedMatGroup = null;
+/** CAD components of the imported model as the backend lists them: {id, parent, name, path, isAssembly, solidIds}. */
+let cadComponents = [];
+/** Ids of the components checked for meshing. Checking a component checks its whole subtree. */
+let checkedComponents = new Set();
+/** @brief Loads the components of the imported CAD model and keeps only the checks that still exist. */
+async function refreshCadComponents() {
+  const r = await call("openmodel_cad_components");
+  if (!r || !r.ok) return;
+  cadComponents = r.components || [];
+  checkedComponents = new Set([...checkedComponents].filter((id) => cadComponents.some((c) => c.id === id)));
+  renderTree();
+}
+/** @brief Ids of a component and of every component below it. @param id component id */
+function subtreeOf(id) {
+  return [id, ...cadComponents.filter((c) => c.parent === id).flatMap((c) => subtreeOf(c.id))];
+}
+/**
+ * @brief Checks or unchecks a component and its whole subtree. Unchecking a component also unchecks its ancestors,
+ * since a checked ancestor means all of its components are checked.
+ * @param id component id @param on true to check
+ */
+function setComponentChecked(id, on) {
+  for (const k of subtreeOf(id)) { if (on) checkedComponents.add(k); else checkedComponents.delete(k); }
+  if (!on) {
+    for (let p = cadComponents.find((c) => c.id === id)?.parent ?? -1; p >= 0; p = cadComponents.find((c) => c.id === p)?.parent ?? -1) checkedComponents.delete(p);
+  }
+  renderTree();
+}
+/** @brief Solid ids to mesh: the solids below the checked components, each once, in ascending order. */
+function selectedSolidIds() {
+  const ids = new Set();
+  for (const c of cadComponents) if (checkedComponents.has(c.id)) c.solidIds.forEach((s) => ids.add(s));
+  return [...ids].sort((a, b) => a - b);
+}
+/** @brief Rows of the CAD tree below a component (-1 for the roots), each with its check box. */
+function componentNodes(parentId) {
+  return cadComponents.filter((c) => c.parent === parentId).map((c) => sbNode("cadc:" + c.id,
+    sbRow({label: c.name || c.path, check: {checked: checkedComponents.has(c.id), onToggle: (on) => setComponentChecked(c.id, on)}}),
+    componentNodes(c.id)));
+}
+/**
+ * @brief Selects a group of the tree for the material assignment and opens the assign box of the Material panel.
+ * @param name full name of the group
+ */
+function selectMaterialGroup(name) {
+  selectedMatGroup = name;
+  renderMaterialAssign();
+  focusSection("matAssignSection");
+}
+/**
+ * @brief Fills the assign box: the material ids of the script and the group selected in the tree. The button is
+ * enabled only with a group and a material. The material of the form is preselected when the script has it.
+ */
+function renderMaterialAssign() {
+  const label = $("matAssignGroup"), sel = $("matAssignSel"), btn = $("btnMatAssign");
+  if (!label || !sel || !btn) return;
+  // The choices: the known materials (built-in and personal), then the materials of the script that are not known.
+  const inScript = scriptMaterialIds($("anScript").value.split(/\r?\n/));
+  const items = [...materialDb.map((m) => ({id: m.id, label: m.name})),
+    ...inScript.filter((id) => !materialDb.some((m) => m.id === id)).map((id) => ({id, label: id}))];
+  const keep = sel.value, form = ($("matId") ? $("matId").value : "").trim();
+  sel.replaceChildren(...items.map((it) => {
+    const o = document.createElement("option");
+    o.value = it.id; o.textContent = it.label + (inScript.includes(it.id) ? "" : " (added to the script)");
+    return o;
+  }));
+  const has = (v) => items.some((it) => it.id === v);
+  sel.value = has(keep) ? keep : (has(form) ? form : (items[0] ? items[0].id : ""));
+  label.textContent = selectedMatGroup ? "Group: " + selectedMatGroup : "Select a group in the tree (Material or Mesh > Groups).";
+  btn.disabled = !selectedMatGroup || !items.length;
+}
+/** Gives the group selected in the tree the material chosen in the assign box. */
+async function assignSelectedGroup() {
+  const sel = $("matAssignSel");
+  if (!selectedMatGroup || !sel || !sel.value) return;
+  const id = sel.value;
+  const inScript = scriptMaterialIds($("anScript").value.split(/\r?\n/));
+  if (!inScript.includes(id)) {
+    // A known material not in the script yet: its line takes the database values. With no material line it is the default
+    // (no id=); otherwise it is a further material with its own id=, as the script expects.
+    $("matDb").value = id;
+    fillFromDatabase();
+    const E = $("matE").value.trim(), nu = $("matNu").value.trim(), rho = $("matRho").value.trim();
+    if (!Number.isFinite(Number(E)) || E === "" || !Number.isFinite(Number(nu)) || nu === "") {
+      show("The known material " + id + " has no valid E or nu.", "bad"); return;
+    }
+    appendScript("material" + (inScript.length ? " id=" + id : "") + " E=" + E + " nu=" + nu
+      + (rho !== "" ? " rho=" + rho : "") + " name=" + id);
+  }
+  await assignPartMaterial(selectedMatGroup, id);
+}
 /** Volume parts of the mesh: the blocks of dimension 3, by name. */
 function volumeParts() {
   const m = viewerModel();
@@ -1213,6 +1358,7 @@ async function assignPartMaterial(part, id) {
 }
 /** Lists the volume parts with the material each one takes (the default one unless assigned). */
 function renderPartMaterials() {
+  renderMaterialAssign();
   const box = $("condParts");
   if (!box) return;
   box.replaceChildren();
@@ -1255,23 +1401,57 @@ function materialTreeKids(meta) {
   const lines = $("anScript").value.split(/\r?\n/);
   const assigned = partAssignments(lines);
   const fallback = scriptMaterialIds(lines)[0] || "none";
-  const parts = volumeParts().map((part) => sbNode("part:" + part,
-    sbRow({label: part + " : " + (assigned.get(part) || fallback), onPick: () => focusSection("matPartsSection")}), []));
-  return [...parts, ...materialRows(meta)];
+  // Groups as in Mesh > Groups, each with its material: the script assignment by name, else the group's own material.
+  const dim = listedGroupDim(meta);
+  const groups = meta.groups.filter((g) => g.dimension === dim).map((g) => sbNode("matgrp:" + g.name,
+    sbRow({label: g.name + " : " + (assigned.get(g.name) || g.material || fallback), onPick: () => selectMaterialGroup(g.name)}), []));
+  const groupKids = groups.length ? [sbNode("matgroups", sbRow({label: "Groups"}), groups)] : [];
+  return [...groupKids, ...materialRows(meta)];
 }
 /**
- * @brief Adds the loaded mesh to the session history, unless the same mesh is already there.
+ * @brief Called after every viewer load: the backend records the mesh as a run of the session, so the page reloads the list.
  * @param meta metadata of the loaded model
  */
 function recordMesh(meta) {
-  if (!meta.counts) return;
-  const cad = $("cadPath").value.trim();
-  const entry = {
-    part: cad ? cad.split(/[\\/]/).pop() : "Mesh",
-    nodes: meta.counts.nodes, elements: meta.counts.elements,
-    key: JSON.stringify([meta.counts.nodes, meta.counts.elements, meta.bbox]),
-  };
-  if (!meshHistory.some((e) => e.key === entry.key)) meshHistory.push(entry);
+  refreshMeshRuns();
+}
+/** Reloads the meshes of the session from the backend and rebuilds the tree. */
+async function refreshMeshRuns() {
+  const r = await act("openmodel_mesh_runs");
+  if (!r || !r.ok) return;
+  meshRuns = r.runs || [];
+  renderTree();
+}
+/**
+ * @brief A mesh of the session as a row of the Mesh branch: the eye shows it in the viewer, the × removes it.
+ * @param run {index, name, nodes, elements, shown} as the backend lists it
+ */
+function meshRunRow(run, under = "") {
+  const row = sbRow({
+    label: run.name + " · " + run.nodes + " nodes · " + run.elements + " elements",
+    eyeState: run.shown ? "on" : "off",
+    onEye: () => selectMeshRun(run.index),
+    onDel: () => removeMeshRun(run.index),
+  });
+  return sbNode("run:" + under + run.index, row, []);
+}
+/** The session meshes that hold a physical group of this name, as rows keyed under the given prefix. */
+function runsWithGroup(name, prefix) {
+  return meshRuns.filter((run) => (run.groups || []).includes(name) || run.part === name).map((run) => meshRunRow(run, prefix));
+}
+/** A group of Mesh > Groups that the active mesh does not list: its children are the session meshes that hold it. */
+function groupLeaf(name) {
+  return sbNode("grp:" + name, sbRow({label: name}), runsWithGroup(name, "g:" + name + ":"));
+}
+/** Shows the mesh with this index in the viewer. */
+async function selectMeshRun(index) {
+  const r = await act("openmodel_mesh_select", String(index));
+  if (r && r.ok) refreshMeshRuns();
+}
+/** Removes the mesh with this index from the session. */
+async function removeMeshRun(index) {
+  const r = await act("openmodel_mesh_remove", String(index));
+  if (r && r.ok) refreshMeshRuns();
 }
 /**
  * @brief Reads the analysis script the way the solver does (AnalysisSetup.cpp): loads and supports get the id
@@ -1356,8 +1536,12 @@ function renderTree() {
   const script = parseScript($("anScript").value);
   const cadName = $("cadPath").value.trim().split(/[\\/]/).pop();
   const groupKids = root ? [...root.children].map(([n, c]) => groupNode(n, c, n)) : [];
-  const meshKids = meshHistory.map((e) => treeItem(`${e.part} · ${e.nodes} nodes · ${e.elements} elements`, "run:" + e.key));
-  if (groupKids.length) meshKids.push(sbNode("groups", sbRow({label: "Groups"}), groupKids));
+  // Mesh holds only Groups. Each group lists the session meshes that hold it; a mesh with no group is listed under Groups itself.
+  const treeNames = new Set(names);
+  const extraKids = [...new Set(meshRuns.flatMap((run) => [...(run.groups || []), ...(run.part ? [run.part] : [])]))].filter((n) => !treeNames.has(n)).sort().map((n) => groupLeaf(n));
+  const orphanKids = meshRuns.filter((run) => !(run.groups || []).length && !run.part).map((run) => meshRunRow(run, "o:"));
+  const allGroupKids = [...groupKids, ...extraKids, ...orphanKids];
+  const meshKids = allGroupKids.length ? [sbNode("groups", sbRow({label: "Groups"}), allGroupKids)] : [];
   const jobKids = script.jobs.map((j, ji) => sbNode("job:" + ji, sbRow({label: "job " + j.name}), j.steps.map((st, si) => {
     const ids = st.loads === null ? script.loads.map((l) => l.id) : st.loads;
     const label = "step " + st.kind + (st.reset ? " (reset)" : "");
@@ -1366,6 +1550,7 @@ function renderTree() {
   const cats = [
     {key: "cad", label: "CAD", kids: [
       ...(cadName ? [treeItem(cadName, "cad:part")] : []),
+      ...componentNodes(-1),
       sbNode("axes", sbRow({label: "Axes", eyeState: viewerVis.axes ? "on" : "off", onEye: flag("axes")}), []),
     ]},
     {key: "mesh", label: "Mesh", kids: meshKids},
@@ -1880,8 +2065,6 @@ function renderAnalysisConditions() {
   renderPartMaterials();
 }
 $("anScript").addEventListener("input", renderAnalysisConditions);
-/** Copies the values of the material line into the Material form, so that editing one field keeps the others. */
-let materialDb = [];
 /** Loads the known materials (built-in and personal) from the host, in the units of the Material tab. */
 async function loadMaterialDb(selectId) {
   const r = await call("openmodel_material_list", $("matUnits").value);
@@ -1900,6 +2083,7 @@ async function loadMaterialDb(selectId) {
   $("matClass").innerHTML = (r.classes || []).map((c) => `<option value="${esc2(c.key)}">${esc2(c.name)}</option>`).join("");
   $("matPath").textContent = "Known materials file: " + r.path + " (" + materialDb.filter((m) => !m.builtIn).length + " personal)";
   fillFromDatabase();
+  renderMaterialAssign();
 }
 /** Copies the chosen material into the form. The script changes only with Set in script. */
 function fillFromDatabase() {

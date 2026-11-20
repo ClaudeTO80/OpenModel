@@ -12,6 +12,7 @@
 #include <sstream>
 #include <set>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace OpenModel {
 namespace {
@@ -997,8 +998,24 @@ SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& sc
         rigidMasterIds.push_back(++lastNodeId);
         solid.addNode(lastNodeId, link.reference[0], link.reference[1], link.reference[2]);
     }
+    // A volume group that takes a material of its own leaves the block of each of its elements: the group becomes a
+    // section of its own. An element takes one material, so an element shared by two assigned groups is refused.
+    std::unordered_map<ElementId, std::string> groupOf;
+    for (const auto& g : mesh.getPhysicalGroups()) {
+        const bool assigned = std::any_of(model.partMaterials.begin(), model.partMaterials.end(),
+                                          [&g](const PartMaterial& pm) { return pm.part == g.name; });
+        if (g.dimension != 3 || !assigned) continue;
+        for (const ElementId id : g.elementIds) {
+            const auto placed = groupOf.emplace(id, g.name);
+            if (!placed.second && placed.first->second != g.name)
+                return failed(r, "Element " + std::to_string(id) + " is in both groups '" + placed.first->second +
+                                     "' and '" + g.name + "': each element takes one material");
+        }
+    }
     std::vector<ElementId> volumeIds;
-    std::unordered_map<std::string, std::pair<ElementType, std::size_t>> blockSeen;
+    std::unordered_map<std::string, ElementType> regionType;   // one element type per section
+    std::unordered_set<std::string> regionSeen;
+    std::vector<std::string> volumeRegions;                    // section names, in order of first use
     for (const auto& block : mesh.getElementBlocks()) {
         if (elementDimension(block.type) != 3) continue;
         if (AbaqusInpWriter::abaqusElementType(block.type).empty())
@@ -1006,17 +1023,29 @@ SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& sc
         for (std::size_t e = 0; e < block.size(); ++e) {
             std::vector<NodeIndex> conn(block.connectivity.begin() + static_cast<std::ptrdiff_t>(e * block.nodesPerElement),
                                         block.connectivity.begin() + static_cast<std::ptrdiff_t>((e + 1) * block.nodesPerElement));
-            solid.addElement(block.name, block.type, block.ids[e], conn);
+            const auto group = groupOf.find(block.ids[e]);
+            const std::string region = group == groupOf.end() ? block.name : group->second;
+            const auto typed = regionType.emplace(region, block.type);
+            if (!typed.second && typed.first->second != block.type)
+                return failed(r, "Group '" + region + "' mixes element types: a group with its own material must hold one element type");
+            solid.addElement(region, block.type, block.ids[e], conn);
             volumeIds.push_back(block.ids[e]);
+            if (regionSeen.insert(region).second) volumeRegions.push_back(region);
         }
-        volumeSets.push_back(AbaqusInpWriter::sanitizeName(block.name));
-        volumeParts.push_back(block.name);
+    }
+    for (const auto& region : volumeRegions) {
+        volumeSets.push_back(AbaqusInpWriter::sanitizeName(region));
+        volumeParts.push_back(region);
     }
     if (volumeIds.empty()) return failed(r, "The mesh has no volume elements: generate a volume mesh first (surface meshes cannot be analysed here)");
     auto materialName = [](const AnalysisMaterial& mat) { return AbaqusInpWriter::sanitizeName(mat.name.empty() ? "MATERIAL" : mat.name); };
+    // An assignment names a volume block or a volume group of the mesh.
+    std::set<std::string> knownParts;
+    for (const auto& block : mesh.getElementBlocks()) if (elementDimension(block.type) == 3) knownParts.insert(block.name);
+    for (const auto& g : mesh.getPhysicalGroups()) if (g.dimension == 3) knownParts.insert(g.name);
     for (const auto& pm : model.partMaterials) {
-        if (std::find(volumeParts.begin(), volumeParts.end(), pm.part) == volumeParts.end())
-            return failed(r, "assign: '" + pm.part + "' is not a volume part of the mesh");
+        if (!knownParts.count(pm.part))
+            return failed(r, "assign: '" + pm.part + "' is not a volume part or volume group of the mesh");
     }
     std::vector<std::string> sectionMaterials;   // CalculiX material name of each volume part
     for (const auto& part : volumeParts) sectionMaterials.push_back(materialName(materialForPart(model, part)));
@@ -1030,7 +1059,10 @@ SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& sc
         std::unordered_map<ElementId, char> inVolume;
         for (const ElementId id : volumeIds) inVolume.emplace(id, 1);
         for (const auto& g : mesh.getPhysicalGroups()) {
-            if (g.dimension != 3) continue;
+            // A volume group with a material of its own is already written as its section: a second set of the same name would collide.
+            const bool ownSection = std::any_of(model.partMaterials.begin(), model.partMaterials.end(),
+                                                [&g](const PartMaterial& pm) { return pm.part == g.name; });
+            if (g.dimension != 3 || ownSection) continue;
             std::vector<ElementId> ids;
             for (const ElementId id : g.elementIds) if (inVolume.count(id)) ids.push_back(id);
             solid.addPhysicalGroup(g.name, g.dimension, g.tag, ids, g.materialName);

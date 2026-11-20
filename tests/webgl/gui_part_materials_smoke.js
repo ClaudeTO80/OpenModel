@@ -28,6 +28,12 @@ function check(ok, msg) { if (!ok) throw new Error("check failed: " + msg); cons
         call: async (name, text) => {
           window.__calls.push(name);
           if (name === "openmodel_analysis_load") return JSON.stringify({ ok: true, message: text });
+          if (name === "openmodel_material_list") return JSON.stringify({ ok: true, message: "", path: "test",
+            classes: [{ key: "metal", name: "Metal" }],
+            materials: [
+              { id: "STEEL", name: "Steel", builtIn: false, className: "Metal", classKey: "metal", E: "210000", nu: "0.3", rho: "7.85e-9", note: "" },
+              { id: "TI", name: "Titanium", builtIn: true, className: "Metal", classKey: "metal", E: "110000", nu: "0.34", rho: "4.5e-9", note: "" },
+            ] });
           return JSON.stringify({ ok: false, message: "stub" });
         },
       };
@@ -36,7 +42,10 @@ function check(ok, msg) { if (!ok) throw new Error("check failed: " + msg); cons
     await page.waitForTimeout(500);
     // Fake model: two volume parts and a surface block (not a part).
     await page.evaluate(() => {
-      viewerModel = () => ({ meta: { groups: [], blocks: [
+      viewerModel = () => ({ meta: { groups: [
+        { name: "Housing", dimension: 3, tag: 1, material: "" },
+        { name: "Insert", dimension: 3, tag: 2, material: "" },
+      ], blocks: [
         { name: "Housing", dimension: 3, elements: 100 },
         { name: "Insert", dimension: 3, elements: 40 },
         { name: "Skin", dimension: 2, elements: 8 },
@@ -54,7 +63,7 @@ function check(ok, msg) { if (!ok) throw new Error("check failed: " + msg); cons
     await page.waitForTimeout(200);
     let script = await page.locator("#anScript").inputValue();
     check(/^assign Housing material=ALU$/m.test(script), "choosing ALU writes an assign line for Housing");
-    check((await page.locator('#sbTreeBody').textContent()).includes("Housing : ALU"), "the tree shows Housing with ALU");
+    check((await page.locator('#sbTreeBody').textContent()).includes("Housing : ALU"), "Material > Groups shows Housing with ALU");
 
     await selects.nth(0).selectOption("STEEL");
     await page.waitForTimeout(200);
@@ -69,6 +78,39 @@ function check(ok, msg) { if (!ok) throw new Error("check failed: " + msg); cons
 
     // The form still shows the default material, not the last material line.
     check((await page.locator("#matId").inputValue()) === "STEEL", "the material form shows the default material");
+
+    // Assign to group: the group is picked in the tree, the material in the assign box, then the button writes the line.
+    await page.evaluate(() => {
+      const t = $("anScript");
+      t.value = "material id=STEEL E=210000 nu=0.3 rho=7.85e-9 name=STEEL\nmaterial id=ALU E=70000 nu=0.33 rho=2.7e-9 name=ALU\nfix all";
+      t.dispatchEvent(new Event("input"));
+      renderTree();
+      const open = (n) => { const c = n.parentElement.querySelector(".sbcaret"); if (c && c.getAttribute("aria-expanded") !== "true") c.click(); };
+      const mat = document.querySelector('.sbname[data-cat="mat"]');
+      open(mat);
+      open([...mat.closest(".sbgroup").querySelectorAll(".sbname")].find((n) => n.textContent.trim() === "Groups"));
+    });
+    check((await page.locator("#btnMatAssign").isDisabled()), "the assign button waits for a group");
+    await page.locator("#sbTreeBody .sbname", { hasText: /^Insert : / }).first().click();
+    await page.waitForTimeout(200);
+    check((await page.locator("#matAssignGroup").textContent()).includes("Group: Insert"), "a group picked in the tree is shown in the assign box");
+    const listed = await page.locator("#matAssignSel option").evaluateAll((os) => os.map((o) => o.value));
+    check(listed.includes("STEEL") && listed.includes("ALU") && listed.includes("TI"),
+      "the assign box lists the known materials and the script's materials");
+    await page.locator("#matAssignSel").selectOption("ALU");
+    await page.locator("#btnMatAssign").click();
+    await page.waitForTimeout(300);
+    script = await page.locator("#anScript").inputValue();
+    check(/^assign Insert material=ALU$/m.test(script), "the assign button writes an assign line for the group");
+    check((await page.locator("#sbTreeBody").textContent()).includes("Insert : ALU"), "Material > Groups shows Insert with ALU after the assign");
+
+    // A known material that the script does not have yet: its line is added with its own id, then assigned to the group.
+    await page.locator("#matAssignSel").selectOption("TI");
+    await page.locator("#btnMatAssign").click();
+    await page.waitForTimeout(300);
+    script = await page.locator("#anScript").inputValue();
+    check(/^material id=TI E=110000 nu=0\.34 rho=4\.5e-9 name=TI$/m.test(script), "a known material is written to the script with its id");
+    check(/^assign Insert material=TI$/m.test(script), "the known material is assigned to the group");
 
     const calls = await page.evaluate(() => window.__calls.filter((c) => c === "openmodel_analysis_load").length);
     check(calls >= 2, "each choice reloads the script in the backend");
