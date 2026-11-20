@@ -56,11 +56,24 @@ button:focus-visible, select:focus-visible, input:focus-visible, label:focus-wit
 .sw { width: 12px; height: 12px; border-radius: 3px; border: 1px solid rgba(128,128,128,.5); flex: none; }
 .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 .ct { color: var(--muted); font-variant-numeric: tabular-nums; }
-#compSec[hidden], #defSec[hidden], #resultsInfo[hidden], #blocksSec[hidden], #drop[hidden], #scalarBox[hidden], #clipBox[hidden], #legendBox[hidden] { display: none; }
+#compSec[hidden], #defSec[hidden], #resultsInfo[hidden], #blocksSec[hidden], #drop[hidden], #scalarBox[hidden], #clipBox[hidden], #legendBox[hidden], #viewTools[hidden], #colorbar[hidden] { display: none; }
 #bar { height: 12px; border-radius: 3px; border: 1px solid var(--line); margin: 4px 0 8px; }
 main { position: relative; min-width: 0; min-height: 0; max-width: 100%; max-height: 100%; height: 100%; overflow: hidden; background: var(--viewport); }
 canvas { display: block; box-sizing: border-box; width: 100%; height: 100%; max-width: 100%; max-height: 100%; min-width: 0; min-height: 0; touch-action: none; cursor: grab; }
 canvas.drag { cursor: grabbing; }
+/* Overlay on the canvas: section plane and display mode. Every control drives the input it mirrors in the sidebar. */
+#viewTools { position: absolute; top: 10px; left: 10px; z-index: 3; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; max-width: calc(100% - 20px); }
+.vtGroup { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; background: color-mix(in srgb, var(--panel) 90%, transparent); border: 1px solid var(--line); border-radius: 6px; padding: 3px; }
+.vtGroup .vtTitle { color: var(--muted); font-size: 12px; padding: 0 6px 0 4px; }
+.vtGroup button { border: 0; background: transparent; color: var(--text); padding: 3px 8px; border-radius: 4px; font: inherit; font-size: 12px; }
+.vtGroup button:hover:not(:disabled) { background: var(--panel-2); }
+.vtGroup button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+.vtGroup button:disabled { opacity: .45; cursor: default; }
+.vtGroup input[type=range] { width: 120px; }
+#colorbar { position: absolute; right: 10px; bottom: 10px; z-index: 3; width: 220px; max-width: calc(100% - 20px); background: color-mix(in srgb, var(--panel) 90%, transparent); border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px; font-size: 12px; font-variant-numeric: tabular-nums; }
+#colorbar .cbTitle { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#colorbar .cbBar { height: 10px; border-radius: 3px; border: 1px solid var(--line); margin: 5px 0 3px; }
+#colorbar .cbLabels { display: flex; justify-content: space-between; color: var(--muted); }
 #axes { position: absolute; left: 12px; bottom: 46px; width: 112px; height: 112px; pointer-events: none; }
 #axes[hidden] { display: none; }
 #hud { position: absolute; left: 12px; bottom: 10px; color: var(--muted); background: color-mix(in srgb, var(--panel) 80%, transparent); border: 1px solid var(--line); border-radius: 6px; padding: 5px 9px; pointer-events: none; }
@@ -191,6 +204,27 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
   <canvas id="gl"></canvas>
   <div id="drop"><div><b>Drop an .mgwv file here</b>generated with <code>openmodel export-web</code></div></div>
   <div id="msg" hidden></div>
+  <div id="viewTools" hidden>
+    <div class="vtGroup" role="group" aria-label="Section plane">
+      <button type="button" id="vtSection" aria-pressed="false" title="Cut the model with a plane (the Section panel on the left has the same control)">Section</button>
+      <button type="button" data-vt-axis="0" aria-pressed="false">X</button>
+      <button type="button" data-vt-axis="1" aria-pressed="false">Y</button>
+      <button type="button" data-vt-axis="2" aria-pressed="false">Z</button>
+      <button type="button" id="vtFlip" aria-pressed="false">Flip</button>
+      <input type="range" id="vtPos" min="0" max="1000" value="500" aria-label="Section position">
+    </div>
+    <div class="vtGroup" role="group" aria-label="Display mode">
+      <span class="vtTitle">Display</span>
+      <button type="button" data-vt-wire="none" aria-pressed="false">Hidden</button>
+      <button type="button" data-vt-wire="skin" aria-pressed="false">Surface</button>
+      <button type="button" data-vt-wire="all" aria-pressed="false">All</button>
+    </div>
+  </div>
+  <div id="colorbar" hidden>
+    <div class="cbTitle" id="cbTitle"></div>
+    <div class="cbBar" id="cbBar"></div>
+    <div class="cbLabels"><span id="cbMin"></span><span id="cbMax"></span></div>
+  </div>
   <div id="selBox" hidden style="position:absolute;border:1px dashed var(--accent);background:color-mix(in srgb, var(--accent) 15%, transparent);pointer-events:none"></div>
   <canvas id="axes" width="112" height="112" aria-label="Axes of the model coordinate system"></canvas>
   <div id="hud">Left: rotate (or select, if enabled) · Right or Shift: pan · Wheel: zoom · Double-click: fit</div>
@@ -594,6 +628,7 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     S.range = [f.min, f.max];
     $("smin").value = f.min; $("smax").value = f.max;
     S.dirty = true;
+    updateColorbar();
   }
   function refreshVisibility() {
     gl.deleteTexture(S.tex.vis);
@@ -904,6 +939,50 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
       box.checked = on === ids.length; box.indeterminate = on > 0 && on < ids.length;
     });
   }
+  /** Formats a value of the colour range for the colour bar; a non finite value is shown as a dash. */
+  const fmtRange = (v) => (Number.isFinite(v) ? String(Number(v.toPrecision(4))) : "-");
+  /** Colour bar on the canvas: shown only for the scalar field colouring, with the range in use. */
+  function updateColorbar() {
+    const field = S.model && S.model.fields[S.fieldIndex];
+    const on = S.mode === "scalar" && !!field;
+    $("colorbar").hidden = !on;
+    if (!on) return;
+    $("cbBar").style.background = $("bar").style.background;
+    $("cbTitle").textContent = field.name;
+    $("cbMin").textContent = fmtRange(S.range[0]);
+    $("cbMax").textContent = fmtRange(S.range[1]);
+  }
+  /** Brings the overlay in line with the sidebar inputs, which stay the single source of state. */
+  function syncViewTools() {
+    const ready = !!S.model;
+    $("viewTools").hidden = !ready;
+    if (!ready) { updateColorbar(); return; }
+    const sec = !!S.clipOn;
+    $("vtSection").setAttribute("aria-pressed", String(sec));
+    document.querySelectorAll("[data-vt-axis]").forEach((b) => {
+      b.setAttribute("aria-pressed", String(+b.dataset.vtAxis === +S.clipAxis));
+      b.disabled = !sec;
+    });
+    $("vtFlip").setAttribute("aria-pressed", String(!!S.clipFlip));
+    $("vtFlip").disabled = !sec;
+    $("vtPos").disabled = !sec;
+    $("vtPos").value = Math.round(S.clipPos * 1000);
+    document.querySelectorAll("[data-vt-wire]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.vtWire === S.wire)));
+    updateColorbar();
+  }
+  /** Overlay controls set the sidebar input and fire its own change or input event, so the same handler runs. */
+  function fireOn(id, type) { $(id).dispatchEvent(new Event(type)); }
+  function setupViewTools() {
+    $("vtSection").addEventListener("click", () => { $("clipOn").checked = !S.clipOn; fireOn("clipOn", "change"); syncViewTools(); });
+    document.querySelectorAll("[data-vt-axis]").forEach((b) => b.addEventListener("click", () => {
+      $("clipAxis").value = b.dataset.vtAxis; fireOn("clipAxis", "change"); syncViewTools();
+    }));
+    $("vtFlip").addEventListener("click", () => { $("clipFlip").checked = !S.clipFlip; fireOn("clipFlip", "change"); syncViewTools(); });
+    $("vtPos").addEventListener("input", (e) => { $("clipPos").value = e.target.value; fireOn("clipPos", "input"); });
+    document.querySelectorAll("[data-vt-wire]").forEach((b) => b.addEventListener("click", () => {
+      $("wire").value = b.dataset.vtWire; fireOn("wire", "change"); syncViewTools();
+    }));
+  }
   function fillLegend() {
     const m = S.model.meta, box = $("legendBox");
     if (S.mode !== "region" && S.mode !== "surface") { box.hidden = true; return; }
@@ -923,6 +1002,7 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     fillBlocks(); fillComponents(); fillLegend();
     const hasField = S.model && S.model.fields.length > 0;
     for (const o of $("colorMode").options) if (o.value === "scalar") o.disabled = !hasField;
+    syncViewTools();
     S.dirty = true;
   }
   // Deformed shape controls. The slider runs from 0 to 10x the suggested factor (largest displacement = 10% of the model size).
@@ -1009,9 +1089,10 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
   document.querySelectorAll("[data-view]").forEach((b) => b.addEventListener("click", () => setView(b.dataset.view)));
   $("colorMode").addEventListener("change", (e) => { S.mode = e.target.value; refreshUi(); });
   $("fieldSel").addEventListener("change", (e) => setField(+e.target.value));
-  $("smin").addEventListener("input", (e) => { S.range[0] = +e.target.value; S.dirty = true; });
-  $("smax").addEventListener("input", (e) => { S.range[1] = +e.target.value; S.dirty = true; });
-  $("wire").addEventListener("change", (e) => { S.wire = e.target.value; S.dirty = true; });
+  $("smin").addEventListener("input", (e) => { S.range[0] = +e.target.value; S.dirty = true; updateColorbar(); });
+  $("smax").addEventListener("input", (e) => { S.range[1] = +e.target.value; S.dirty = true; updateColorbar(); });
+  $("wire").addEventListener("change", (e) => { S.wire = e.target.value; S.dirty = true; syncViewTools(); });
+  setupViewTools();
   $("axesOn").addEventListener("change", (e) => { S.axes = e.target.checked; S.dirty = true; });
   $("consOn").addEventListener("change", (e) => { S.consOn = e.target.checked; S.dirty = true; });
   $("consSize").addEventListener("input", (e) => { const v = Number(e.target.value); if (v > 0) { S.consSize = Math.min(v, 30); S.dirty = true; } });

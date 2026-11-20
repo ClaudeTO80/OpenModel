@@ -119,3 +119,12 @@ model tree shows its state (CAD, mesh count and nodes, constraints, load cases, 
 ```bash
 NODE_PATH=... node tests/webgl/gui_workbench_smoke.js http://127.0.0.1:8765/gui.html
 ```
+
+## Viewer section overlay (`viewer_section_smoke.js`)
+Checks that the overlay on the canvas (section plane, display mode) drives the sidebar inputs and the viewer state, and that the
+colour bar appears for the scalar colouring with the range in use. Without a model file it checks only that the overlay and the
+colour bar stay hidden and that the page reports no errors; the full run needs an `.mgwv` file with a scalar field.
+
+```bash
+NODE_PATH=... node tests/webgl/viewer_section_smoke.js examples/webgl-fem-viewer/index.html [file.mgwv]
+```

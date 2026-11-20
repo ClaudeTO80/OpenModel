@@ -15,6 +15,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - GUI: status bar at the bottom: the counts of the shown mesh, the latest message of the backend (kept after Clear), and the version.
 - GUI: the Selection controls moved from the top of the sidebar to a card over the viewer (same controls, the card can be collapsed).
 - GUI: each category of the model tree shows its state beside its name: CAD imported, mesh count and nodes, constraints, load cases, jobs with or without results.
+- Viewer: overlay on the canvas with the section plane (on/off, X/Y/Z, flip, position) and the display mode (Hidden, Surface, All). The controls drive the existing inputs of the sidebar, so the state stays in one place.
+- Viewer: colour bar on the canvas for the scalar field colouring, with the field name and the range in use (it follows the Min and Max inputs).
 
 ## [0.1.5] - 2026-11-20
 
