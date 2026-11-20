@@ -737,6 +737,7 @@ async function act(name, ...args) {
   if (r.nativeCADGroups) renderNativeCADGroups(r.nativeCADGroups);
   if (r.meshGroups) renderGenericMeshGroups(r.meshGroups);
   else if (r.ok && ["openmodel_import_model", "openmodel_load_mesh", "openmodel_generate_volume"].includes(name)) await refreshCADFaceGroups();
+  if (r.ok && name === "openmodel_import_model") await refreshCadComponents();
   if (!r.groups && r.ok && ["openmodel_load_mesh", "openmodel_generate_volume"].includes(name)) refreshGroups();
   return r;
 }
@@ -1067,7 +1068,7 @@ let sbActiveCat = null;
  * @param o.onAdd     called when the "+" is pressed, or null for a row without it
  * @return the row element
  */
-function sbRow({label, state = null, eyeState = state, onPick = null, onEye = null, onAdd = null, onDel = null}) {
+function sbRow({label, state = null, eyeState = state, onPick = null, onEye = null, onAdd = null, onDel = null, check = null}) {
   const row = document.createElement("div");
   row.className = "sbrow" + (state === "off" ? " off" : "") + (state === "mixed" ? " mixed" : "");
   const name = document.createElement("span");
@@ -1076,6 +1077,13 @@ function sbRow({label, state = null, eyeState = state, onPick = null, onEye = nu
     name.tabIndex = 0; name.setAttribute("role", "treeitem");
     name.addEventListener("click", onPick);
     name.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onPick(); } });
+  }
+  if (check) {
+    const box = document.createElement("input");
+    box.type = "checkbox"; box.className = "sbcheck"; box.checked = check.checked;
+    box.title = "Mesh " + label;
+    box.addEventListener("change", () => check.onToggle(box.checked));
+    row.append(box);
   }
   row.append(name);
   if (onEye) {
@@ -1199,6 +1207,46 @@ function materialRows(meta) {
 let meshRuns = [];
 /** Full name of the group selected in the tree for the material assignment, or null. */
 let selectedMatGroup = null;
+/** CAD components of the imported model as the backend lists them: {id, parent, name, path, isAssembly, solidIds}. */
+let cadComponents = [];
+/** Ids of the components checked for meshing. Checking a component checks its whole subtree. */
+let checkedComponents = new Set();
+/** @brief Loads the components of the imported CAD model and keeps only the checks that still exist. */
+async function refreshCadComponents() {
+  const r = await call("openmodel_cad_components");
+  if (!r || !r.ok) return;
+  cadComponents = r.components || [];
+  checkedComponents = new Set([...checkedComponents].filter((id) => cadComponents.some((c) => c.id === id)));
+  renderTree();
+}
+/** @brief Ids of a component and of every component below it. @param id component id */
+function subtreeOf(id) {
+  return [id, ...cadComponents.filter((c) => c.parent === id).flatMap((c) => subtreeOf(c.id))];
+}
+/**
+ * @brief Checks or unchecks a component and its whole subtree. Unchecking a component also unchecks its ancestors,
+ * since a checked ancestor means all of its components are checked.
+ * @param id component id @param on true to check
+ */
+function setComponentChecked(id, on) {
+  for (const k of subtreeOf(id)) { if (on) checkedComponents.add(k); else checkedComponents.delete(k); }
+  if (!on) {
+    for (let p = cadComponents.find((c) => c.id === id)?.parent ?? -1; p >= 0; p = cadComponents.find((c) => c.id === p)?.parent ?? -1) checkedComponents.delete(p);
+  }
+  renderTree();
+}
+/** @brief Solid ids to mesh: the solids below the checked components, each once, in ascending order. */
+function selectedSolidIds() {
+  const ids = new Set();
+  for (const c of cadComponents) if (checkedComponents.has(c.id)) c.solidIds.forEach((s) => ids.add(s));
+  return [...ids].sort((a, b) => a - b);
+}
+/** @brief Rows of the CAD tree below a component (-1 for the roots), each with its check box. */
+function componentNodes(parentId) {
+  return cadComponents.filter((c) => c.parent === parentId).map((c) => sbNode("cadc:" + c.id,
+    sbRow({label: c.name || c.path, check: {checked: checkedComponents.has(c.id), onToggle: (on) => setComponentChecked(c.id, on)}}),
+    componentNodes(c.id)));
+}
 /**
  * @brief Selects a group of the tree for the material assignment and opens the assign box of the Material panel.
  * @param name full name of the group
@@ -1456,6 +1504,7 @@ function renderTree() {
   const cats = [
     {key: "cad", label: "CAD", kids: [
       ...(cadName ? [treeItem(cadName, "cad:part")] : []),
+      ...componentNodes(-1),
       sbNode("axes", sbRow({label: "Axes", eyeState: viewerVis.axes ? "on" : "off", onEye: flag("axes")}), []),
     ]},
     {key: "mesh", label: "Mesh", kids: meshKids},

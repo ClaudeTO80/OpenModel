@@ -1842,6 +1842,31 @@ void meshRunsHandler(webui_event_t* e) {
 }
 
 /** Argument: index of a mesh of the session. Shows that mesh in the viewer. */
+/**
+ * @brief Lists the components of the imported CAD model as the file gives them: the assembly tree, each with its parent
+ * index and the solids below it. The parts to mesh are chosen on this tree.
+ */
+void cadComponentsHandler(webui_event_t* e) {
+    StateLock lock;
+    if (!lock.ok()) { replyBusy(e); return; }
+    std::ostringstream out;
+    out << "{\"ok\":true,\"message\":\"\",\"components\":[";
+    if (g.cad) {
+        const auto& components = g.cad->getComponents();
+        for (std::size_t i = 0; i < components.size(); ++i) {
+            const auto& c = components[i];
+            if (i) out << ",";
+            out << "{\"id\":" << c.id << ",\"parent\":" << c.parent << ",\"name\":" << jsonString(c.name)
+                << ",\"path\":" << jsonString(c.path) << ",\"isAssembly\":" << (c.isAssembly ? "true" : "false")
+                << ",\"solidIds\":[";
+            for (std::size_t k = 0; k < c.solidIds.size(); ++k) out << (k ? "," : "") << c.solidIds[k];
+            out << "]}";
+        }
+    }
+    out << "]}";
+    webui_return_string(e, out.str().c_str());
+}
+
 void meshRunSelectHandler(webui_event_t* e) {
     StateLock lock;
     if (!lock.ok()) { replyBusy(e); return; }
@@ -2581,6 +2606,7 @@ int main() {
     webui_bind(window, "openmodel_create_group", createGroupHandler);
     webui_bind(window, "openmodel_list_groups", listGroupsHandler);
     webui_bind(window, "openmodel_show_group", showGroupHandler);
+    webui_bind(window, "openmodel_cad_components", cadComponentsHandler);
     webui_bind(window, "openmodel_mesh_runs", meshRunsHandler);
     webui_bind(window, "openmodel_mesh_select", meshRunSelectHandler);
     webui_bind(window, "openmodel_mesh_remove", meshRunRemoveHandler);
