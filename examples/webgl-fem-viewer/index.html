@@ -1053,7 +1053,18 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
 
   view.addEventListener("dragover", (e) => { e.preventDefault(); view.classList.add("over"); });
   view.addEventListener("dragleave", () => view.classList.remove("over"));
-  view.addEventListener("drop", (e) => { e.preventDefault(); view.classList.remove("over"); loadFile(e.dataTransfer.files[0]); });
+  // A CAD file dropped here is added to the model by the OpenModel window, as Import CAD does; any other file is loaded here.
+  const CAD_FILE = /\.(step|stp|iges|igs|brep|brp|obj|stl|ply|fbx|gltf|glb|dae|3ds)$/i;
+  view.addEventListener("drop", (e) => {
+    e.preventDefault(); view.classList.remove("over");
+    const file = e.dataTransfer.files[0];
+    if (file && CAD_FILE.test(file.name)) {
+      if (window.parent === window) showMessage("Open this viewer from OpenModel to add a CAD file to the model.");
+      else window.parent.postMessage({ type: "openmodel-cad-drop", file }, location.origin);
+      return;
+    }
+    loadFile(file);
+  });
 
   /* --------------------------------------------------------------- picking */
   // Off-screen id buffers: one holds the triangle drawn at each pixel, the other the vertex (node) markers.

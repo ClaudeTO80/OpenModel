@@ -86,6 +86,7 @@
 #include "gui_html.inc"
 #include "viewer_html.inc"
 #include "FlatJson.hpp"
+#include "Base64.hpp"
 
 namespace {
 
@@ -777,6 +778,53 @@ void createDemo(webui_event_t* e) {
     reply(e, true, "Demo model loaded: " + meshSummary() + ".");
 }
 
+void importCadFile(webui_event_t* e, const fs::path& file, double linear, double angular);
+
+/** Extensions of the CAD and mesh files the Import CAD browse filter offers; a dropped file must be one of them. */
+bool isImportableCadName(const std::string& ext) {
+    static const std::set<std::string> known{".step", ".stp", ".iges", ".igs", ".brep", ".brp", ".obj", ".stl",
+                                             ".ply", ".fbx", ".gltf", ".glb", ".dae", ".3ds"};
+    return known.count(ext) > 0;
+}
+
+/**
+ * Imports a CAD file dropped on the viewer, as Import CAD does for a chosen file. A browser does not give the real
+ * path of a dropped file, so the page sends its name and its content in base64. The content is written to
+ * <temporary directory>/openmodel-cad/<name>, which is reused for the same name: the CAD face groups saved next to it
+ * (cadGroupsPath) follow its size and date, so a changed file drops them as usual.
+ */
+void importCadUpload(webui_event_t* e) {
+    StateLock lock;
+    if (!lock.ok()) { replyBusy(e); return; }
+    const std::string name = getStringArg(e, 0);
+    const std::string encoded = getStringArg(e, 1);
+    const double linear = getDoubleArg(e, 2, g.linearDeflection);
+    const double angular = getDoubleArg(e, 3, g.angularDeflection);
+    if (!validParameters(linear, angular)) {
+        reply(e, false, "Invalid parameters: linear deflection > 0 and angular deflection in (0, pi]."); return;
+    }
+    // Only the last component of the name is used: a dropped file never chooses a folder.
+    const std::string leaf = fs::path(name).filename().string();
+    if (leaf.empty() || leaf == "." || leaf == ".." || !isImportableCadName(lowerExtension(fs::path(leaf)))) {
+        reply(e, false, "Drop a CAD file: STEP, IGES, BREP, or OBJ/STL/... via Assimp."); return;
+    }
+    std::string content;
+    if (!decodeBase64(encoded, content) || content.empty()) { reply(e, false, "The dropped file could not be read."); return; }
+    std::error_code ec;
+    const fs::path tempRoot = fs::temp_directory_path(ec);
+    if (ec) { reply(e, false, "No temporary folder to store the dropped file: " + ec.message()); return; }
+    const fs::path folder = tempRoot / "openmodel-cad";
+    fs::create_directories(folder, ec);
+    if (ec) { reply(e, false, "Cannot create " + folder.string() + ": " + ec.message()); return; }
+    const fs::path file = folder / leaf;
+    {
+        std::ofstream out(file, std::ios::binary | std::ios::trunc);
+        out.write(content.data(), static_cast<std::streamsize>(content.size()));
+        if (!out.good()) { reply(e, false, "Cannot store the dropped file: " + file.string()); return; }
+    }
+    importCadFile(e, file, linear, angular);
+}
+
 void importModel(webui_event_t* e) {
     StateLock lock;
     if (!lock.ok()) { replyBusy(e); return; }
@@ -790,6 +838,11 @@ void importModel(webui_event_t* e) {
     std::error_code ec;
     const auto file = absolutePath(path);
     if (!fs::is_regular_file(file, ec)) { reply(e, false, "File not found or not accessible: " + path); return; }
+    importCadFile(e, file, linear, angular);
+}
+
+/** Imports and tessellates a CAD file that exists on disk, then replies to the page. Call with the state locked. */
+void importCadFile(webui_event_t* e, const fs::path& file, double linear, double angular) {
     const std::string ext = lowerExtension(file);
     std::shared_ptr<CADModel> candidate;
     if (ext == ".step" || ext == ".stp" || ext == ".iges" || ext == ".igs" || ext == ".brep" || ext == ".brp") {
@@ -2608,6 +2661,7 @@ int main() {
     webui_bind(window, "openmodel_list_dir", listDirectory);
     webui_bind(window, "openmodel_create_demo", createDemo);
     webui_bind(window, "openmodel_import_model", importModel);
+    webui_bind(window, "openmodel_import_cad_upload", importCadUpload);
     webui_bind(window, "openmodel_retessellate", retessellate);
     webui_bind(window, "openmodel_generate_volume", generateVolume);
     webui_bind(window, "openmodel_load_mesh", loadMesh);

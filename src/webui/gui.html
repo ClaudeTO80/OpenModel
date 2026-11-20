@@ -795,6 +795,30 @@ $("viewer").addEventListener("load", () => {
 });
 
 const importModel = () => act("openmodel_import_model", $("cadPath").value.trim(), $("linear").value, $("angular").value);
+/**
+ * @brief Imports a CAD file dropped on the 3D viewer, the same as choosing it with Import CAD.
+ * The content goes to the backend as base64 because a browser does not give the path of a dropped file.
+ * @param file the dropped File object
+ */
+async function importDroppedCad(file) {
+  if (busy) { show("Wait for the current operation to finish, then drop the file again.", "bad"); return; }
+  const encoded = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(",")[1] || "");
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+  const r = await act("openmodel_import_cad_upload", file.name, encoded, $("linear").value, $("angular").value);
+  // The model tree names the CAD after this field: show the imported file, not the one imported before.
+  if (r && r.ok) $("cadPath").value = file.name;
+}
+// The viewer page posts the CAD files dropped on it: only the embedded viewer of this window may send them.
+window.addEventListener("message", (ev) => {
+  const data = ev.data;
+  if (!data || data.type !== "openmodel-cad-drop" || ev.origin !== location.origin) return;
+  if (ev.source !== $("viewer").contentWindow || !(data.file instanceof Blob)) return;
+  importDroppedCad(data.file);
+});
 const retessellate = () => act("openmodel_retessellate", $("linear").value, $("angular").value);
 // One JSON object argument: WebUI does not deliver calls with more than 17 arguments.
 // Keys must match kVolumeKeys in src/webui/main.cpp; the tetrahedral keys are read from the object by name.

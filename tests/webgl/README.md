@@ -95,3 +95,11 @@ Checks the single model tree of the GUI without a backend: the six categories, n
 python3 -m http.server 8765 --directory src/webui &
 node tests/webgl/gui_tree_smoke.js http://localhost:8765/gui.html
 ```
+
+## Viewer CAD drop (`viewer_cad_drop_smoke.js`)
+Embeds `examples/webgl-fem-viewer` in a parent page and drops files on the view: a CAD file must be posted to the parent
+(the GUI adds it to the model), an `.mgwv` file must stay in the viewer. Needs only Node.js with `playwright` and a Chromium.
+
+```bash
+NODE_PATH=... node tests/webgl/viewer_cad_drop_smoke.js examples/webgl-fem-viewer/index.html
+```
