@@ -28,6 +28,12 @@ function check(ok, msg) { if (!ok) throw new Error("check failed: " + msg); cons
         call: async (name, text) => {
           window.__calls.push(name);
           if (name === "openmodel_analysis_load") return JSON.stringify({ ok: true, message: text });
+          if (name === "openmodel_material_list") return JSON.stringify({ ok: true, message: "", path: "test",
+            classes: [{ key: "metal", name: "Metal" }],
+            materials: [
+              { id: "STEEL", name: "Steel", builtIn: false, className: "Metal", classKey: "metal", E: "210000", nu: "0.3", rho: "7.85e-9", note: "" },
+              { id: "TI", name: "Titanium", builtIn: true, className: "Metal", classKey: "metal", E: "110000", nu: "0.34", rho: "4.5e-9", note: "" },
+            ] });
           return JSON.stringify({ ok: false, message: "stub" });
         },
       };
@@ -88,13 +94,23 @@ function check(ok, msg) { if (!ok) throw new Error("check failed: " + msg); cons
     await page.locator("#sbTreeBody .sbname", { hasText: /^Insert : / }).first().click();
     await page.waitForTimeout(200);
     check((await page.locator("#matAssignGroup").textContent()).includes("Group: Insert"), "a group picked in the tree is shown in the assign box");
-    check((await page.locator("#matAssignSel option").count()) === 2, "the assign box lists the script materials");
+    const listed = await page.locator("#matAssignSel option").evaluateAll((os) => os.map((o) => o.value));
+    check(listed.includes("STEEL") && listed.includes("ALU") && listed.includes("TI"),
+      "the assign box lists the known materials and the script's materials");
     await page.locator("#matAssignSel").selectOption("ALU");
     await page.locator("#btnMatAssign").click();
     await page.waitForTimeout(300);
     script = await page.locator("#anScript").inputValue();
     check(/^assign Insert material=ALU$/m.test(script), "the assign button writes an assign line for the group");
     check((await page.locator("#sbTreeBody").textContent()).includes("Insert : ALU"), "Material > Groups shows Insert with ALU after the assign");
+
+    // A known material that the script does not have yet: its line is added with its own id, then assigned to the group.
+    await page.locator("#matAssignSel").selectOption("TI");
+    await page.locator("#btnMatAssign").click();
+    await page.waitForTimeout(300);
+    script = await page.locator("#anScript").inputValue();
+    check(/^material id=TI E=110000 nu=0\.34 rho=4\.5e-9 name=TI$/m.test(script), "a known material is written to the script with its id");
+    check(/^assign Insert material=TI$/m.test(script), "the known material is assigned to the group");
 
     const calls = await page.evaluate(() => window.__calls.filter((c) => c === "openmodel_analysis_load").length);
     check(calls >= 2, "each choice reloads the script in the backend");

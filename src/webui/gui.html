@@ -1227,6 +1227,8 @@ function materialRows(meta) {
 }
 /** Meshes of this session as the backend lists them (see refreshMeshRuns). */
 let meshRuns = [];
+/** Known materials (built-in and personal) as the host lists them; loaded by loadMaterialDb. Declared early: the tree reads it. */
+let materialDb = [];
 /** Full name of the group selected in the tree for the material assignment, or null. */
 let selectedMatGroup = null;
 /** CAD components of the imported model as the backend lists them: {id, parent, name, path, isAssembly, solidIds}. */
@@ -1285,18 +1287,40 @@ function selectMaterialGroup(name) {
 function renderMaterialAssign() {
   const label = $("matAssignGroup"), sel = $("matAssignSel"), btn = $("btnMatAssign");
   if (!label || !sel || !btn) return;
-  const ids = scriptMaterialIds($("anScript").value.split(/\r?\n/));
+  // The choices: the known materials (built-in and personal), then the materials of the script that are not known.
+  const inScript = scriptMaterialIds($("anScript").value.split(/\r?\n/));
+  const items = [...materialDb.map((m) => ({id: m.id, label: m.name})),
+    ...inScript.filter((id) => !materialDb.some((m) => m.id === id)).map((id) => ({id, label: id}))];
   const keep = sel.value, form = ($("matId") ? $("matId").value : "").trim();
-  sel.replaceChildren(...ids.map((id) => { const o = document.createElement("option"); o.value = id; o.textContent = id; return o; }));
-  sel.value = ids.includes(keep) ? keep : (ids.includes(form) ? form : (ids[0] || ""));
+  sel.replaceChildren(...items.map((it) => {
+    const o = document.createElement("option");
+    o.value = it.id; o.textContent = it.label + (inScript.includes(it.id) ? "" : " (added to the script)");
+    return o;
+  }));
+  const has = (v) => items.some((it) => it.id === v);
+  sel.value = has(keep) ? keep : (has(form) ? form : (items[0] ? items[0].id : ""));
   label.textContent = selectedMatGroup ? "Group: " + selectedMatGroup : "Select a group in the tree (Material or Mesh > Groups).";
-  btn.disabled = !selectedMatGroup || !ids.length;
+  btn.disabled = !selectedMatGroup || !items.length;
 }
 /** Gives the group selected in the tree the material chosen in the assign box. */
 async function assignSelectedGroup() {
   const sel = $("matAssignSel");
   if (!selectedMatGroup || !sel || !sel.value) return;
-  await assignPartMaterial(selectedMatGroup, sel.value);
+  const id = sel.value;
+  const inScript = scriptMaterialIds($("anScript").value.split(/\r?\n/));
+  if (!inScript.includes(id)) {
+    // A known material not in the script yet: its line takes the database values. With no material line it is the default
+    // (no id=); otherwise it is a further material with its own id=, as the script expects.
+    $("matDb").value = id;
+    fillFromDatabase();
+    const E = $("matE").value.trim(), nu = $("matNu").value.trim(), rho = $("matRho").value.trim();
+    if (!Number.isFinite(Number(E)) || E === "" || !Number.isFinite(Number(nu)) || nu === "") {
+      show("The known material " + id + " has no valid E or nu.", "bad"); return;
+    }
+    appendScript("material" + (inScript.length ? " id=" + id : "") + " E=" + E + " nu=" + nu
+      + (rho !== "" ? " rho=" + rho : "") + " name=" + id);
+  }
+  await assignPartMaterial(selectedMatGroup, id);
 }
 /** Volume parts of the mesh: the blocks of dimension 3, by name. */
 function volumeParts() {
@@ -2041,8 +2065,6 @@ function renderAnalysisConditions() {
   renderPartMaterials();
 }
 $("anScript").addEventListener("input", renderAnalysisConditions);
-/** Copies the values of the material line into the Material form, so that editing one field keeps the others. */
-let materialDb = [];
 /** Loads the known materials (built-in and personal) from the host, in the units of the Material tab. */
 async function loadMaterialDb(selectId) {
   const r = await call("openmodel_material_list", $("matUnits").value);
@@ -2061,6 +2083,7 @@ async function loadMaterialDb(selectId) {
   $("matClass").innerHTML = (r.classes || []).map((c) => `<option value="${esc2(c.key)}">${esc2(c.name)}</option>`).join("");
   $("matPath").textContent = "Known materials file: " + r.path + " (" + materialDb.filter((m) => !m.builtIn).length + " personal)";
   fillFromDatabase();
+  renderMaterialAssign();
 }
 /** Copies the chosen material into the form. The script changes only with Set in script. */
 function fillFromDatabase() {
