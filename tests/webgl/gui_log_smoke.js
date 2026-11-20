@@ -40,6 +40,9 @@ function check(ok, msg) { if (!ok) throw new Error("check failed: " + msg); cons
             const entries = window.__logEntries.filter((entry) => entry.seq > after);
             return JSON.stringify({ ok: true, last: 4, entries });
           }
+          if (name === "openmodel_about") return JSON.stringify({ ok: true, version: "0.1.5" });
+          if (name === "openmodel_mesh_runs") return JSON.stringify({ ok: true, runs: [
+            { index: 0, name: "bracket", nodes: 61436, elements: 194878, shown: true, part: "", groups: [] }] });
           return JSON.stringify({ ok: false, message: "stub" });
         },
       };
@@ -69,7 +72,7 @@ function check(ok, msg) { if (!ok) throw new Error("check failed: " + msg); cons
     check((await lines()).length === 1, "filter Errors shows only the error");
 
     await setFilter("info");
-    await page.click("text=Clear");
+    await page.click("#dockLog button:text-is(\"Clear\")");
     check((await lines()).length === 0, "Clear empties the list");
 
     const before = await page.evaluate(() => window.__logCalls.length);
@@ -77,6 +80,30 @@ function check(ok, msg) { if (!ok) throw new Error("check failed: " + msg); cons
     const after = await page.evaluate((from) => window.__logCalls.slice(from), before);
     check(after.length >= 1 && after.every((c) => c === "4"), "polling after Clear asks only for new entries");
     check((await lines()).length === 0, "entries already cleared are not shown again");
+
+    // The dock: the log is the default tab, the solver tab shows its own output, the toggle hides the body.
+    const dockState = () => page.evaluate(() => ({
+      logVisible: !document.getElementById("dockLog").hidden,
+      solverVisible: !document.getElementById("dockSolver").hidden,
+      collapsed: document.getElementById("dock").classList.contains("collapsed"),
+    }));
+    let dock = await dockState();
+    check(dock.logVisible && !dock.solverVisible && !dock.collapsed, "the dock opens on the Log tab");
+    await page.click("#tabSolver");
+    dock = await dockState();
+    check(dock.solverVisible && !dock.logVisible, "the Solver tab shows the solver output");
+    await page.click("#tabLog");
+    await page.click("#dockToggle");
+    check((await dockState()).collapsed, "the toggle hides the body of the dock");
+    await page.click("#statusMessage");
+    check(!(await dockState()).collapsed, "a click on the status message opens the log again");
+
+    // The status bar: the counts of the shown mesh, the last message whatever its level, the version.
+    await page.evaluate(() => refreshMeshRuns());
+    const mesh = await page.textContent("#statusMesh");
+    check(mesh.includes("61,436 nodes") && mesh.includes("194,878 elements"), "the status bar shows the counts of the shown mesh");
+    check((await page.textContent("#statusMessage")) === "tolerance 1e-8", "the status bar shows the last message (debug included)");
+    check((await page.textContent("#statusVersion")) === "OpenModel 0.1.5", "the status bar shows the version");
 
     check(errors.length === 0, "no page errors (" + errors.join(" | ") + ")");
     console.log("gui_log_smoke: all checks passed");

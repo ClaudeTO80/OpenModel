@@ -10,6 +10,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - GUI: Log section in the sidebar. It shows the messages that the operations write to the console (the volume mesh, the CAD import and tessellation, the Gmsh and TetGen messages), while they run: the page reads them every 0.7 s from `openmodel_log_since`. Filter by level (Errors, Warnings, Information, Debug, the same levels as the Gmsh log), Clear (this page only) and Save (text file). The OpenModel phases are always recorded; the Gmsh details follow the Gmsh log level, read after each meshing step, so the progress is shown by phase and not by percentage. Tests: `tests/webgl/gui_log_smoke.js`, `tests/progress_log_test.cpp`.
 - Core: `OpenModel::ProgressLog`, a thread-safe log with sequence numbers and a capacity (5000 entries by default); `parseGmshLogLine()` reads the Gmsh log lines. The CLI and the console output are unchanged.
 
+### Changed
+- GUI: the Log moved from the bottom of the sidebar to a panel at the bottom of the window, with the Log and Solver tabs (the solver output left the Analysis section). The panel can be hidden and resized; its state is kept between sessions.
+- GUI: status bar at the bottom: the counts of the shown mesh, the latest message of the backend (kept after Clear), and the version.
+
 ## [0.1.5] - 2026-11-20
 
 ### Added

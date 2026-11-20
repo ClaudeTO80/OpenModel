@@ -13,7 +13,7 @@
   --btn:#e6eaf0;--btn-line:#c4ccd8;--btn-hover:#d8dee8;--prim:#1f6feb;--prim-line:#1558c0;--on-prim:#ffffff;--hover:#e3e8f0;--rb-hover:#dde4ee;--result:#1d3b5c;--viewport:#e9ecf1;--scrim:#0006}
 *{box-sizing:border-box}
 html,body{height:100%;margin:0}
-body{background:var(--bg);color:var(--text);font:13px/1.45 system-ui,"Segoe UI",sans-serif;display:grid;grid-template-rows:auto minmax(0,1fr);overflow:hidden}
+body{background:var(--bg);color:var(--text);font:13px/1.45 system-ui,"Segoe UI",sans-serif;display:grid;grid-template-rows:auto minmax(0,1fr) auto;overflow:hidden}
 #shell{display:grid;grid-template-columns:minmax(300px,360px) minmax(0,1fr);min-height:0}
 aside{overflow-y:auto;padding:12px;border-right:1px solid var(--line);display:grid;gap:10px;align-content:start}
 h1{margin:0;font-size:17px}
@@ -40,7 +40,25 @@ button.primary{background:var(--prim);border-color:var(--prim-line);color:var(--
 #progressLog .log-debug{color:var(--muted)}
 #result{white-space:pre-wrap;overflow-wrap:anywhere;margin:0;min-height:64px;max-height:200px;overflow:auto;font:12px/1.45 ui-monospace,Consolas,monospace;color:var(--result)}
 #result.bad{color:var(--bad)} #result.good{color:var(--good)}
-main{position:relative;min-width:0}
+main{position:relative;min-width:0;min-height:0}
+#workarea{display:grid;grid-template-rows:minmax(0,1fr) auto;min-width:0;min-height:0}
+#dock{position:relative;display:grid;grid-template-rows:auto minmax(0,1fr);height:var(--dock-h,210px);min-height:0;background:var(--panel);border-top:1px solid var(--line)}
+#dock.collapsed{height:auto}
+#dock.collapsed #dockResize,#dock.collapsed .dockBody{display:none}
+#dockResize{position:absolute;top:-4px;left:0;right:0;height:9px;cursor:row-resize;touch-action:none;z-index:2}
+#dockResize:hover{background:var(--accent);opacity:.35}
+.dockHead{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 8px;border-bottom:1px solid var(--line)}
+.dockTab{background:none;border:0;border-bottom:2px solid transparent;border-radius:0;padding:7px 10px;color:var(--muted);cursor:pointer}
+.dockTab[aria-selected="true"]{color:var(--text);border-bottom-color:var(--accent)}
+.dockBody{min-height:0;overflow:hidden;display:grid;grid-template-rows:auto minmax(0,1fr);padding:6px 8px}
+.dockBody[hidden]{display:none}
+.dockTools{display:flex;gap:8px;align-items:end;margin-bottom:6px}
+.dockTools>div{display:grid;gap:2px}
+#progressLog,#solverLog{min-height:0;overflow:auto;font-family:monospace;font-size:11px;white-space:pre-wrap;margin:0}
+#statusbar{display:flex;align-items:center;gap:16px;padding:3px 10px;border-top:1px solid var(--line);background:var(--panel);color:var(--muted);font-size:11.5px;white-space:nowrap;min-width:0}
+#statusMesh{flex:none;color:var(--text)}
+.statusMsg{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;background:none;border:0;color:inherit;text-align:left;padding:0;cursor:pointer;font:inherit}
+#statusVersion{margin-left:auto;flex:none}
 iframe{display:block;width:100%;height:100%;border:0;background:var(--viewport)}
 .inspector{position:absolute;top:0;left:0;bottom:0;width:min(400px,calc(100% - 20px));display:grid;grid-template-rows:auto minmax(0,1fr);background:var(--panel);border:1px solid var(--line);border-radius:0 10px 10px 0;box-shadow:0 8px 24px rgba(0,0,0,.18);z-index:5}
 .inspector[hidden]{display:none}
@@ -630,7 +648,6 @@ details.node details.node{margin-top:8px;background:transparent}
     <input id="anSolver" placeholder="/usr/bin/ccx">
     <div class="grid2"><button id="btnWrite" onclick="analysisWrite()">Write input</button><button id="btnRun" class="primary" onclick="analysisRun()">Run solver</button></div>
     <div class="grid2"><button id="btnCancel" onclick="analysisCancel()" disabled>Cancel</button><button onclick="analysisExample()">Example</button></div>
-    <pre id="solverLog" style="max-height:180px;overflow:auto;font-size:11px;margin-top:6px" aria-live="polite">No analysis started.</pre>
     <p class="hint">Commands: <code>material E= nu= rho=</code>, <code>fix plane:x=0 [dof=1,2,3]</code>, <code>force plane:x=10 F=fx,fy,fz</code>, <code>pressure group:NAME p=</code>, <code>gravity g=gx,gy,gz</code>, <code>step static</code> or <code>step frequency modes=N</code>. Selectors: <code>all</code>, <code>group:NAME</code>, <code>plane:x|y|z=VALUE</code>. Use consistent units of your choice. When the run finishes, the results are loaded automatically.</p>
     </details>
     <details class="node" open>
@@ -653,23 +670,44 @@ details.node details.node{margin-top:8px;background:transparent}
   </dialog>
 
   <section><h2>Messages</h2><pre id="result">Ready. Import a CAD model, load a mesh or try the demo model.</pre></section>
-  <details id="secLog" class="node" open>
-    <summary>Log</summary>
-    <div class="grid2"><div><label for="logFilter">Show</label>
-      <select id="logFilter" onchange="renderProgressLog()" title="Errors only, warnings and errors, information, or everything">
-        <option value="error">Errors</option><option value="warning">Warnings</option><option value="info" selected>Information</option><option value="debug">Debug</option>
-      </select></div>
-    <div><label>&nbsp;</label><div class="row"><button onclick="clearProgressLog()" title="Clears the list on this page; the backend keeps its log">Clear</button><button onclick="saveProgressLog()" title="Saves every entry as a text file">Save…</button></div></div></div>
-    <div id="progressLog" role="log" aria-live="polite" style="max-height:240px;overflow:auto;font-family:monospace;font-size:11px;white-space:pre-wrap;margin-top:6px"></div>
-  </details>
 </aside>
 
-<main><iframe id="viewer" src="viewer.html" title="FEM viewer"></iframe>
+<div id="workarea"><main><iframe id="viewer" src="viewer.html" title="FEM viewer"></iframe>
 <section id="inspector" class="inspector" hidden aria-label="Details">
   <header class="inspHead"><span id="inspTitle"></span><button type="button" id="inspClose" aria-label="Close details" title="Close (Esc)">×</button></header>
   <div id="inspBody"></div>
 </section></main>
+<section id="dock" aria-label="Log and solver output">
+  <div id="dockResize" role="separator" aria-orientation="horizontal" aria-label="Resize the panel" title="Drag to resize"></div>
+  <header class="dockHead">
+    <div role="tablist" aria-label="Panels">
+      <button type="button" role="tab" class="dockTab" id="tabLog" data-dock="log" aria-selected="true">Log</button>
+      <button type="button" role="tab" class="dockTab" id="tabSolver" data-dock="solver" aria-selected="false">Solver</button>
+    </div>
+    <button type="button" id="dockToggle" title="Hide the panel">Hide</button>
+  </header>
+  <div id="dockLog" class="dockBody" role="tabpanel">
+    <div class="dockTools">
+      <div><label for="logFilter">Show</label>
+        <select id="logFilter" onchange="renderProgressLog()" title="Errors only, warnings and errors, information, or everything">
+          <option value="error">Errors</option><option value="warning">Warnings</option><option value="info" selected>Information</option><option value="debug">Debug</option>
+        </select></div>
+      <button onclick="clearProgressLog()" title="Clears the list on this page; the backend keeps its log">Clear</button>
+      <button onclick="saveProgressLog()" title="Saves every entry as a text file">Save…</button>
+    </div>
+    <div id="progressLog" role="log" aria-live="polite"></div>
+  </div>
+  <div id="dockSolver" class="dockBody" role="tabpanel" hidden>
+    <pre id="solverLog" aria-live="polite">No analysis started.</pre>
+  </div>
+</section>
 </div>
+</div>
+<footer id="statusbar">
+  <span id="statusMesh">No mesh</span>
+  <button type="button" class="statusMsg" id="statusMessage" title="Open the log">Ready</button>
+  <span id="statusVersion"></span>
+</footer>
 
 <div class="modal" id="modal" hidden>
   <div class="dialog" role="dialog" aria-modal="true" aria-label="Choose file">
@@ -828,7 +866,7 @@ async function importDroppedCad(file) {
  * @brief The progress log of the backend: the messages of the running operations, polled while the page is open.
  * entries holds the most recent ones (at most LOG_MAX); last is the sequence number of the most recent one read.
  */
-const progressLog = {last: 0, entries: []};
+const progressLog = {last: 0, entries: [], latest: null};
 const LOG_MAX = 2000;
 const LOG_RANK = {error: 0, warning: 1, info: 2, debug: 3};
 let progressPolling = false;
@@ -841,6 +879,7 @@ async function pollProgressLog() {
     if (!r || !r.ok || !Array.isArray(r.entries)) return;
     if (r.entries.length) {
       progressLog.entries.push(...r.entries);
+      progressLog.latest = r.entries[r.entries.length - 1];
       if (progressLog.entries.length > LOG_MAX) progressLog.entries.splice(0, progressLog.entries.length - LOG_MAX);
       renderProgressLog();
     }
@@ -863,6 +902,7 @@ function renderProgressLog() {
     return line;
   }));
   if (follow) box.scrollTop = box.scrollHeight;
+  renderStatusBar();
 }
 /** @brief Empties the list on this page. The backend keeps its own log, but only the entries after this point are shown. */
 function clearProgressLog() {
@@ -879,6 +919,69 @@ function saveProgressLog() {
   setTimeout(() => URL.revokeObjectURL(link.href), 1000);
 }
 setInterval(pollProgressLog, 700);
+/** @brief The status bar: the counts of the shown mesh, the most recent message of the log (any level), and the version. */
+function renderStatusBar() {
+  const shown = meshRuns.find((run) => run.shown);
+  $("statusMesh").textContent = shown
+    ? "Mesh " + shown.name + ": " + Number(shown.nodes).toLocaleString() + " nodes, " + Number(shown.elements).toLocaleString() + " elements"
+    : "No mesh";
+  // The latest message the backend sent, kept even when the list of this page is cleared.
+  const last = progressLog.latest;
+  const message = $("statusMessage");
+  message.textContent = last ? last.text : "Ready";
+  message.className = "statusMsg" + (last ? " log-" + last.level : "");
+}
+const DOCK_KEY = "openmodel.dock";
+/** @brief The saved state of the dock (open, tab, height); empty when nothing was saved or storage is unavailable. */
+function dockState() { try { return JSON.parse(localStorage.getItem(DOCK_KEY)) || {}; } catch (e) { return {}; } }
+/** @brief Merges the given fields into the saved state of the dock. */
+function saveDockState(patch) { try { localStorage.setItem(DOCK_KEY, JSON.stringify(Object.assign(dockState(), patch))); } catch (e) { /* storage unavailable: keep working */ } }
+/** @brief Shows the Log or the Solver tab of the dock. */
+function showDockTab(name) {
+  for (const tab of document.querySelectorAll(".dockTab")) tab.setAttribute("aria-selected", tab.dataset.dock === name ? "true" : "false");
+  $("dockLog").hidden = name !== "log";
+  $("dockSolver").hidden = name !== "solver";
+  saveDockState({tab: name});
+}
+/** @brief Opens or hides the body of the dock. The tabs stay visible, so the panel can always be reopened. */
+function setDockOpen(open) {
+  $("dock").classList.toggle("collapsed", !open);
+  $("dockToggle").textContent = open ? "Hide" : "Show";
+  $("dockToggle").title = open ? "Hide the panel" : "Show the panel";
+  saveDockState({open});
+}
+/** @brief Drag the top edge of the dock to change its height; the pointer is captured so the viewer does not take the moves. */
+function startDockResize(ev) {
+  const handle = $("dockResize"), dock = $("dock"), area = $("workarea");
+  handle.setPointerCapture(ev.pointerId);
+  const startY = ev.clientY, startHeight = dock.getBoundingClientRect().height;
+  const move = (e) => {
+    const top = area.getBoundingClientRect().height - 80;
+    const height = Math.min(Math.max(startHeight + (startY - e.clientY), 120), Math.max(120, top));
+    dock.style.setProperty("--dock-h", height + "px");
+  };
+  const up = () => {
+    handle.removeEventListener("pointermove", move);
+    handle.removeEventListener("pointerup", up);
+    saveDockState({height: parseInt(dock.style.getPropertyValue("--dock-h"), 10) || undefined});
+  };
+  handle.addEventListener("pointermove", move);
+  handle.addEventListener("pointerup", up);
+}
+/** @brief Restores the dock and the version, and wires the tabs, the toggle, the resize and the status bar. */
+function initDock() {
+  const saved = dockState();
+  if (saved.height) $("dock").style.setProperty("--dock-h", saved.height + "px");
+  showDockTab(saved.tab === "solver" ? "solver" : "log");
+  setDockOpen(saved.open !== false);
+  for (const tab of document.querySelectorAll(".dockTab")) tab.addEventListener("click", () => { showDockTab(tab.dataset.dock); setDockOpen(true); });
+  $("dockToggle").addEventListener("click", () => setDockOpen($("dock").classList.contains("collapsed")));
+  $("statusMessage").addEventListener("click", () => { showDockTab("log"); setDockOpen(true); });
+  $("dockResize").addEventListener("pointerdown", startDockResize);
+  call("openmodel_about").then((r) => { if (r && r.ok) $("statusVersion").textContent = "OpenModel " + r.version; });
+  renderStatusBar();
+}
+window.addEventListener("DOMContentLoaded", initDock);
 // The viewer page posts the CAD files dropped on it: only the embedded viewer of this window may send them.
 window.addEventListener("message", (ev) => {
   const data = ev.data;
@@ -1512,6 +1615,7 @@ async function refreshMeshRuns() {
   if (!r || !r.ok) return;
   meshRuns = r.runs || [];
   renderTree();
+  renderStatusBar();
 }
 /**
  * @brief A mesh of the session as a row of the Mesh branch: the eye shows it in the viewer, the × removes it.
