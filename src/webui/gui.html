@@ -534,6 +534,14 @@ details.node details.node{margin-top:8px;background:transparent}
       <summary>Material in the script</summary>
       <ul id="condMaterial" class="conds"></ul>
     </details>
+    <details class="node" id="matAssignSection" open>
+      <summary>Assign to group</summary>
+      <p class="hint" id="matAssignGroup">Select a group in the tree (Material or Mesh &gt; Groups).</p>
+      <label for="matAssignSel">Material</label>
+      <select id="matAssignSel"></select>
+      <button type="button" id="btnMatAssign" class="primary full" onclick="assignSelectedGroup()" disabled>Assign to group</button>
+      <p class="hint">Gives the material chosen here to the group selected in the tree. The choice is written to the script as an <code>assign</code> line with the group name.</p>
+    </details>
     <details class="node" id="matPartsSection">
       <summary>Material per part</summary>
       <p class="hint">Each volume part of the mesh takes the default material unless another one is chosen here. The choice is written to the script as an <code>assign</code> line.</p>
@@ -1151,7 +1159,7 @@ function eyeFor(names) {
  */
 function groupNode(name, node, path) {
   const eye = eyeFor(namesUnder(node));
-  const row = sbRow({label: name, state: eye.state, onEye: eye.toggle});
+  const row = sbRow({label: name, state: eye.state, onEye: eye.toggle, onPick: () => selectMaterialGroup(path)});
   return sbNode("grp:" + path, row, [...node.children].map(([n, c]) => groupNode(n, c, path + "/" + n))
     .concat(runsWithGroup(path, "g:" + path + ":")));
 }
@@ -1189,6 +1197,37 @@ function materialRows(meta) {
 }
 /** Meshes of this session as the backend lists them (see refreshMeshRuns). */
 let meshRuns = [];
+/** Full name of the group selected in the tree for the material assignment, or null. */
+let selectedMatGroup = null;
+/**
+ * @brief Selects a group of the tree for the material assignment and opens the assign box of the Material panel.
+ * @param name full name of the group
+ */
+function selectMaterialGroup(name) {
+  selectedMatGroup = name;
+  renderMaterialAssign();
+  focusSection("matAssignSection");
+}
+/**
+ * @brief Fills the assign box: the material ids of the script and the group selected in the tree. The button is
+ * enabled only with a group and a material. The material of the form is preselected when the script has it.
+ */
+function renderMaterialAssign() {
+  const label = $("matAssignGroup"), sel = $("matAssignSel"), btn = $("btnMatAssign");
+  if (!label || !sel || !btn) return;
+  const ids = scriptMaterialIds($("anScript").value.split(/\r?\n/));
+  const keep = sel.value, form = ($("matId") ? $("matId").value : "").trim();
+  sel.replaceChildren(...ids.map((id) => { const o = document.createElement("option"); o.value = id; o.textContent = id; return o; }));
+  sel.value = ids.includes(keep) ? keep : (ids.includes(form) ? form : (ids[0] || ""));
+  label.textContent = selectedMatGroup ? "Group: " + selectedMatGroup : "Select a group in the tree (Material or Mesh > Groups).";
+  btn.disabled = !selectedMatGroup || !ids.length;
+}
+/** Gives the group selected in the tree the material chosen in the assign box. */
+async function assignSelectedGroup() {
+  const sel = $("matAssignSel");
+  if (!selectedMatGroup || !sel || !sel.value) return;
+  await assignPartMaterial(selectedMatGroup, sel.value);
+}
 /** Volume parts of the mesh: the blocks of dimension 3, by name. */
 function volumeParts() {
   const m = viewerModel();
@@ -1225,6 +1264,7 @@ async function assignPartMaterial(part, id) {
 }
 /** Lists the volume parts with the material each one takes (the default one unless assigned). */
 function renderPartMaterials() {
+  renderMaterialAssign();
   const box = $("condParts");
   if (!box) return;
   box.replaceChildren();
@@ -1270,7 +1310,7 @@ function materialTreeKids(meta) {
   // Groups as in Mesh > Groups, each with its material: the script assignment by name, else the group's own material.
   const dim = listedGroupDim(meta);
   const groups = meta.groups.filter((g) => g.dimension === dim).map((g) => sbNode("matgrp:" + g.name,
-    sbRow({label: g.name + " : " + (assigned.get(g.name) || g.material || fallback), onPick: () => focusSection("matPartsSection")}), []));
+    sbRow({label: g.name + " : " + (assigned.get(g.name) || g.material || fallback), onPick: () => selectMaterialGroup(g.name)}), []));
   const groupKids = groups.length ? [sbNode("matgroups", sbRow({label: "Groups"}), groups)] : [];
   return [...groupKids, ...materialRows(meta)];
 }

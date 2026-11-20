@@ -73,6 +73,29 @@ function check(ok, msg) { if (!ok) throw new Error("check failed: " + msg); cons
     // The form still shows the default material, not the last material line.
     check((await page.locator("#matId").inputValue()) === "STEEL", "the material form shows the default material");
 
+    // Assign to group: the group is picked in the tree, the material in the assign box, then the button writes the line.
+    await page.evaluate(() => {
+      const t = $("anScript");
+      t.value = "material id=STEEL E=210000 nu=0.3 rho=7.85e-9 name=STEEL\nmaterial id=ALU E=70000 nu=0.33 rho=2.7e-9 name=ALU\nfix all";
+      t.dispatchEvent(new Event("input"));
+      renderTree();
+      const open = (n) => { const c = n.parentElement.querySelector(".sbcaret"); if (c && c.getAttribute("aria-expanded") !== "true") c.click(); };
+      const mat = document.querySelector('.sbname[data-cat="mat"]');
+      open(mat);
+      open([...mat.closest(".sbgroup").querySelectorAll(".sbname")].find((n) => n.textContent.trim() === "Groups"));
+    });
+    check((await page.locator("#btnMatAssign").isDisabled()), "the assign button waits for a group");
+    await page.locator("#sbTreeBody .sbname", { hasText: /^Insert : / }).first().click();
+    await page.waitForTimeout(200);
+    check((await page.locator("#matAssignGroup").textContent()).includes("Group: Insert"), "a group picked in the tree is shown in the assign box");
+    check((await page.locator("#matAssignSel option").count()) === 2, "the assign box lists the script materials");
+    await page.locator("#matAssignSel").selectOption("ALU");
+    await page.locator("#btnMatAssign").click();
+    await page.waitForTimeout(300);
+    script = await page.locator("#anScript").inputValue();
+    check(/^assign Insert material=ALU$/m.test(script), "the assign button writes an assign line for the group");
+    check((await page.locator("#sbTreeBody").textContent()).includes("Insert : ALU"), "Material > Groups shows Insert with ALU after the assign");
+
     const calls = await page.evaluate(() => window.__calls.filter((c) => c === "openmodel_analysis_load").length);
     check(calls >= 2, "each choice reloads the script in the backend");
   } finally {
