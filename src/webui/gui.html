@@ -1512,15 +1512,15 @@ async function assignSelectedGroup() {
   const id = sel.value;
   const inScript = scriptMaterialIds($("anScript").value.split(/\r?\n/));
   if (!inScript.includes(id)) {
-    // A known material not in the script yet: its line takes the database values. With no material line it is the default
-    // (no id=); otherwise it is a further material with its own id=, as the script expects.
+    // A known material not in the script yet: its line takes the database values. The line always carries id=, because
+    // the assign line refers to it; the first material line of the script is the default material.
     $("matDb").value = id;
     fillFromDatabase();
     const E = $("matE").value.trim(), nu = $("matNu").value.trim(), rho = $("matRho").value.trim();
     if (!Number.isFinite(Number(E)) || E === "" || !Number.isFinite(Number(nu)) || nu === "") {
       show("The known material " + id + " has no valid E or nu.", "bad"); return;
     }
-    appendScript("material" + (inScript.length ? " id=" + id : "") + " E=" + E + " nu=" + nu
+    appendScript("material id=" + id + " E=" + E + " nu=" + nu
       + (rho !== "" ? " rho=" + rho : "") + " name=" + id);
   }
   await assignPartMaterial(selectedMatGroup, id);
@@ -1537,6 +1537,12 @@ function scriptMaterialIds(lines) {
     return m ? m[1] : null;
   }).filter((id) => id !== null);
 }
+/** Id of the default material: that of the first material line of the script, or null when the line has no id=. */
+function defaultMaterialId(lines) {
+  const first = lines.find((l) => analysisCommand(l) === "material");
+  const m = first ? /(?:^|\s)id=([A-Za-z0-9_.-]+)/.exec(first.trim()) : null;
+  return m ? m[1] : null;
+}
 /** Part name -> material id, from the assign lines of the script. */
 function partAssignments(lines) {
   const out = new Map();
@@ -1552,7 +1558,7 @@ function partAssignments(lines) {
 async function assignPartMaterial(part, id) {
   const kept = $("anScript").value.split(/\r?\n/)
     .filter((l) => !(analysisCommand(l) === "assign" && l.trim().split(/\s+/)[1] === part));
-  if (id !== scriptMaterialIds(kept)[0]) kept.push("assign " + part + " material=" + id);
+  if (id !== defaultMaterialId(kept)) kept.push("assign " + part + " material=" + id);
   const r = await act("openmodel_analysis_load", kept.join("\n"));
   if (!r || !r.ok) { renderPartMaterials(); return; }
   $("anScript").value = r.message;
@@ -1603,7 +1609,7 @@ function renderPartMaterials() {
 function materialTreeKids(meta) {
   const lines = $("anScript").value.split(/\r?\n/);
   const assigned = partAssignments(lines);
-  const fallback = scriptMaterialIds(lines)[0] || "none";
+  const fallback = defaultMaterialId(lines) || "none";
   // Groups as in Mesh > Groups, each with its material: the script assignment by name, else the group's own material.
   const dim = listedGroupDim(meta);
   const groups = meta.groups.filter((g) => g.dimension === dim).map((g) => sbNode("matgrp:" + g.name,
