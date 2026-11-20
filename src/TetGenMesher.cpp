@@ -1,4 +1,5 @@
 #include <OpenModel/TetGenMesher.hpp>
+#include <OpenModel/ProgressLog.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -30,10 +31,12 @@ bool TetGenMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Me
         }
         if (options.dimension != MeshDimension::Volume || !options.generateTetrahedra) {
             std::cerr << "OpenModel generates volume meshes only; use SurfaceMesher for a surface mesh.\n";
+            OpenModel::ProgressLog::instance().add(OpenModel::ProgressLevel::Error, "TetGen", "OpenModel generates volume meshes only; use SurfaceMesher for a surface mesh.");
             return false;
         }
         if (!std::isfinite(options.elementSize) || options.elementSize <= 0.0) {
             std::cerr << "elementSize must be finite and positive.\n";
+            OpenModel::ProgressLog::instance().add(OpenModel::ProgressLevel::Error, "TetGen", "elementSize must be finite and positive.");
             return false;
         }
 
@@ -46,6 +49,7 @@ bool TetGenMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Me
                 m_diagnostics.push_back("TetGen backend supports a single solid; this CAD has " + std::to_string(solids) +
                                         " solids. Use Gmsh (optionally with conformal interfaces).");
                 std::cerr << m_diagnostics.back() << '\n';
+                OpenModel::ProgressLog::instance().add(OpenModel::ProgressLevel::Error, "TetGen", m_diagnostics.back());
                 return false;
             }
         }
@@ -355,12 +359,14 @@ bool TetGenMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Me
             return true;
         } catch (const std::exception& e) {
             std::cerr << "TetGen Error: " << e.what() << std::endl;
+            OpenModel::ProgressLog::instance().add(OpenModel::ProgressLevel::Error, "TetGen", e.what());
             m_diagnostics.push_back(std::string("TetGen failed: ") + e.what());
             outMesh.clear();
             return false;
         } catch (int code) {
             // TetGen reports fatal input problems by throwing an int (its internal exit code).
             std::cerr << "TetGen Error: exit code " << code << std::endl;
+            OpenModel::ProgressLog::instance().add(OpenModel::ProgressLevel::Error, "TetGen", "exit code " + std::to_string(code));
             m_diagnostics.push_back("TetGen failed with code " + std::to_string(code) +
                                     ": the surface is probably not one closed, non-self-intersecting shell "
                                     "(for example several solids that touch or overlap).");

@@ -35,6 +35,9 @@ button.primary{background:var(--prim);border-color:var(--prim-line);color:var(--
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px}
 .grid2 button{margin:0}
 .hint{color:var(--muted);font-size:11.5px;margin:6px 0 0}
+#progressLog .log-error{color:#c0392b;font-weight:600}
+#progressLog .log-warning{color:#b9770e}
+#progressLog .log-debug{color:var(--muted)}
 #result{white-space:pre-wrap;overflow-wrap:anywhere;margin:0;min-height:64px;max-height:200px;overflow:auto;font:12px/1.45 ui-monospace,Consolas,monospace;color:var(--result)}
 #result.bad{color:var(--bad)} #result.good{color:var(--good)}
 main{position:relative;min-width:0}
@@ -650,6 +653,15 @@ details.node details.node{margin-top:8px;background:transparent}
   </dialog>
 
   <section><h2>Messages</h2><pre id="result">Ready. Import a CAD model, load a mesh or try the demo model.</pre></section>
+  <details id="secLog" class="node" open>
+    <summary>Log</summary>
+    <div class="grid2"><div><label for="logFilter">Show</label>
+      <select id="logFilter" onchange="renderProgressLog()" title="Errors only, warnings and errors, information, or everything">
+        <option value="error">Errors</option><option value="warning">Warnings</option><option value="info" selected>Information</option><option value="debug">Debug</option>
+      </select></div>
+    <div><label>&nbsp;</label><div class="row"><button onclick="clearProgressLog()" title="Clears the list on this page; the backend keeps its log">Clear</button><button onclick="saveProgressLog()" title="Saves every entry as a text file">Save…</button></div></div></div>
+    <div id="progressLog" role="log" aria-live="polite" style="max-height:240px;overflow:auto;font-family:monospace;font-size:11px;white-space:pre-wrap;margin-top:6px"></div>
+  </details>
 </aside>
 
 <main><iframe id="viewer" src="viewer.html" title="FEM viewer"></iframe>
@@ -812,6 +824,61 @@ async function importDroppedCad(file) {
   // The model tree names the CAD after this field: show the imported file, not the one imported before.
   if (r && r.ok) $("cadPath").value = file.name;
 }
+/**
+ * @brief The progress log of the backend: the messages of the running operations, polled while the page is open.
+ * entries holds the most recent ones (at most LOG_MAX); last is the sequence number of the most recent one read.
+ */
+const progressLog = {last: 0, entries: []};
+const LOG_MAX = 2000;
+const LOG_RANK = {error: 0, warning: 1, info: 2, debug: 3};
+let progressPolling = false;
+/** @brief Asks the backend for the entries after the last one read and shows them. Polls do not overlap. */
+async function pollProgressLog() {
+  if (progressPolling) return;
+  progressPolling = true;
+  try {
+    const r = await call("openmodel_log_since", String(progressLog.last));
+    if (!r || !r.ok || !Array.isArray(r.entries)) return;
+    if (r.entries.length) {
+      progressLog.entries.push(...r.entries);
+      if (progressLog.entries.length > LOG_MAX) progressLog.entries.splice(0, progressLog.entries.length - LOG_MAX);
+      renderProgressLog();
+    }
+    progressLog.last = Math.max(progressLog.last, Number(r.last) || 0);
+  } finally {
+    progressPolling = false;
+  }
+}
+/** @brief Shows the entries allowed by the filter, one line each; the list follows the newest line unless the user scrolled up. */
+function renderProgressLog() {
+  const box = $("progressLog");
+  if (!box) return;
+  const limit = LOG_RANK[$("logFilter").value] ?? LOG_RANK.info;
+  const follow = box.scrollTop + box.clientHeight >= box.scrollHeight - 4;
+  box.replaceChildren(...progressLog.entries.filter((entry) => (LOG_RANK[entry.level] ?? 2) <= limit).map((entry) => {
+    const line = document.createElement("div");
+    const time = new Date(entry.time).toLocaleTimeString();
+    line.className = "log-" + entry.level;
+    line.textContent = time + "  " + entry.level.toUpperCase().padEnd(7) + " " + entry.source + ": " + entry.text;
+    return line;
+  }));
+  if (follow) box.scrollTop = box.scrollHeight;
+}
+/** @brief Empties the list on this page. The backend keeps its own log, but only the entries after this point are shown. */
+function clearProgressLog() {
+  progressLog.entries = [];
+  renderProgressLog();
+}
+/** @brief Saves every entry, whatever the filter, as a text file. */
+function saveProgressLog() {
+  const text = progressLog.entries.map((entry) => new Date(entry.time).toISOString() + " " + entry.level.toUpperCase() + " " + entry.source + ": " + entry.text).join("\n") + "\n";
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(new Blob([text], {type: "text/plain"}));
+  link.download = "openmodel-log.txt";
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+}
+setInterval(pollProgressLog, 700);
 // The viewer page posts the CAD files dropped on it: only the embedded viewer of this window may send them.
 window.addEventListener("message", (ev) => {
   const data = ev.data;

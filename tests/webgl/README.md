@@ -103,3 +103,11 @@ Embeds `examples/webgl-fem-viewer` in a parent page and drops files on the view:
 ```bash
 NODE_PATH=... node tests/webgl/viewer_cad_drop_smoke.js examples/webgl-fem-viewer/index.html
 ```
+
+## Log section (`gui_log_smoke.js`)
+Loads `src/webui/gui.html` with a stub bridge that answers `openmodel_log_since` with four messages, one per level, and checks the
+filter, Clear and the polling. Serve `src/webui` over HTTP (for example `python3 -m http.server`) and pass the URL of `gui.html`.
+
+```bash
+NODE_PATH=... node tests/webgl/gui_log_smoke.js http://127.0.0.1:8765/gui.html
+```

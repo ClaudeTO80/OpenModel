@@ -67,6 +67,7 @@ set(OPENMODEL_CORE_SOURCES
     src/MeshData.cpp
     src/MeshBodies.cpp
     src/MeshRuns.cpp
+    src/ProgressLog.cpp
     src/MeshBinaryIO.cpp
     src/Version.cpp
     "${OPENMODEL_BUILD_INFO_SOURCE}"
@@ -213,6 +214,7 @@ if(OPENMODEL_BUILD_TESTS)
     endfunction()
     openmodel_add_test(core_smoke_test tests/core_smoke_test.cpp)
     openmodel_add_test(version_test tests/version_test.cpp)
+    openmodel_add_test(progress_log_test tests/progress_log_test.cpp)
     # The version CMake was configured with, to be compared with what the macros and the library report.
     target_compile_definitions(version_test PRIVATE OPENMODEL_EXPECTED_VERSION="${PROJECT_VERSION}")
     openmodel_add_test(build_info_test tests/build_info_test.cpp)
