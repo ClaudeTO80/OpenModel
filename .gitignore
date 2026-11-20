@@ -16,7 +16,7 @@ _deps/
 *.user
 .DS_Store
 Thumbs.db
-
+/VS2026
 # Generated or local artefacts
 *.mgwv
 *.mgmb
