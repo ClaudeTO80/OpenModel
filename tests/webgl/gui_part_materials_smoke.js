@@ -36,7 +36,10 @@ function check(ok, msg) { if (!ok) throw new Error("check failed: " + msg); cons
     await page.waitForTimeout(500);
     // Fake model: two volume parts and a surface block (not a part).
     await page.evaluate(() => {
-      viewerModel = () => ({ meta: { groups: [], blocks: [
+      viewerModel = () => ({ meta: { groups: [
+        { name: "Housing", dimension: 3, tag: 1, material: "" },
+        { name: "Insert", dimension: 3, tag: 2, material: "" },
+      ], blocks: [
         { name: "Housing", dimension: 3, elements: 100 },
         { name: "Insert", dimension: 3, elements: 40 },
         { name: "Skin", dimension: 2, elements: 8 },
@@ -54,7 +57,7 @@ function check(ok, msg) { if (!ok) throw new Error("check failed: " + msg); cons
     await page.waitForTimeout(200);
     let script = await page.locator("#anScript").inputValue();
     check(/^assign Housing material=ALU$/m.test(script), "choosing ALU writes an assign line for Housing");
-    check((await page.locator('#sbTreeBody').textContent()).includes("Housing : ALU"), "the tree shows Housing with ALU");
+    check((await page.locator('#sbTreeBody').textContent()).includes("Housing : ALU"), "Material > Groups shows Housing with ALU");
 
     await selects.nth(0).selectOption("STEEL");
     await page.waitForTimeout(200);

@@ -39,7 +39,7 @@ button.primary{background:var(--prim);border-color:var(--prim-line);color:var(--
 #result.bad{color:var(--bad)} #result.good{color:var(--good)}
 main{position:relative;min-width:0}
 iframe{display:block;width:100%;height:100%;border:0;background:var(--viewport)}
-.inspector{position:absolute;top:10px;right:10px;bottom:10px;width:min(400px,calc(100% - 20px));display:grid;grid-template-rows:auto minmax(0,1fr);background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.18);z-index:5}
+.inspector{position:absolute;top:0;left:0;bottom:0;width:min(400px,calc(100% - 20px));display:grid;grid-template-rows:auto minmax(0,1fr);background:var(--panel);border:1px solid var(--line);border-radius:0 10px 10px 0;box-shadow:0 8px 24px rgba(0,0,0,.18);z-index:5}
 .inspector[hidden]{display:none}
 .inspHead{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;border-bottom:1px solid var(--line);font-weight:600}
 #inspClose{padding:0 8px;font-size:18px;line-height:1.2}
@@ -1152,7 +1152,8 @@ function eyeFor(names) {
 function groupNode(name, node, path) {
   const eye = eyeFor(namesUnder(node));
   const row = sbRow({label: name, state: eye.state, onEye: eye.toggle});
-  return sbNode("grp:" + path, row, [...node.children].map(([n, c]) => groupNode(n, c, path + "/" + n)));
+  return sbNode("grp:" + path, row, [...node.children].map(([n, c]) => groupNode(n, c, path + "/" + n))
+    .concat(runsWithGroup(path, "g:" + path + ":")));
 }
 /** Adds a sidebar section's first control: CAD opens the file picker, the others open their panel. */
 const SB_ADD = {
@@ -1266,11 +1267,12 @@ function materialTreeKids(meta) {
   const lines = $("anScript").value.split(/\r?\n/);
   const assigned = partAssignments(lines);
   const fallback = scriptMaterialIds(lines)[0] || "none";
-  const parts = volumeParts().map((part) => sbNode("matpart:" + part,
-    sbRow({label: part + " : " + (assigned.get(part) || fallback), onPick: () => focusSection("matPartsSection")}), []));
-  // Same shape as Mesh > Groups: each group of the mesh with the material it takes; the material eyes follow.
-  const groups = parts.length ? [sbNode("matgroups", sbRow({label: "Groups"}), parts)] : [];
-  return [...groups, ...materialRows(meta)];
+  // Groups as in Mesh > Groups, each with its material: the script assignment by name, else the group's own material.
+  const dim = listedGroupDim(meta);
+  const groups = meta.groups.filter((g) => g.dimension === dim).map((g) => sbNode("matgrp:" + g.name,
+    sbRow({label: g.name + " : " + (assigned.get(g.name) || g.material || fallback), onPick: () => focusSection("matPartsSection")}), []));
+  const groupKids = groups.length ? [sbNode("matgroups", sbRow({label: "Groups"}), groups)] : [];
+  return [...groupKids, ...materialRows(meta)];
 }
 /**
  * @brief Called after every viewer load: the backend records the mesh as a run of the session, so the page reloads the list.
@@ -1299,16 +1301,13 @@ function meshRunRow(run, under = "") {
   });
   return sbNode("run:" + under + run.index, row, []);
 }
-/** Part names of the Groups node: the volume parts of the shown mesh, then the parts the session meshes cover. */
-function groupPartNames() {
-  const names = [...volumeParts()];
-  meshRuns.forEach((run) => (run.parts || []).forEach((p) => { if (!names.includes(p)) names.push(p); }));
-  return names;
+/** The session meshes that hold a physical group of this name, as rows keyed under the given prefix. */
+function runsWithGroup(name, prefix) {
+  return meshRuns.filter((run) => (run.groups || []).includes(name)).map((run) => meshRunRow(run, prefix));
 }
-/** One node per part under Groups: the session meshes that cover it. A run appears under every part it covers. */
-function meshPartNodes() {
-  return groupPartNames().map((part) => sbNode("mpart:" + part, sbRow({label: part}),
-    meshRuns.filter((run) => (run.parts || []).includes(part)).map((run) => meshRunRow(run, "p:" + part + ":"))));
+/** A group of Mesh > Groups that the active mesh does not list: its children are the session meshes that hold it. */
+function groupLeaf(name) {
+  return sbNode("grp:" + name, sbRow({label: name}), runsWithGroup(name, "g:" + name + ":"));
 }
 /** Shows the mesh with this index in the viewer. */
 async function selectMeshRun(index) {
@@ -1403,10 +1402,12 @@ function renderTree() {
   const script = parseScript($("anScript").value);
   const cadName = $("cadPath").value.trim().split(/[\\/]/).pop();
   const groupKids = root ? [...root.children].map(([n, c]) => groupNode(n, c, n)) : [];
-  // Runs that cover no part stay at the top of Mesh; the others are listed under their parts in Groups.
-  const meshKids = meshRuns.filter((run) => !(run.parts || []).length).map((run) => meshRunRow(run));
-  const partKids = meshPartNodes();
-  if (partKids.length || groupKids.length) meshKids.push(sbNode("groups", sbRow({label: "Groups"}), [...partKids, ...groupKids]));
+  // Mesh holds only Groups. Each group lists the session meshes that hold it; a mesh with no group is listed under Groups itself.
+  const treeNames = new Set(names);
+  const extraKids = [...new Set(meshRuns.flatMap((run) => run.groups || []))].filter((n) => !treeNames.has(n)).sort().map((n) => groupLeaf(n));
+  const orphanKids = meshRuns.filter((run) => !(run.groups || []).length).map((run) => meshRunRow(run, "o:"));
+  const allGroupKids = [...groupKids, ...extraKids, ...orphanKids];
+  const meshKids = allGroupKids.length ? [sbNode("groups", sbRow({label: "Groups"}), allGroupKids)] : [];
   const jobKids = script.jobs.map((j, ji) => sbNode("job:" + ji, sbRow({label: "job " + j.name}), j.steps.map((st, si) => {
     const ids = st.loads === null ? script.loads.map((l) => l.id) : st.loads;
     const label = "step " + st.kind + (st.reset ? " (reset)" : "");

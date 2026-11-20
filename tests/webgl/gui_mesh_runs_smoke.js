@@ -23,8 +23,8 @@ function check(ok, msg) { if (!ok) throw new Error("check failed: " + msg); cons
     await page.addInitScript(() => {
       window.__calls = [];
       window.__runs = [
-        { index: 0, name: "Bracket, 2 mm", nodes: 120, elements: 300, shown: true, parts: ["Bracket"] },
-        { index: 1, name: "Shaft, 1 mm", nodes: 80, elements: 190, shown: false, parts: ["Shaft"] },
+        { index: 0, name: "Bracket, 2 mm", nodes: 120, elements: 300, shown: true, groups: ["Bracket"] },
+        { index: 1, name: "Shaft, 1 mm", nodes: 80, elements: 190, shown: false, groups: ["Shaft"] },
       ];
       window.webui = {
         isConnected: () => true,
@@ -78,8 +78,14 @@ function check(ok, msg) { if (!ok) throw new Error("check failed: " + msg); cons
       return { bracket: kids("Bracket")?.textContent, shaft: kids("Shaft")?.textContent };
     });
     check(underPart.bracket.includes("Bracket, 2 mm") && !underPart.bracket.includes("Shaft, 1 mm"),
-      "each mesh is attributed to its part under Groups");
-    check(underPart.shaft.includes("Shaft, 1 mm"), "the Shaft part lists its mesh");
+      "each mesh is attributed to its group under Groups");
+    check(underPart.shaft.includes("Shaft, 1 mm"), "the Shaft group lists its mesh");
+    const meshDirect = await page.evaluate(() => {
+      const cat = document.querySelector('.sbname[data-cat="mesh"]');
+      const box = cat.closest(".sbgroup").querySelector(":scope > .sbkids");
+      return [...box.querySelectorAll(":scope > .sbgroup > .sbrow > .sbname")].map((n) => n.textContent.trim());
+    });
+    check(JSON.stringify(meshDirect) === '["Groups"]', "Mesh holds only Groups, no mesh row at its top level");
     check((await rowOf("Bracket, 2 mm").locator(".sbeye").textContent()).includes("👁"), "the shown mesh has an open eye");
 
     // Show the other mesh.
