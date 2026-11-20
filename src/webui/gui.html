@@ -1543,12 +1543,21 @@ function defaultMaterialId(lines) {
   const m = first ? /(?:^|\s)id=([A-Za-z0-9_.-]+)/.exec(first.trim()) : null;
   return m ? m[1] : null;
 }
+/** Part name of an assign line: a bare word, or a double-quoted run that may hold blanks. */
+function assignPart(line) {
+  const m = /^\s*assign\s+(?:"([^"]*)"|(\S+))/i.exec(line);
+  return m ? (m[1] !== undefined ? m[1] : m[2]) : null;
+}
+/** Writes a part name for an assign line: quoted when it has blanks or characters the script reads as syntax. */
+function quotePart(name) {
+  return name === "" || /[\s=#"]/.test(name) ? '"' + name + '"' : name;
+}
 /** Part name -> material id, from the assign lines of the script. */
 function partAssignments(lines) {
   const out = new Map();
   lines.forEach((l) => {
     if (analysisCommand(l) !== "assign") return;
-    const part = l.trim().split(/\s+/)[1];
+    const part = assignPart(l);
     const m = /(?:^|\s)material=(\S+)/i.exec(l);
     if (part && m) out.set(part, m[1]);
   });
@@ -1557,8 +1566,8 @@ function partAssignments(lines) {
 /** Writes the material of one part into the script: an assign line, or none when it is the default material. */
 async function assignPartMaterial(part, id) {
   const kept = $("anScript").value.split(/\r?\n/)
-    .filter((l) => !(analysisCommand(l) === "assign" && l.trim().split(/\s+/)[1] === part));
-  if (id !== defaultMaterialId(kept)) kept.push("assign " + part + " material=" + id);
+    .filter((l) => !(analysisCommand(l) === "assign" && assignPart(l) === part));
+  if (id !== defaultMaterialId(kept)) kept.push("assign " + quotePart(part) + " material=" + id);
   const r = await act("openmodel_analysis_load", kept.join("\n"));
   if (!r || !r.ok) { renderPartMaterials(); return; }
   $("anScript").value = r.message;

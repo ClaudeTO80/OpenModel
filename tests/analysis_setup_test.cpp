@@ -760,6 +760,23 @@ void testPartMaterials() {
         const auto back = parseAnalysisScript(text);
         CHECK(back.success && back.model.partMaterials.size() == 1 && back.model.materials.size() == 1);
     }
+    {
+        // A part name with blanks is written in double quotes, and the same quotes read it back.
+        const auto r = parseAnalysisScript(base + "assign \"Housing B\" material=ALU\nfix all\n");
+        CHECK(r.success);
+        CHECK(r.model.partMaterials.size() == 1 && r.model.partMaterials[0].part == "Housing B");
+        CHECK(materialForPart(r.model, "Housing B").name == "ALU");
+        const std::string text = serializeAnalysisScript(r.model);
+        CHECK(contains(text, "assign \"Housing B\" material=ALU"));
+        const auto back = parseAnalysisScript(text);
+        CHECK(back.success && back.model.partMaterials.size() == 1 && back.model.partMaterials[0].part == "Housing B");
+        // Blanks inside quotes do not split the line: a group selector and a material key keep working with them.
+        CHECK(parseAnalysisScript(base + "fix group:\"Housing B\"\n").success);
+        const auto named = parseAnalysisScript(base + "material id=X E=1 nu=0.3 name=\"Steel grade 2\"\n");
+        const AnalysisMaterial* steel = named.success ? findAnalysisMaterial(named.model, "X") : nullptr;
+        CHECK(steel != nullptr && steel->name == "Steel grade 2");
+        CHECK(hasCode(parseAnalysisScript(base + "assign \"Housing B material=ALU\nfix all\n").diagnostics, "SCRIPT_ASSIGN"));
+    }
     CHECK(hasCode(parseAnalysisScript(base + "assign Housing material=BRASS\nfix all\n").diagnostics, "SCRIPT_UNKNOWN_MATERIAL"));
     CHECK(hasCode(parseAnalysisScript(base + "assign Housing\nfix all\n").diagnostics, "SCRIPT_ASSIGN"));
     CHECK(hasCode(parseAnalysisScript(base + "assign Housing material=ALU\nassign Housing material=STEEL\nfix all\n").diagnostics,

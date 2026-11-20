@@ -58,6 +58,32 @@ function check(ok, msg) { if (!ok) throw new Error("check failed: " + msg); cons
     check(/^material id=abs E=2300000000 nu=0\.35 rho=1050 name=abs$/m.test(script), "a material line with id=abs is written");
     check(/^assign part1 material=abs$/m.test(script), "the assign line refers to abs");
     check(/^material E=210000/m.test(script), "the existing default material line is kept unchanged");
+
+    // A part whose name has blanks: its assign line is written in double quotes, and assigning again replaces it.
+    await page.evaluate(() => {
+      viewerModel = () => ({ meta: { groups: [
+        { name: "part1", dimension: 3, tag: 1, material: "" },
+        { name: "Housing B", dimension: 3, tag: 2, material: "" },
+      ], blocks: [
+        { name: "part1", dimension: 3, elements: 100 },
+        { name: "Housing B", dimension: 3, elements: 50 },
+      ] } });
+      renderMaterialAssign();
+    });
+    await page.evaluate(() => selectMaterialGroup("Housing B"));
+    await page.waitForTimeout(200);
+    await page.locator("#matAssignSel").selectOption("abs");
+    await page.locator("#btnMatAssign").click();
+    await page.waitForTimeout(300);
+    let blank = await page.locator("#anScript").inputValue();
+    check(/^assign "Housing B" material=abs$/m.test(blank), "a part name with blanks is written in double quotes");
+    check(/^assign part1 material=abs$/m.test(blank), "the other part keeps its assign line");
+    await page.evaluate(() => selectMaterialGroup("Housing B"));
+    await page.locator("#matAssignSel").selectOption("abs");
+    await page.locator("#btnMatAssign").click();
+    await page.waitForTimeout(300);
+    blank = await page.locator("#anScript").inputValue();
+    check((blank.match(/Housing B/g) || []).length === 1, "assigning again replaces the quoted assign line");
   } finally {
     await browser.close();
   }
