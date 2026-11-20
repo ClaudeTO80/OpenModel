@@ -249,7 +249,7 @@ std::string diagnosticsText(const std::vector<OpenModel::ImportDiagnostic>& diag
  */
 /** Keeps the mesh now in g.mesh as a run of the session and shows it. A run with the same name and element and
     node counts is replaced, so loading the same mesh twice does not list it twice. */
-void recordRun(const std::string& name) {
+void recordRun(const std::string& name, const std::string& part = std::string()) {
     for (std::size_t i = 0; i < g.runs.size(); ++i) {
         const auto& run = g.runs.run(i);
         if (run.name == name && run.mesh.getNumNodes() == g.mesh.getNumNodes()
@@ -258,7 +258,7 @@ void recordRun(const std::string& name) {
             break;
         }
     }
-    g.runs.add(OpenModel::MeshRun{name, std::string{}, g.mesh});
+    g.runs.add(OpenModel::MeshRun{name, part, g.mesh});
     g.runs.select(g.runs.size() - 1);
 }
 
@@ -1140,6 +1140,18 @@ void generateVolumeLocked(webui_event_t* e, const VolumeArgs& args) {
     options.linearDeflection = g.linearDeflection;
     options.angularDeflection = g.angularDeflection;
 
+    // One solid of the CAD tree (Gmsh only): the run holds that body alone and is named after its part.
+    const auto solidKey = args.fields.find("solids");
+    const std::string partName = args.fields.count("solidName") ? args.fields.at("solidName") : std::string();
+    if (solidKey != args.fields.end() && !solidKey->second.empty()) {
+        if (mesherId != "gmsh") { reply(e, false, "Only Gmsh meshes a single solid."); return; }
+        std::size_t used = 0;
+        int id = -1;
+        try { id = std::stoi(solidKey->second, &used); } catch (...) { used = 0; }
+        if (used != solidKey->second.size() || id < 0) { reply(e, false, "Invalid solid id '" + solidKey->second + "'."); return; }
+        options.solidIds = {id};
+    }
+
     const auto meshingStart = std::chrono::steady_clock::now();
     MeshData candidate;
     std::string label, failure;
@@ -1190,6 +1202,8 @@ void generateVolumeLocked(webui_event_t* e, const VolumeArgs& args) {
     // sets. Physical groups remain an optional backend/export representation.
     for (const auto& userGroup : g.cadFaceGroups) {
         const auto* mapped = candidate.getMeshGroupRegistry().find(userGroup.name);
+        // A part meshed alone has no faces of the groups that lie on the other parts: those groups are not its concern.
+        if (!mapped && !options.solidIds.empty()) continue;
         if (!mapped || mapped->dimension != 2 || mapped->elementIds.empty()) {
             std::string details;
             for (const auto& note : notes)
@@ -1227,8 +1241,8 @@ void generateVolumeLocked(webui_event_t* e, const VolumeArgs& args) {
     clearResults();
     g.mesh = std::move(candidate);
     g.origin = MeshOrigin::Generated;
-    g.meshLabel = "Mesh " + label;
-    recordRun(g.meshLabel);
+    g.meshLabel = partName.empty() ? "Mesh " + label : partName;
+    recordRun(g.meshLabel, partName);
     updateView();
     std::string noteText;
     for (const auto& note : notes) noteText += "\n" + note;
@@ -1832,7 +1846,8 @@ void meshRunsHandler(webui_event_t* e) {
         // Names of the physical groups of the run: the groups of the tree are attached to the meshes by these names.
         out << "{\"index\":" << i << ",\"name\":" << jsonString(run.name)
             << ",\"nodes\":" << run.mesh.getNumNodes() << ",\"elements\":" << run.mesh.getNumElements()
-            << ",\"shown\":" << (g.runs.selected() == i ? "true" : "false") << ",\"groups\":[";
+            << ",\"shown\":" << (g.runs.selected() == i ? "true" : "false")
+            << ",\"part\":" << jsonString(run.part) << ",\"groups\":[";
         const auto& groups = run.mesh.getPhysicalGroups();
         for (std::size_t k = 0; k < groups.size(); ++k) out << (k ? "," : "") << jsonString(groups[k].name);
         out << "]}";

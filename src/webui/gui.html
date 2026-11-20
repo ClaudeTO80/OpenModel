@@ -464,6 +464,7 @@ details.node details.node{margin-top:8px;background:transparent}
       </select>
       <p class="hint">Above Error the log is also saved as <code>_gmsh.log</code> next to the CAD file; Info adds the phase timings, Debug the internal Gmsh messages.</p></div>
     <button class="primary full" id="btnMesh" onclick="generate()">Generate volume mesh</button>
+    <button class="full" id="btnMeshParts" onclick="generateSelectedParts()">Mesh checked parts</button>
     <p class="hint" id="mesherHint"></p>
     </details>
     <details class="node">
@@ -797,7 +798,7 @@ const importModel = () => act("openmodel_import_model", $("cadPath").value.trim(
 const retessellate = () => act("openmodel_retessellate", $("linear").value, $("angular").value);
 // One JSON object argument: WebUI does not deliver calls with more than 17 arguments.
 // Keys must match kVolumeKeys in src/webui/main.cpp; the tetrahedral keys are read from the object by name.
-const generate = () => act("openmodel_generate_volume", JSON.stringify({
+const generate = (extra = {}) => act("openmodel_generate_volume", JSON.stringify({
   mesher: $("mesher").value, size: $("size").value, order: $("order").value, iface: $("iface").value,
   logLevel: $("logLevel").value, shape: $("shape").value, tcType: $("tcType").value, tcCoef: $("tcCoef").value,
   tsArr: $("tsArr").value, recAlg: $("recAlg").value, recAngle: $("recAngle").value, recOpt: $("recOpt").value,
@@ -806,10 +807,31 @@ const generate = () => act("openmodel_generate_volume", JSON.stringify({
   minSize: $("tMinSize").value, curvature: checkedFlag("tCurv"), curvaturePoints: $("tCurvPts").value,
   alg2D: $("tAlg2D").value, alg3D: $("tAlg3D").value, optimize: checkedFlag("tOpt"), optimizeNetgen: checkedFlag("tOptNetgen"),
   optimizeThreshold: $("tOptThr").value, smoothing: $("tSmooth").value, extendBoundary: checkedFlag("tExtend"),
-  auditCadFaces: checkedFlag("tAudit")
+  auditCadFaces: checkedFlag("tAudit"), ...extra
 }));
 /* "1" when the checkbox is checked, "0" otherwise. */
 function checkedFlag(id) { return $(id).checked ? "1" : "0"; }
+/**
+ * @brief Name of a CAD solid for its run: the component that holds only this solid, else Solid_<id>.
+ * @param id solid id, as the checks of the CAD tree give it
+ */
+function solidName(id) {
+  const c = cadComponents.find((x) => x.solidIds.length === 1 && x.solidIds[0] === id);
+  return c ? (c.name || c.path) : "Solid_" + id;
+}
+/**
+ * @brief Meshes each checked part of the CAD tree, one volume run per part, with the parameters of the form.
+ * The parts are meshed one after the other; a failure stops the list and keeps the runs made before it.
+ */
+async function generateSelectedParts() {
+  const ids = selectedSolidIds();
+  if (!ids.length) { show("Check at least one part in the CAD tree.", "bad"); return; }
+  for (const id of ids) {
+    const r = await generate({solids: String(id), solidName: solidName(id)});
+    if (!r || !r.ok) break;
+  }
+  refreshMeshRuns();
+}
 const loadMesh = () => act("openmodel_load_mesh", $("loadPath").value.trim());
 const loadResults = () => act("openmodel_load_results", $("resPath").value.trim(), $("resStep").value.trim());
 const save = (fn, ext) => act(fn, $("outBase").value.trim(), ext);
@@ -1391,7 +1413,7 @@ function meshRunRow(run, under = "") {
 }
 /** The session meshes that hold a physical group of this name, as rows keyed under the given prefix. */
 function runsWithGroup(name, prefix) {
-  return meshRuns.filter((run) => (run.groups || []).includes(name)).map((run) => meshRunRow(run, prefix));
+  return meshRuns.filter((run) => (run.groups || []).includes(name) || run.part === name).map((run) => meshRunRow(run, prefix));
 }
 /** A group of Mesh > Groups that the active mesh does not list: its children are the session meshes that hold it. */
 function groupLeaf(name) {
@@ -1492,8 +1514,8 @@ function renderTree() {
   const groupKids = root ? [...root.children].map(([n, c]) => groupNode(n, c, n)) : [];
   // Mesh holds only Groups. Each group lists the session meshes that hold it; a mesh with no group is listed under Groups itself.
   const treeNames = new Set(names);
-  const extraKids = [...new Set(meshRuns.flatMap((run) => run.groups || []))].filter((n) => !treeNames.has(n)).sort().map((n) => groupLeaf(n));
-  const orphanKids = meshRuns.filter((run) => !(run.groups || []).length).map((run) => meshRunRow(run, "o:"));
+  const extraKids = [...new Set(meshRuns.flatMap((run) => [...(run.groups || []), ...(run.part ? [run.part] : [])]))].filter((n) => !treeNames.has(n)).sort().map((n) => groupLeaf(n));
+  const orphanKids = meshRuns.filter((run) => !(run.groups || []).length && !run.part).map((run) => meshRunRow(run, "o:"));
   const allGroupKids = [...groupKids, ...extraKids, ...orphanKids];
   const meshKids = allGroupKids.length ? [sbNode("groups", sbRow({label: "Groups"}), allGroupKids)] : [];
   const jobKids = script.jobs.map((j, ji) => sbNode("job:" + ji, sbRow({label: "job " + j.name}), j.steps.map((st, si) => {

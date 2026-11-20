@@ -23,6 +23,7 @@ function check(ok, msg) { if (!ok) throw new Error("check failed: " + msg); cons
     const page = await browser.newPage();
     await page.addInitScript(() => {
       window.__calls = [];
+      window.__generated = [];
       window.__components = [
         { id: 0, parent: -1, name: "Frame", path: "Frame", isAssembly: true, solidIds: [0, 1] },
         { id: 1, parent: 0, name: "Bracket", path: "Frame/Bracket", isAssembly: false, solidIds: [0] },
@@ -31,9 +32,13 @@ function check(ok, msg) { if (!ok) throw new Error("check failed: " + msg); cons
       ];
       window.webui = {
         isConnected: () => true,
-        call: async (name) => {
+        call: async (name, arg) => {
           window.__calls.push(name);
           if (name === "openmodel_cad_components") return JSON.stringify({ ok: true, message: "", components: window.__components });
+          if (name === "openmodel_generate_volume") {
+            window.__generated.push(JSON.parse(arg));
+            return JSON.stringify({ ok: true, message: "" });
+          }
           return JSON.stringify({ ok: false, message: "stub" });
         },
       };
@@ -76,6 +81,18 @@ function check(ok, msg) { if (!ok) throw new Error("check failed: " + msg); cons
     await row("Plate").locator(".sbcheck").check();
     await page.waitForTimeout(100);
     check(JSON.stringify(await page.evaluate(() => selectedSolidIds())) === "[1,2]", "Plate adds solid 2 to the selection");
+
+    // Mesh checked parts: one generate request per checked solid, each named after its component.
+    await page.evaluate(() => {
+      const panel = document.getElementById("btnMeshParts").closest(".spanel");
+      if (panel) showSidebarTab(panel.dataset.spanel);
+      for (let el = document.getElementById("btnMeshParts"); el; el = el.parentElement) if (el.tagName === "DETAILS") el.open = true;
+    });
+    await page.locator("#btnMeshParts").click();
+    await page.waitForTimeout(300);
+    const sent = await page.evaluate(() => window.__generated.map((r) => [r.solids, r.solidName]));
+    check(JSON.stringify(sent) === '[["1","Shaft"],["2","Plate"]]', "each checked part is meshed alone, named after its component");
+    check((await page.evaluate(() => window.__generated[0].mesher)) !== undefined, "the request carries the parameters of the form");
 
     const calls = await page.evaluate(() => window.__calls.filter((c) => c === "openmodel_cad_components").length);
     check(calls >= 1, "the components are asked from the backend");

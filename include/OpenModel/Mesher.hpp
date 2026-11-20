@@ -191,6 +191,12 @@ struct MeshingOptions {
      */
     std::vector<MeshDimension> bodyDimensions;
 
+    /**
+     * Gmsh only: mesh just these bodies of the import, by their index among the top-level entities (the CAD solid ids).
+     * Empty = every body. The other bodies are removed from Gmsh's model before the mesh is made.
+     */
+    std::vector<int> solidIds;
+
     /** Continuity of the mesh across contacts between solids (backends that cannot honour it ignore it and say so). */
     InterfaceMode interfaceMode = InterfaceMode::Independent;
     /**

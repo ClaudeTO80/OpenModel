@@ -5,6 +5,7 @@
 #include <chrono>
 #include <fstream>
 #include <limits>
+#include <set>
 
 namespace {
 using Vec3 = std::array<double, 3>;
@@ -595,6 +596,24 @@ bool GmshMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Mesh
                 if (importedEntities[k].first == 2 || importedEntities[k].first == 3) anyVolumeBody = anyVolumeBody || bodyMeshDimension(k) == 3;
             const int meshDimension = anyVolumeBody ? 3 : 2;
 
+            // Per-solid meshing: the selected bodies stay in the model and the others are removed before the mesh is made.
+            // The ids index the top-level entities of the import, which are the CAD solids in file order.
+            const std::set<int> solidFilter(options.solidIds.begin(), options.solidIds.end());
+            if (!solidFilter.empty()) {
+                for (const int id : solidFilter) {
+                    if (id < 0 || static_cast<std::size_t>(id) >= importedEntities.size() ||
+                        importedEntities[static_cast<std::size_t>(id)].first != 3)
+                        return fail("Solid " + std::to_string(id) + " is not a volume body of the CAD import: it cannot be meshed alone.");
+                }
+                std::vector<std::pair<int, int>> dropped;
+                for (std::size_t k = 0; k < importedEntities.size(); ++k)
+                    if (!solidFilter.count(static_cast<int>(k))) dropped.push_back(importedEntities[k]);
+                if (!dropped.empty()) gmsh::model::occ::remove(dropped, true);
+                gmsh::model::occ::synchronize();
+                trace("Per-solid mesh: " + std::to_string(solidFilter.size()) + " of " +
+                      std::to_string(importedEntities.size()) + " top-level bodies kept");
+            }
+
             if (options.interfaceMode == InterfaceMode::Conformal) {
                 std::vector<std::pair<int, int>> solids;
                 gmsh::model::getEntities(solids, 3);
@@ -852,6 +871,7 @@ bool GmshMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Mesh
                 for (std::size_t k = 0; k < importedEntities.size(); ++k) {
                     const auto top = importedEntities[k];
                     if (top.first != 2 && top.first != 3) continue;
+                    if (!solidFilter.empty() && !solidFilter.count(static_cast<int>(k))) continue;
                     std::vector<std::pair<int, int>> members{top}, below;
                     gmsh::model::getBoundary({top}, below, false, false, true);
                     members.insert(members.end(), below.begin(), below.end());
