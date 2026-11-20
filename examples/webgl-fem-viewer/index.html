@@ -56,7 +56,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, label:focus-wit
 .sw { width: 12px; height: 12px; border-radius: 3px; border: 1px solid rgba(128,128,128,.5); flex: none; }
 .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 .ct { color: var(--muted); font-variant-numeric: tabular-nums; }
-#compSec[hidden], #defSec[hidden], #resultsInfo[hidden], #blocksSec[hidden], #drop[hidden], #scalarBox[hidden], #clipBox[hidden], #legendBox[hidden], #viewTools[hidden], #colorbar[hidden] { display: none; }
+#compSec[hidden], #defSec[hidden], #resultsInfo[hidden], #blocksSec[hidden], #drop[hidden], #scalarBox[hidden], #clipBox[hidden], #legendBox[hidden], #viewTools[hidden], #colorbar[hidden], #resultsPanel[hidden] { display: none; }
 #bar { height: 12px; border-radius: 3px; border: 1px solid var(--line); margin: 4px 0 8px; }
 main { position: relative; min-width: 0; min-height: 0; max-width: 100%; max-height: 100%; height: 100%; overflow: hidden; background: var(--viewport); }
 canvas { display: block; box-sizing: border-box; width: 100%; height: 100%; max-width: 100%; max-height: 100%; min-width: 0; min-height: 0; touch-action: none; cursor: grab; }
@@ -74,6 +74,12 @@ canvas.drag { cursor: grabbing; }
 #colorbar .cbTitle { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #colorbar .cbBar { height: 10px; border-radius: 3px; border: 1px solid var(--line); margin: 5px 0 3px; }
 #colorbar .cbLabels { display: flex; justify-content: space-between; color: var(--muted); }
+/* Results card on the canvas (top right): load case, mode, component shown and the scale of the deformed shape. */
+#resultsPanel { position: absolute; top: 10px; right: 10px; z-index: 3; width: min(260px, calc(100% - 20px)); background: color-mix(in srgb, var(--panel) 90%, transparent); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; font-size: 12px; }
+#resultsPanel .rpTitle { font-weight: 600; margin-bottom: 6px; }
+#resultsPanel dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 3px 10px; margin: 0; font-variant-numeric: tabular-nums; }
+#resultsPanel dt { color: var(--muted); }
+#resultsPanel dd { margin: 0; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #axes { position: absolute; left: 12px; bottom: 46px; width: 112px; height: 112px; pointer-events: none; }
 #axes[hidden] { display: none; }
 #hud { position: absolute; left: 12px; bottom: 10px; color: var(--muted); background: color-mix(in srgb, var(--panel) 80%, transparent); border: 1px solid var(--line); border-radius: 6px; padding: 5px 9px; pointer-events: none; }
@@ -219,6 +225,10 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
       <button type="button" data-vt-wire="skin" aria-pressed="false">Surface</button>
       <button type="button" data-vt-wire="all" aria-pressed="false">All</button>
     </div>
+  </div>
+  <div id="resultsPanel" hidden>
+    <div class="rpTitle">Results</div>
+    <dl id="rpList"></dl>
   </div>
   <div id="colorbar" hidden>
     <div class="cbTitle" id="cbTitle"></div>
@@ -629,6 +639,7 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     $("smin").value = f.min; $("smax").value = f.max;
     S.dirty = true;
     updateColorbar();
+    updateResultsPanel();
   }
   function refreshVisibility() {
     gl.deleteTexture(S.tex.vis);
@@ -983,6 +994,28 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
       $("wire").value = b.dataset.vtWire; fireOn("wire", "change"); syncViewTools();
     }));
   }
+  /** Results card: the load case, the mode, the component coloured, and the scale of the deformed shape with its value. */
+  function updateResultsPanel() {
+    const model = S.model, meta = model && model.meta;
+    const show = !!model && !!meta.results;
+    $("resultsPanel").hidden = !show;
+    if (!show) return;
+    const rows = [["Load case", meta.results.label]];
+    if (model.modes.length) {
+      const m = model.modes[S.modeIndex];
+      rows.push(["Mode", modeText(m)], ["Frequency", String(Number(m.frequency.toPrecision(6)))]);
+    }
+    const field = model.fields[S.fieldIndex];
+    if (S.mode === "scalar" && field) rows.push(["Component", field.name + (field.element ? " (per element)" : " (nodal)")]);
+    if (model.disp && meta.deformation) {
+      if (S.defOn) {
+        const shown = meta.deformation.max * S.defFactor, size = bounds().diag;
+        const pct = size > 0 ? 100 * shown / size : 0;
+        rows.push(["Deformation x", trim(S.defFactor)], ["Max shown", fmtRange(shown) + " (" + pct.toPrecision(2) + " % of size)"]);
+      } else rows.push(["Deformation", "hidden"]);
+    }
+    $("rpList").innerHTML = rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd title="${esc(v)}">${esc(v)}</dd>`).join("");
+  }
   function fillLegend() {
     const m = S.model.meta, box = $("legendBox");
     if (S.mode !== "region" && S.mode !== "surface") { box.hidden = true; return; }
@@ -1003,6 +1036,7 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     const hasField = S.model && S.model.fields.length > 0;
     for (const o of $("colorMode").options) if (o.value === "scalar") o.disabled = !hasField;
     syncViewTools();
+    updateResultsPanel();
     S.dirty = true;
   }
   // Deformed shape controls. The slider runs from 0 to 10x the suggested factor (largest displacement = 10% of the model size).
@@ -1045,6 +1079,7 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     // The factor suggested for the whole file (largest displacement of any mode) stays valid for every mode.
     $("modeSel").value = i;
     $("modeFreq").textContent = String(Number(mode.frequency.toPrecision(6)));
+    updateResultsPanel();
     S.dirty = true;
   }
   function setupResultsInfo(meta) {
@@ -1068,6 +1103,7 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
       S.clipOn = false; $("clipOn").checked = false;
       $("fileName").textContent = name || "model";
       $("drop").hidden = true; showMessage("");
+    updateResultsPanel();
       S.pickMode = "off"; $("pickMode").value = "off"; canvas.style.cursor = ""; $("pickCount").textContent = "none";
       $("pickSec").hidden = !model.canPick;
       setupDeformation(model); setupResultsInfo(model.meta);
@@ -1096,11 +1132,11 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
   $("axesOn").addEventListener("change", (e) => { S.axes = e.target.checked; S.dirty = true; });
   $("consOn").addEventListener("change", (e) => { S.consOn = e.target.checked; S.dirty = true; });
   $("consSize").addEventListener("input", (e) => { const v = Number(e.target.value); if (v > 0) { S.consSize = Math.min(v, 30); S.dirty = true; } });
-  $("defOn").addEventListener("change", (e) => { S.defOn = e.target.checked; S.dirty = true; });
-  $("defScale").addEventListener("input", (e) => { S.defFactor = S.defSuggested * e.target.value / 100; $("defFactor").value = trim(S.defFactor); S.dirty = true; });
+  $("defOn").addEventListener("change", (e) => { S.defOn = e.target.checked; updateResultsPanel(); S.dirty = true; });
+  $("defScale").addEventListener("input", (e) => { S.defFactor = S.defSuggested * e.target.value / 100; $("defFactor").value = trim(S.defFactor); updateResultsPanel(); S.dirty = true; });
   $("defFactor").addEventListener("input", (e) => {
     const f = +e.target.value; if (!(f >= 0)) return;
-    S.defFactor = f; $("defScale").value = Math.min(1000, S.defSuggested > 0 ? f / S.defSuggested * 100 : 0); S.dirty = true;
+    S.defFactor = f; $("defScale").value = Math.min(1000, S.defSuggested > 0 ? f / S.defSuggested * 100 : 0); updateResultsPanel(); S.dirty = true;
   });
   $("modeSel").addEventListener("change", (e) => setMode(+e.target.value));
   $("modeAnim").addEventListener("change", (e) => { S.animate = e.target.checked; S.lastTick = 0; S.dirty = true; });

@@ -17,6 +17,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - GUI: each category of the model tree shows its state beside its name: CAD imported, mesh count and nodes, constraints, load cases, jobs with or without results.
 - Viewer: overlay on the canvas with the section plane (on/off, X/Y/Z, flip, position) and the display mode (Hidden, Surface, All). The controls drive the existing inputs of the sidebar, so the state stays in one place.
 - Viewer: colour bar on the canvas for the scalar field colouring, with the field name and the range in use (it follows the Min and Max inputs).
+- Viewer: results card at the top right of the canvas, for a file with results: the load case, the mode and its frequency, the component coloured, the deformation factor and the largest displacement shown (value and percentage of the model size).
 
 ## [0.1.5] - 2026-11-20
 

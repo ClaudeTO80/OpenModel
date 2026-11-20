@@ -34,6 +34,8 @@ function check(ok, message) { console.log((ok ? 'PASS ' : 'FAIL ') + message); i
       colorbar: document.getElementById('colorbar').hidden,
     }));
     check(hidden.tools && hidden.colorbar, 'overlay and colour bar are hidden before a model is loaded');
+  const panelHidden = await page.evaluate(() => document.getElementById('resultsPanel').hidden);
+  check(panelHidden, 'results card is hidden before a model is loaded');
 
     if (!mgwv) {
       check(problems.length === 0, 'no page errors without a model' + (problems.length ? ': ' + problems.join(' | ') : ''));
@@ -95,6 +97,22 @@ function check(ok, message) { console.log((ok ? 'PASS ' : 'FAIL ') + message); i
     check(max === '12.5', 'colour bar follows the Max input (' + max + ')');
     await page.selectOption('#colorMode', 'block');
     check(await page.evaluate(() => document.getElementById('colorbar').hidden), 'colour bar hides when the colouring is not scalar');
+
+    // Results card: shown for a file with results, with the load case and the deformation scale as values.
+    const card = await page.evaluate(() => ({
+      hidden: document.getElementById('resultsPanel').hidden,
+      label: window.OpenModelViewer.state.model.meta.results ? window.OpenModelViewer.state.model.meta.results.label : null,
+      text: document.getElementById('rpList').textContent,
+    }));
+    if (card.label) {
+      check(!card.hidden && card.text.includes(card.label), 'results card shows the load case (' + card.label + ')');
+      await page.fill('#defFactor', '2');
+      await page.dispatchEvent('#defFactor', 'input');
+      const factor = await page.evaluate(() => document.getElementById('rpList').textContent);
+      check(factor.includes('Deformation x') && /Deformation x\s*2/.test(factor), 'results card follows the deformation factor');
+    } else {
+      check(card.hidden, 'results card stays hidden for a file without results');
+    }
 
     check(problems.length === 0, 'no page errors' + (problems.length ? ': ' + problems.join(' | ') : ''));
     console.log(failures ? 'viewer_section_smoke: FAILED (' + failures + ')' : 'viewer_section_smoke: all checks passed');
