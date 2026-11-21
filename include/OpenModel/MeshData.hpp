@@ -140,9 +140,11 @@ struct NodeConstraint {
 };
 
 class MeshBinaryIO;
+class ModelBinaryIO;
 
 class MeshData {
     friend class MeshBinaryIO;
+    friend class ModelBinaryIO;
 public:
     void clear() noexcept ;
 
