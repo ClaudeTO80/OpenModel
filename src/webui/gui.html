@@ -590,6 +590,15 @@ details.node details.node{margin-top:8px;background:transparent}
 
   <div class="spanel" data-spanel="loads" hidden>
     <details class="node" open>
+      <summary>Gravity and body loads</summary>
+      <label for="asGravity">Acceleration gx,gy,gz (model units, needs rho)</label>
+      <input id="asGravity" value="0,0,-9810">
+      <label for="asGravTarget">Applies to</label>
+      <select id="asGravTarget" title="All volume parts: every element. A part: one volume part of the mesh. Selected elements: the elements selected in the viewer become an element group, and only they get the acceleration."></select>
+      <button class="full" onclick="addGravity()">Add gravity to script</button>
+      <p class="hint">Gravity acts on the volume elements of the target. Point loads: Force on nodes (selected nodes). Distributed loads: Pressure on faces (select the faces, one element face at a time with Face growth "Single face").</p>
+    </details>
+    <details class="node" open>
       <summary>Loads and steps</summary>
       <label for="asForce">Total force Fx,Fy,Fz</label>
       <input id="asForce" value="0,0,-100">
@@ -672,7 +681,7 @@ details.node details.node{margin-top:8px;background:transparent}
       <div><label for="selBoxOn">Box</label><input id="selBoxOn" type="checkbox" onchange="setPickBox(this.checked)"></div></div>
     <label for="selGrowth">Face growth</label>
     <select id="selGrowth" title="Same normal: the angle is measured against the clicked face, so a curved surface is not followed. Smooth surface: the angle is measured between neighbouring faces, so the selection follows a curved surface." onchange="setPickGrowth(this.value)">
-      <option value="same-normal">Same normal</option><option value="smooth">Smooth surface</option>
+      <option value="same-normal">Same normal</option><option value="smooth">Smooth surface</option><option value="single">Single face</option>
     </select>
     <div class="grid2"><div><label for="selHoles">Holes</label><input id="selHoles" type="checkbox" checked title="A click on the wall of a hole (a bolt hole, a bore) selects the whole wall" onchange="setPickHoles(this.checked)"></div>
       <div><label for="selHoleArc">Hole arc (°)</label><input id="selHoleArc" type="number" min="30" max="360" step="10" value="330" title="Smallest angle around its axis a wall must cover to count as a hole: 330 = a closed hole, 170 also takes the half of a hole cut by a symmetry plane" onchange="setPickHoleArc(this.value)"></div></div>
@@ -1403,6 +1412,42 @@ function syncConstraintSize() {
   const w = viewerApi(), el = $("cdSymbolSize");
   if (w && el && document.activeElement !== el) el.value = w.OpenModelViewer.state.consSize;
 }
+/** Fills the gravity target list: all parts, the selected elements, and each volume part of the mesh. Keeps the choice. */
+function renderGravityTargets() {
+  const box = $("asGravTarget"); if (!box) return;
+  const keep = box.value;
+  const options = [["all", "All volume parts"], ["selection", "Selected elements (new element group)"],
+    ...volumeParts().map((p) => ["part:" + p, "Part: " + p])];
+  const escape = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  box.innerHTML = options.map(([v, t]) => `<option value="${escape(v)}">${escape(t)}</option>`).join("");
+  if (options.some(([v]) => v === keep)) box.value = keep;
+}
+/** Writes a script line: replaces the first line matching test, or appends the line. */
+function putScriptLine(test, line) {
+  const box = $("anScript"), lines = box.value.split(/\r?\n/);
+  const i = lines.findIndex(test);
+  if (i >= 0) { lines[i] = line; box.value = lines.join("\n"); renderAnalysisConditions(); renderTree(); }
+  else appendScript(line);
+}
+/** Adds gravity on all volume parts, on one part, or on the selected elements (as an element group) to the script. */
+async function addGravity() {
+  const g = numList($("asGravity").value, 3);
+  if (!g) { show("The acceleration requires three comma-separated numbers gx,gy,gz.", "bad"); return; }
+  const vec = "g=" + g.join(",");
+  const target = $("asGravTarget").value;
+  const isGravity = (l) => /^\s*gravity\b/i.test(l);
+  if (target === "all") {
+    putScriptLine((l) => isGravity(l) && !/\b(part|group)=/i.test(l), "gravity " + vec);
+  } else if (target.startsWith("part:")) {
+    const part = quotePart(target.slice(5));
+    putScriptLine((l) => isGravity(l) && l.includes(" part=" + part), "gravity " + vec + " part=" + part);
+  } else if (target === "selection") {
+    const n = 1 + Math.max(0, ...[...$("anScript").value.matchAll(/group=BODY(\d+)/g)].map((m) => Number(m[1])));
+    const name = "BODY" + n;
+    const r = await makeGroup("element", name, "");
+    if (r && r.ok) appendScript("gravity " + vec + " group=" + name);
+  }
+}
 function sbNode(key, row, kids) {
   const wrap = document.createElement("div"); wrap.className = "sbgroup";
   const caret = document.createElement("button");
@@ -1771,7 +1816,8 @@ function parseScript(text) {
     } else if (command === "force" || command === "pressure") {
       out.loads.push({kind: command, id: idFor(command, keys.id)});
     } else if (command === "gravity") {
-      out.loads.push({kind: command, id: keys.id || "gravity"});
+      const targeted = keys.part !== undefined || keys.group !== undefined;
+      out.loads.push({kind: command, id: targeted ? idFor("body", keys.id) : (keys.id || "gravity")});
     } else if (command === "fix") {
       out.fixes.push({id: idFor("fix", keys.id), line});
     }
@@ -1784,7 +1830,7 @@ function treeItem(label, key, kids = []) {
 }
 /**
  * @brief Rebuilds the model tree; every node starts closed. Categories: CAD (the imported part), Mesh (the meshes
- * of this session, then the groups), Material, Constraints (the fix lines of the script), Load cases (the loads of
+ * of this session, then the groups), Material, Constraints (the fix lines of the script), Loads (the loads of
  * the script) and Jobs (each job, its steps, and the loads each step uses).
  */
 function renderTree() {
@@ -1848,7 +1894,7 @@ function renderTree() {
       ...meshConstraints.map((c, i) => sbNode("mc:" + i, sbRow({label: "mesh · " + c.dofs, sub: c.nodes + " nodes",
         onPick: () => focusFirst("cons")}), [])),
     ]},
-    {key: "loads", label: "Load cases", kids: script.loads.map((l) => treeItem(l.id + " · " + l.kind, "load:" + l.id))},
+    {key: "loads", label: "Loads", kids: script.loads.map((l) => treeItem(l.id + " · " + l.kind, "load:" + l.id))},
     {key: "jobs", label: "Jobs", kids: jobKids, pick: () => $("anScript").focus()},
     {key: "sel", label: "Selection", kids: []},
   ];
@@ -1862,6 +1908,7 @@ function renderTree() {
   });
   highlightTree();
   renderPartMaterials();
+  renderGravityTargets();
 }
 /**
  * @brief Keeps the tree in step with the viewer and rebuilds it only when something it shows changed.
@@ -2026,7 +2073,16 @@ function setPickMode(mode) {
   syncRibbon();
 }
 function setPickAngle(v) { const pk = pickApi(); if (pk) pk.setAngle(v); }
-function setPickGrowth(v) { const pk = pickApi(); if (pk) pk.setGrowth(v); }
+/** Face growth: "Single face" selects the clicked element face only (angle 0, no hole walls); the others set the growth rule. */
+function setPickGrowth(v) {
+  const pk = pickApi(); if (!pk) return;
+  if (v === "single") {
+    pk.setGrowth("same-normal"); pk.setAngle(0); pk.setHoles(false);
+    $("selAngle").value = 0; $("selHoles").checked = false;
+    return;
+  }
+  pk.setGrowth(v);
+}
 function setPickHoles(on) { const pk = pickApi(); if (pk) pk.setHoles(on); }
 function setPickHoleArc(v) { const pk = pickApi(); if (pk) pk.setHoleArc(v); }
 function setPickBox(on) { const pk = pickApi(); if (pk) pk.setBox(on); }

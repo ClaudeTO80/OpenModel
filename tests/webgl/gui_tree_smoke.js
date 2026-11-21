@@ -31,7 +31,7 @@ function check(ok, msg) { if (!ok) throw new Error("check failed: " + msg); cons
     check((await page.locator("aside .spanel").count()) === 0, "details are not under the tree");
     await page.locator('#sbTreeBody .sbname[data-cat="loads"]').click();
     check(await page.locator("#inspector").isVisible(), "clicking a category opens the overlay");
-    check((await page.locator("#inspTitle").textContent()) === "Load cases", "overlay title is the category");
+    check((await page.locator("#inspTitle").textContent()) === "Loads", "overlay title is the category");
     await page.locator("#inspClose").click();
     check(!(await page.locator("#inspector").isVisible()), "× closes the overlay");
     await page.locator('#sbTreeBody .sbname[data-cat="cons"]').click();

@@ -29,7 +29,9 @@
  * fix group:BladeRoot_NODES dof=1,2,3           # Node Set generated from a CAD face group
  * force plane:x=10 F=0,-100,0                   # total force, shared equally by the selected nodes
  * pressure group:Top p=2.5                      # on a dimension-2 surface group; positive = pushing into the body
- * gravity g=0,0,-9810                           # acceleration vector (needs rho)
+ * gravity g=0,0,-9810                           # acceleration vector (needs rho), all volume parts
+ * gravity g=0,0,-9810 part=Housing [id=G1]     # only one volume part (mesh block)
+ * gravity g=0,0,-9810 group=ZONE               # only the elements of a volume element group
  * job SETTLE                                    # starts a job (one solver session); steps below belong to it
  * step static loads=F1,P1                       # only the listed loads are active; ids come from the lines above
  * step static loads=F2 reset                    # F1 and P1 of the previous steps are set to zero here
@@ -169,6 +171,17 @@ struct PartMaterial {
     std::string materialId;  ///< Id of a material of the model.
 };
 
+/**
+ * @brief A gravity-type body load on part of the model: acceleration g (needs rho) applied to the volume elements of a
+ * mesh block (`part`) or of a volume element group (`group`). The untargeted gravity line is AnalysisModel::gravity.
+ */
+struct BodyLoad {
+    std::string id;            ///< Stable condition identifier (generated "body-N" when omitted).
+    std::string part;          ///< Volume element block of the mesh; empty when `group` is set.
+    std::string group;         ///< Group of volume elements; empty when `part` is set.
+    std::array<double, 3> g{{0.0, 0.0, 0.0}};  ///< Acceleration vector, model length units per time squared.
+};
+
 struct AnalysisModel {
     AnalysisMaterial material;                  ///< Default material: every volume part without an assignment.
     std::vector<AnalysisMaterial> materials;    ///< Further materials, from the `material` lines after the first.
@@ -179,6 +192,7 @@ struct AnalysisModel {
     std::vector<RigidLink> rigidLinks; ///< Written after the supports; shared by all jobs.
     bool hasGravity = false;
     std::array<double, 3> gravity{{0.0, 0.0, 0.0}};
+    std::vector<BodyLoad> bodyLoads;           ///< Gravity on parts or element groups (`gravity ... part=` / `group=`).
     std::vector<AnalysisAmplitude> amplitudes;
     /** Print element stresses/strains to the `.dat` (per-element results). Large for big meshes; -1 = automatic (<= 200000 elements). */
     int elementPrint = -1;

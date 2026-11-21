@@ -382,6 +382,8 @@ CodeAsterExportResult writeCodeAsterCase(const MeshData& mesh, const AnalysisMod
     model.forces.erase(std::remove_if(model.forces.begin(), model.forces.end(), [&](const NodalForce& f) { return !isActive(f.id); }), model.forces.end());
     model.pressures.erase(std::remove_if(model.pressures.begin(), model.pressures.end(), [&](const SurfacePressure& p) { return !isActive(p.id); }), model.pressures.end());
     model.hasGravity = model.hasGravity && isActive(kGravityLoadId);
+    for (const auto& b : model.bodyLoads)
+        if (isActive(b.id)) return fail(r, "Gravity on a part or a group (" + b.id + ") is written to the CalculiX deck only: use the CalculiX solver, or apply gravity to all parts");
 
     if (!model.materials.empty() || !model.partMaterials.empty())
         return fail(r, "code_aster writes one material for the whole mesh: per-part materials (assign ...) are supported by the CalculiX solver only");

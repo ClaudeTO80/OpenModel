@@ -16,6 +16,8 @@ fix plane:x=0 [dof=1,2,3] [tol=1e-6]                # default: all translations
 force plane:x=10 F=0,-100,0 [amp=A1]               # TOTAL force, shared equally by the selected nodes
 pressure group:Top p=2.5 [amp=A1]                   # surface group; positive = into the body
 gravity g=0,0,-9810                                 # acceleration (needs rho)
+gravity g=0,0,-9810 part=Housing [id=G1]        # only one volume part (mesh block); CalculiX only
+gravity g=0,0,-9810 group=ZONE                  # only the elements of a volume element group; CalculiX only
 amplitude name=A1 t=0,0,1,1,2,0.5                   # time-dependent factor: (time, factor) pairs, increasing times
 job SETTLE                                        # a job is one solver session; its steps run in order
 step static [loads=F1,gravity] [reset]           # loads=: active loads (ids; default all); reset: zero the loads of the earlier steps
@@ -58,6 +60,7 @@ Not yet: the script syntax for rigid links, the grouping of selected faces into 
 ## Limits (not verified)
 
 * **The generated `.inp` has not been run through a real CalculiX** (not available here). Tests use `tests/support/fake_ccx.py`, which checks that the input has the expected sections and copies fixture results: they verify the plumbing, not the physics.
+* Gravity on a part or a group (`part=`, `group=`) is written as a `*DLOAD` card on the element set of the target; code_aster refuses it.
 * Forces are shared equally among nodes. For quadratic elements this is not the consistent load (a warning is issued); prefer `pressure`.
 * Pressure supports tetrahedra/hexahedra (linear and quadratic); no pyramids/wedges, no shell/beam elements, no contact, no nonlinear materials. Per-part materials (`assign`) are written by CalculiX only; code_aster takes one material.
 * Loads not written yet: body forces per element (`BX/BY/BZ`), centrifugal loads (`CENTRIF`: the manual does not state unambiguously the meaning of its first value), distributed traction (tangential), nodal moments (solid elements have no rotational degrees of freedom), thermal loads (out of scope). Each one needs its syntax checked against the solver manual before it is written.
