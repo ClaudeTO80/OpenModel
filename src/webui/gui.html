@@ -55,8 +55,6 @@ main{position:relative;min-width:0;min-height:0}
 .dockTools{display:flex;gap:8px;align-items:end;margin-bottom:6px}
 .dockTools>div{display:grid;gap:2px}
 #progressLog,#solverLog{min-height:0;overflow:auto;font-family:monospace;font-size:11px;white-space:pre-wrap;margin:0}
-#selectionOverlay{position:absolute;top:10px;right:10px;z-index:4;width:min(300px,calc(100% - 20px));max-height:calc(100% - 20px);overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.18);padding:6px 10px}
-#selectionOverlay>details{margin:0}
 #statusbar{display:flex;align-items:center;gap:16px;padding:3px 10px;border-top:1px solid var(--line);background:var(--panel);color:var(--muted);font-size:11.5px;white-space:nowrap;min-width:0}
 #statusMesh{flex:none;color:var(--text)}
 .statusMsg{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;background:none;border:0;color:inherit;text-align:left;padding:0;cursor:pointer;font:inherit}
@@ -153,6 +151,7 @@ details.node details.node{margin-top:8px;background:transparent}
     <button class="tab" role="tab" data-tab="geo">Geometry</button>
     <button class="tab" role="tab" data-tab="mesh">Mesh</button>
     <button class="tab" role="tab" data-tab="solve">Analysis</button>
+    <button class="tab" role="tab" data-tab="sel">Selection</button>
     <button class="tab" role="tab" data-tab="res">Results</button>
     <button class="tab" role="tab" data-tab="view">View</button>
     <button class="tab" role="tab" data-tab="check">Check</button>
@@ -209,6 +208,12 @@ details.node details.node{margin-top:8px;background:transparent}
       <button class="rb" data-act="an-run" data-need="idle" title="Write the input, run CalculiX in the background and load the results"><span class="ic">▶</span>Run solver</button>
       <button class="rb" data-act="an-cancel" data-need="solver" title="Stop the running solver"><span class="ic">⏹</span>Cancel</button>
     </div><div class="gname">Solver</div></div>
+  </div>
+
+  <div class="panel" data-panel="sel" role="tabpanel" hidden>
+    <div class="group"><div class="items">
+      <button class="rb" data-act="sel-options" title="Show the selection options (face angle, growth, holes, box) in the sidebar"><span class="ic">⚙</span>Options…</button>
+    </div><div class="gname">Panel</div></div>
     <div class="group"><div class="items">
       <button class="rb" data-act="pick-node" data-on="pick:node" data-need="pick" title="Select nodes in the viewer (click; Ctrl+click adds; Alt+drag = box)"><span class="ic">•</span>Nodes</button>
       <button class="rb" data-act="pick-element" data-on="pick:element" data-need="pick" title="Select elements (those with a visible face are shown)"><span class="ic">▣</span>Elements</button>
@@ -652,10 +657,7 @@ details.node details.node{margin-top:8px;background:transparent}
   </dialog>
 
   <section><h2>Messages</h2><pre id="result">Ready. Import a CAD model, load a mesh or try the demo model.</pre></section>
-</aside>
-
-<div id="workarea"><main><iframe id="viewer" src="viewer.html" title="FEM viewer"></iframe>
-<div id="selectionOverlay">
+  <div class="spanel" data-spanel="sel" hidden>
   <details id="secSel" class="node" open>
     <summary>Selection</summary>
     <label for="selMode">Select in the viewer</label>
@@ -676,7 +678,10 @@ details.node details.node{margin-top:8px;background:transparent}
     <p class="hint" id="selInfo">Selection: none.</p>
     <p class="hint" id="cadFaceInfo">CAD faces: none selected.</p>
   </details>
-</div>
+  </div>
+</aside>
+
+<div id="workarea"><main><iframe id="viewer" src="viewer.html" title="FEM viewer"></iframe>
 <section id="inspector" class="inspector" hidden aria-label="Details">
   <header class="inspHead"><span id="inspTitle"></span><button type="button" id="inspClose" aria-label="Close details" title="Close (Esc)">×</button></header>
   <div id="inspBody"></div>
@@ -1196,6 +1201,8 @@ let viewerLoading = false;
 let viewerSeq = 0;
 /** Signature of the viewer branch as last built; the branch is rebuilt only when it changes. */
 let viewerSig = null;
+/** True once the user has asked for selection (a pick mode or Selection > Options): only then the sidebar shows the Selection category. */
+let selectionShown = false;
 
 /**
  * @brief Gives the model loaded in the viewer, if any.
@@ -1788,8 +1795,10 @@ function renderTree() {
       sbRow({label: f.id + " · " + f.line.replace(/^fix\s*/i, ""), onPick: () => focusSection("condFix")}), []))},
     {key: "loads", label: "Load cases", kids: script.loads.map((l) => treeItem(l.id + " · " + l.kind, "load:" + l.id))},
     {key: "jobs", label: "Jobs", kids: jobKids, pick: () => $("anScript").focus()},
+    {key: "sel", label: "Selection", kids: []},
   ];
   cats.forEach(({key, label, kids, pick}) => {
+    if (key === "sel" && !selectionShown) return;
     const eye = eyes[key];
     const row = sbRow({label, onPick: pick || (() => showSidebarTab(key)), eyeState: eye && eye.state,
       onEye: eye ? eye.toggle : null, onAdd: SB_ADD[key], sub: subs[key] || ""});
@@ -1813,6 +1822,12 @@ function syncTree() {
  * @brief Shows one model setup category (CAD, Mesh, Material, Constraints, Load cases) and hides the others.
  * @param name category key, the data-spanel value of its panel
  */
+/** @brief Shows the Selection category in the sidebar and opens its options; called when the user asks for selection. */
+function openSelectionPanel() {
+  selectionShown = true;
+  renderTree();
+  showSidebarTab("sel");
+}
 function showSidebarTab(name) {
   sbActiveCat = name;
   highlightTree();
@@ -1854,6 +1869,7 @@ var RIBBON_EXTRA = {};
 RIBBON_EXTRA["pick-node"] = () => setPickMode("node");
 RIBBON_EXTRA["pick-element"] = () => setPickMode("element");
 RIBBON_EXTRA["pick-face"] = () => setPickMode("face");
+RIBBON_EXTRA["sel-options"] = () => openSelectionPanel();
 RIBBON_EXTRA["sel-clear"] = () => { const pk = pickApi(); if (pk) pk.clear(); syncRibbon(); };
 RIBBON_EXTRA["grp-make"] = () => { const sel = currentSelection(); if (sel) makeGroup(sel.mode); else show("Select nodes, elements or faces in the viewer first.", "bad"); };
 RIBBON_EXTRA["as-fix"] = () => assign("fix");
@@ -1949,7 +1965,11 @@ Object.assign(RIBBON_EXTRA, {
 
 /* ---------------------------------------------------------------- selection and groups */
 const pickApi = () => { const w = viewerApi(); return w && w.OpenModelViewer && w.OpenModelViewer.pick && w.OpenModelViewer.pick.available() ? w.OpenModelViewer.pick : null; };
-function setPickMode(mode) { const pk = pickApi(); if (pk) pk.setMode(mode); syncRibbon(); }
+function setPickMode(mode) {
+  const pk = pickApi();
+  if (pk) { pk.setMode(mode); if (mode !== "off") openSelectionPanel(); }
+  syncRibbon();
+}
 function setPickAngle(v) { const pk = pickApi(); if (pk) pk.setAngle(v); }
 function setPickGrowth(v) { const pk = pickApi(); if (pk) pk.setGrowth(v); }
 function setPickHoles(on) { const pk = pickApi(); if (pk) pk.setHoles(on); }
