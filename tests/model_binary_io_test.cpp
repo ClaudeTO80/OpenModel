@@ -2,7 +2,9 @@
 #include <OpenModel/ModelBinaryIO.hpp>
 
 #include <cassert>
+#include <cmath>
 #include <cstdint>
+#include <limits>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -39,6 +41,37 @@ MeshData makeStructuredGrid(std::size_t n) {
     mesh.addPhysicalGroup("solid", 3, 1, elementIds, "steel");
     mesh.addMeshGroup(MeshGroup{"Fixed face", 2, MeshGroupSource::CAD, {7}, {}, {nodes[0], nodes[side]}});
     mesh.constrainNodes({nodes[0], nodes[side]}, kDofTranslations);
+    assert(mesh.validate().empty());
+    return mesh;
+}
+
+// Hexahedral grid with non-integer, anisotropic coordinates, so quantization is exercised with real rounding.
+// With flat set, every z is zero, which makes one axis degenerate (zero range).
+MeshData makeWarpedGrid(std::size_t n, bool flat) {
+    MeshData mesh;
+    const auto side = n + 1;
+    std::vector<NodeIndex> nodes(side * side * side);
+    for (std::size_t k = 0; k < side; ++k)
+        for (std::size_t j = 0; j < side; ++j)
+            for (std::size_t i = 0; i < side; ++i) {
+                const auto index = (k * side + j) * side + i;
+                const double x = 0.1234 + 1.7 * static_cast<double>(i) + 0.31 * std::sin(0.9 * static_cast<double>(j));
+                const double y = -3.5 + 2.2 * static_cast<double>(j) + 0.17 * static_cast<double>(k * k);
+                const double z = flat ? 0.0 : 10.0 + 0.5 * std::cos(static_cast<double>(i + k));
+                nodes[index] = mesh.addNode(static_cast<NodeId>(index + 1), x, y, z);
+            }
+    std::vector<ElementId> elementIds;
+    ElementId id = 1;
+    auto at = [&](std::size_t i, std::size_t j, std::size_t k) { return nodes[(k * side + j) * side + i]; };
+    for (std::size_t k = 0; k < n; ++k)
+        for (std::size_t j = 0; j < n; ++j)
+            for (std::size_t i = 0; i < n; ++i) {
+                mesh.addElement("solid", ElementType::Hexahedron8, id,
+                                {at(i, j, k), at(i + 1, j, k), at(i + 1, j + 1, k), at(i, j + 1, k),
+                                 at(i, j, k + 1), at(i + 1, j, k + 1), at(i + 1, j + 1, k + 1), at(i, j + 1, k + 1)});
+                elementIds.push_back(id++);
+            }
+    mesh.addPhysicalGroup("solid", 3, 1, elementIds, "steel");
     assert(mesh.validate().empty());
     return mesh;
 }
@@ -224,6 +257,93 @@ int main() {
     const auto refused = root / "openmodel_model_io_test_refused.omb";
     assert(throwsModelError([&] { ModelBinaryIO::write(refused, invalid); }));
     assert(!std::filesystem::exists(refused));
+
+    // 6. Quantized coordinates (opt-in, lossy): per-axis error bound, size gain, degenerate axis, rejection of
+    //    non-finite input, and corruption coverage of the quantized section.
+    {
+        const auto warped = makeWarpedGrid(20, false); // 9,261 nodes, 8,000 hex8
+        const auto exactQ = root / "openmodel_model_io_test_exact.omb";
+        const auto q16Path = root / "openmodel_model_io_test_q16.omb";
+        const auto q32Path = root / "openmodel_model_io_test_q32.omb";
+        ModelBinaryIO::write(exactQ, warped);
+        ModelBinaryIO::write(q16Path, warped, ModelBinaryIO::Options{true, ModelBinaryIO::CoordinateEncoding::Quantized16});
+        ModelBinaryIO::write(q32Path, warped, ModelBinaryIO::Options{true, ModelBinaryIO::CoordinateEncoding::Quantized32});
+
+        // Error bound: each value is within half a quantization step of the original, per axis.
+        const auto& original = warped.getCoordinates();
+        std::array<double, 3> lo{}, hi{};
+        for (std::size_t a = 0; a < 3; ++a) lo[a] = hi[a] = original[a];
+        for (std::size_t i = 0; i < original.size(); ++i) {
+            lo[i % 3] = std::min(lo[i % 3], original[i]);
+            hi[i % 3] = std::max(hi[i % 3], original[i]);
+        }
+        auto checkBound = [&](const std::filesystem::path& file, int bits) {
+            const auto back = ModelBinaryIO::read(file);
+            const auto& got = back.getCoordinates();
+            assert(got.size() == original.size());
+            const double levels = static_cast<double>((std::uint64_t{1} << bits) - 1);
+            double worst = 0.0;
+            for (std::size_t i = 0; i < original.size(); ++i) {
+                const auto a = i % 3;
+                const double range = hi[a] - lo[a];
+                const double bound = range / (2.0 * levels) * (1.0 + 1e-9) + 1e-12;
+                const double err = std::fabs(got[i] - original[i]);
+                assert(err <= bound);
+                worst = std::max(worst, err / range);
+            }
+            std::printf("quantized %d-bit: worst error = %.3e of axis range (bound %.3e)\n", bits, worst,
+                        0.5 / levels);
+            assert(back.validate().empty());
+            assert(back.getElementBlock("solid").connectivity == warped.getElementBlock("solid").connectivity);
+            assert(back.getNodeIds() == warped.getNodeIds());
+        };
+        checkBound(q16Path, 16);
+        checkBound(q32Path, 32);
+
+        // Size: quantized files are smaller than the lossless one, and 16-bit is smaller than 32-bit.
+        const auto sExact = fileSize(exactQ), s16 = fileSize(q16Path), s32 = fileSize(q32Path);
+        std::printf("warped 20^3: exact %ju B, quantized32 %ju B, quantized16 %ju B\n", sExact, s32, s16);
+        assert(s16 < s32 && s32 < sExact);
+        // Each node drops from 24 to 6 bytes of coordinates in 16-bit mode: the saving is at least 15 bytes/node.
+        assert(sExact - s16 >= warped.getNumNodes() * 15);
+
+        // Degenerate axis: a flat mesh has zero range in z, which must reconstruct exactly.
+        const auto flat = makeWarpedGrid(3, true);
+        const auto flatPath = root / "openmodel_model_io_test_flat.omb";
+        ModelBinaryIO::write(flatPath, flat, ModelBinaryIO::Options{true, ModelBinaryIO::CoordinateEncoding::Quantized16});
+        const auto flatBack = ModelBinaryIO::read(flatPath);
+        for (std::size_t i = 2; i < flatBack.getCoordinates().size(); i += 3) assert(flatBack.getCoordinates()[i] == 0.0);
+
+        // Non-finite coordinates cannot be quantized: refused, and no file is left behind.
+        MeshData bad;
+        bad.addNode(1, std::numeric_limits<double>::quiet_NaN(), 0.0, 0.0);
+        const auto badPath = root / "openmodel_model_io_test_nan.omb";
+        assert(throwsModelError([&] {
+            ModelBinaryIO::write(badPath, bad, ModelBinaryIO::Options{false, ModelBinaryIO::CoordinateEncoding::Quantized16});
+        }));
+        assert(!std::filesystem::exists(badPath));
+
+        // Corruption coverage of the quantized section: every single-bit flip of a small quantized file is rejected.
+        const auto tiny = makeWarpedGrid(2, false);
+        const auto tinyPath = root / "openmodel_model_io_test_tiny.omb";
+        ModelBinaryIO::write(tinyPath, tiny, ModelBinaryIO::Options{true, ModelBinaryIO::CoordinateEncoding::Quantized16});
+        const auto tinyBytes = readBytes(tinyPath);
+        for (std::size_t i = 0; i < tinyBytes.size(); ++i)
+            for (int bit = 0; bit < 8; ++bit) {
+                auto flipped = tinyBytes;
+                flipped[i] = static_cast<char>(flipped[i] ^ (1 << bit));
+                writeBytes(corrupt, flipped);
+                bool rejected = false;
+                try {
+                    ModelBinaryIO::read(corrupt);
+                } catch (const ModelBinaryIO::Error&) {
+                    rejected = true;
+                }
+                assert(rejected);
+            }
+
+        for (const auto& f : {exactQ, q16Path, q32Path, flatPath, tinyPath}) std::filesystem::remove(f);
+    }
 
     for (const auto& p : {path, corrupt, truncated, badMagic})
         std::filesystem::remove(p);

@@ -1,4 +1,4 @@
-# MGOM — OpenModel binary model format, version 1.0
+# MGOM — OpenModel binary model format, version 1.1
 
 MGOM is the persistence format for the whole mesh model (`MeshData`): nodes, element blocks, node sets, physical groups, mesh groups, node constraints and CAD bodies. It is written and read by `ModelBinaryIO` (`include/OpenModel/ModelBinaryIO.hpp`). It is intended to replace MGMB for new files. MGMB 1.x files stay readable and writable through `MeshBinaryIO`; MGOM is not a new major version of MGMB, so existing MGMB readers are unaffected.
 
@@ -17,7 +17,7 @@ The format optimises two things, in this order: the size of the file, and the ti
 | CRC-32 per section | all sections | corruption is detected before any structure is built |
 | Bulk copies | coordinates, raw connectivity | a `memcpy` on little-endian hosts |
 
-Coordinates are stored as IEEE-754 binary64, so a mesh round-trips bit for bit. No C++ object layout, padding, pointer or ABI-dependent representation is written. Element type codes are fixed by this document (see below), not by the C++ enum.
+Coordinates are stored as IEEE-754 binary64 by default, so a mesh round-trips bit for bit. Optionally they are quantized to 16 or 32 bits per axis (lossy, see below). No C++ object layout, padding, pointer or ABI-dependent representation is written. Element type codes are fixed by this document (see below), not by the C++ enum.
 
 ## File layout
 
@@ -42,9 +42,9 @@ All integers are little-endian. The directory is at the end of the file, so the 
 |---|---|---|---|
 | 0 | 8 | magic | `M G O M CR LF 0x1A LF` |
 | 8 | 2 | major | `1` |
-| 10 | 2 | minor | `0` |
+| 10 | 2 | minor | `1` (version 1.0 files are still read; see *Compatibility*) |
 | 12 | 4 | endian marker | `0x01020304` |
-| 16 | 8 | feature flags | `0`; any other value is rejected by version 1.0 readers |
+| 16 | 8 | feature flags | `0`; any other value is rejected |
 | 24 | 8 | node count | number of nodes |
 | 32 | 8 | element count | total elements of all blocks |
 | 40 | 4 | block count | number of element blocks |
@@ -57,7 +57,7 @@ All integers are little-endian. The directory is at the end of the file, so the 
 | Offset | Size | Field | Description |
 |---|---|---|---|
 | 0 | 4 | section ID | 1..9, each exactly once |
-| 4 | 4 | codec | `0` (stored). Any other value is rejected in 1.0; the field is reserved for future compression |
+| 4 | 4 | codec | `0` (stored). Any other value is rejected; the field is reserved for future compression |
 | 8 | 8 | offset | absolute offset of the payload |
 | 16 | 8 | size | payload size in bytes |
 | 24 | 8 | count | number of items in the section (see below) |
@@ -83,7 +83,7 @@ Every section is a self-describing list. All counts below are varints unless sta
 |---|---|---|
 | 1 | Strings | count, then `text` for each string. Strings are indexed from zero in the order of first use |
 | 2 | Node IDs | count, then a delta run of the external `NodeId` values (`count` = node count) |
-| 3 | Coordinates | count (nodes), then `3 × count` f64 values `x, y, z` in node order |
+| 3 | Coordinates | count (nodes), then a mode byte and the coordinate payload (see *Coordinate section*) |
 | 4 | Element blocks | count, then one record per block (below) |
 | 5 | Node sets | count, then per set: string ref, delta list of node indices. Sets are written sorted by name |
 | 6 | Physical groups | count, then per group: string ref name, zigzag dimension, zigzag tag, string ref material, delta list of element IDs |
@@ -130,11 +130,31 @@ Each record is a zigzag varint of the node index minus the previous node index (
 
 Mask bit *i* is degree of freedom *i*+1: bit 0 ux, bit 1 uy, bit 2 uz, bit 3 rx, bit 4 ry, bit 5 rz. A mask of zero, or with bits 6 and 7 set, is rejected. Values of free degrees of freedom are not stored; they are zero on read.
 
+### Coordinate section (section 3)
+
+After the node count comes a mode byte:
+
+- **`0` — exact**: `3 × count` f64 values `x, y, z` in node order. Lossless.
+- **`16` or `32` — quantized**: for each axis `x, y, z`, the exact minimum and maximum (two f64 values), followed by `3 × count` unsigned integers of 16 or 32 bits, in node order, with the axis of each value cycling `x, y, z`. A value `v` on an axis with minimum `lo` and maximum `hi` is stored as
+
+  `q = round((v − lo) / (hi − lo) × (2^bits − 1))`
+
+  and read back as `lo + q × (hi − lo) / (2^bits − 1)`. An axis with `hi = lo` stores `q = 0` and reads back as `lo`.
+
+Error bound: each reconstructed value differs from the original by at most half a quantization step on its axis, i.e.
+
+| Mode | Maximum error per value |
+|---|---|
+| 16 bit | (hi − lo) / 131 070 |
+| 32 bit | (hi − lo) / 8 589 934 590 |
+
+The bound is relative to the axis extent, not to the magnitude of the coordinates: a model spanning 1 m keeps a 16-bit error of about 8 µm, the same model spanning 1 km has about 8 mm. Quantization is refused when a coordinate is not finite. Topology, node IDs and all other sections are unaffected.
+
 ## Reader requirements
 
 A reader must, in this order:
 
-1. Check the magic, the version (exactly 1.0), the endian marker, the zero feature flags, and that the file size matches the header.
+1. Check the magic, the version (1.0 or 1.1), the endian marker, the zero feature flags, and that the file size matches the header.
 2. Check that the directory lies at the stated offset, has exactly nine entries with distinct IDs in `1..9`, and that every codec and reserved field is zero.
 3. Check that every payload lies between the header and the directory, that payloads do not overlap, and that each CRC-32 matches.
 4. Parse each section with bounds checks. Every count must be consistent with the bytes that remain in its section, every section must be consumed exactly, and every count must equal the one in the directory.
@@ -156,16 +176,32 @@ Structured hexahedral grids with sequential node and element IDs, one physical g
 | 24³ (15,625 nodes, 13,824 hex8) | 1.16 MB | 0.56 MB | 48% | 2.7 → 3.2 ms | 2.0 → 2.9 ms |
 | 60³ (226,981 nodes, 216,000 hex8) | 17.6 MB | 8.3 MB | 47% | 35 → 44 ms | 26 → 38 ms |
 
-The size breakdown of the 60³ file explains the remaining cost: coordinates are 5.4 MB (66%) and connectivity 2.4 MB (29%). Coordinates are lossless binary64 on purpose, so the format cannot shrink them further without changing what it stores.
+The size breakdown of the lossless 60³ file explains the cost: coordinates are 5.4 MB (66%) and connectivity 2.4 MB (29%). Quantizing coordinates to 16 bits (below) removes most of the first share.
+
+Quantized mode (16 bit), same meshes, same run:
+
+| Mesh | MGMB | MGOM exact | MGOM 16-bit | Write (MGMB / exact / 16-bit) | Read (MGMB / exact / 16-bit) |
+|---|---|---|---|---|---|
+| 24³ | 1.16 MB | 0.56 MB (48%) | 0.28 MB (24%) | 2.9 / 2.2 / 2.3 ms | 1.5 / 2.1 / 5.5 ms |
+| 60³ | 17.6 MB | 8.3 MB (47%) | 4.2 MB (24%) | 28 / 34 / 35 ms | 23 / 34 / 34 ms |
+
+The 24³ read times are noisy at this size; the 60³ figures are the more reliable ones. After quantization, connectivity is the largest part of the 60³ file (about 58%), so connectivity compression is the next lever, through the reserved codec field.
+
+Lossy error on the warped 20³ grid (9,261 nodes, anisotropic non-integer coordinates): the worst 16-bit error is 7.6·10⁻⁶ of the axis extent, against a bound of 7.6·10⁻⁶; the 32-bit worst error is 1.2·10⁻¹⁰.
 
 Checksum and format structure were also verified outside the C++ code: section CRC-32 values were recomputed with an independent implementation (`zlib.crc32`) on the same files and agree for every section.
 
-`tests/model_binary_io_test.cpp` checks the round trip of every section (including both connectivity encodings), an empty mesh, the size ratio against MGMB, the rejection of a foreign file, a truncated file and an invalid mesh, and an exhaustive single-bit corruption test over the whole file: every flipped bit must be rejected with `ModelBinaryIO::Error`.
+`tests/model_binary_io_test.cpp` checks the round trip of every section (including both connectivity encodings), an empty mesh, the size ratio against MGMB, the rejection of a foreign file, a truncated file and an invalid mesh, and an exhaustive single-bit corruption test over the whole file: every flipped bit must be rejected with `ModelBinaryIO::Error`. The quantized mode is checked for the per-axis error bound, size ordering (exact > 32-bit > 16-bit), a degenerate flat axis, refusal of non-finite input, and exhaustive bit-flip rejection of a quantized file.
 
-## Limits of version 1.0
+## Compatibility
+
+- Version 1.0 files (exact coordinates, no mode byte) are read as lossless. Writers always produce 1.1.
+- A 1.0 reader rejects 1.1 files, because the minor version is checked for equality there.
+
+## Limits
 
 - No compression codec is implemented. The codec field exists and must be zero. A future minor version can define codecs without changing the layout.
-- Coordinates are not quantised. A lossy quantised coordinate option would roughly halve coordinate storage on large hexahedral meshes, but it changes the stored values and must be a separate, explicit choice.
+- Quantized coordinates are opt-in and lossy. The error scales with each axis extent, so a model with a very large extent relative to its details needs 32 bits. The default stays lossless.
 - The whole file is read into memory and parsed in one pass; the format is not memory-mapped.
 - Element block connectivity uses one index width per block. A mesh whose node count crosses 2³² uses 64-bit indices everywhere.
 - Bodies store element IDs only; CAD face and group mappings remain in mesh groups and in the project snapshot described in `PROJECT_PERSISTENCE.md`.

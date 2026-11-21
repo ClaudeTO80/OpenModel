@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <fstream>
@@ -37,7 +38,7 @@ bool hostLittleEndian() noexcept {
 
 constexpr std::array<char, 8> kMagic{{'M', 'G', 'O', 'M', '\r', '\n', 0x1a, '\n'}};
 constexpr std::uint16_t kMajor = 1;
-constexpr std::uint16_t kMinor = 0;
+constexpr std::uint16_t kMinor = 1; // 1.1 adds the coordinate mode byte; 1.0 files are still read as lossless
 constexpr std::uint32_t kEndianMarker = 0x01020304u;
 constexpr std::size_t kHeaderSize = 64;
 constexpr std::size_t kDirectoryEntrySize = 40;
@@ -395,12 +396,59 @@ EncodedSection encodeNodeIds(const MeshData& mesh) {
     return {NodeIds, ids.size(), std::move(s.bytes)};
 }
 
-EncodedSection encodeCoordinates(const MeshData& mesh) {
+// Quantized coordinates: per axis, the exact minimum and maximum (binary64), then one unsigned integer per value,
+// q = round((v - min) / (max - min) * (2^bits - 1)). Reconstruction is min + q * (max - min) / (2^bits - 1).
+// The error per value is at most half a step, i.e. (max - min) / (2 * (2^bits - 1)).
+unsigned coordinateBits(ModelBinaryIO::CoordinateEncoding encoding) {
+    switch (encoding) {
+    case ModelBinaryIO::CoordinateEncoding::Exact64: return 0;
+    case ModelBinaryIO::CoordinateEncoding::Quantized16: return 16;
+    case ModelBinaryIO::CoordinateEncoding::Quantized32: return 32;
+    }
+    throw Error("MGOM: unknown coordinate encoding");
+}
+
+void encodeQuantized(Sink& s, const std::vector<double>& coords, unsigned bits) {
+    const auto nodes = coords.size() / 3;
+    std::array<double, 3> lo{}, hi{};
+    if (nodes > 0)
+        for (std::size_t a = 0; a < 3; ++a) lo[a] = hi[a] = coords[a];
+    for (std::size_t i = 0; i < coords.size(); ++i) {
+        const auto value = coords[i];
+        if (!std::isfinite(value)) throw Error("MGOM: non-finite coordinate cannot be quantized");
+        const auto a = i % 3;
+        lo[a] = std::min(lo[a], value);
+        hi[a] = std::max(hi[a], value);
+    }
+    s.u8(static_cast<std::uint8_t>(bits));
+    for (std::size_t a = 0; a < 3; ++a) {
+        s.f64(lo[a]);
+        s.f64(hi[a]);
+    }
+    const double levels = static_cast<double>((std::uint64_t{1} << bits) - 1);
+    for (std::size_t i = 0; i < coords.size(); ++i) {
+        const auto a = i % 3;
+        const double range = hi[a] - lo[a];
+        double q = range > 0.0 ? std::round((coords[i] - lo[a]) / range * levels) : 0.0;
+        q = std::min(std::max(q, 0.0), levels);
+        const auto code = static_cast<std::uint64_t>(q);
+        if (bits == 16) s.u16(static_cast<std::uint16_t>(code));
+        else s.u32(static_cast<std::uint32_t>(code));
+    }
+}
+
+EncodedSection encodeCoordinates(const MeshData& mesh, ModelBinaryIO::CoordinateEncoding encoding) {
     Sink s;
     const auto& coords = mesh.getCoordinates();
     const auto nodes = coords.size() / 3;
     s.varint(nodes);
-    s.f64Block(coords.data(), coords.size());
+    const unsigned bits = coordinateBits(encoding);
+    if (bits == 0) {
+        s.u8(0);
+        s.f64Block(coords.data(), coords.size());
+    } else {
+        encodeQuantized(s, coords, bits);
+    }
     return {Coordinates, nodes, std::move(s.bytes)};
 }
 
@@ -520,13 +568,13 @@ EncodedSection encodeBodies(const MeshData& mesh, StringTable& strings) {
     return {Bodies, bodies.size(), std::move(s.bytes)};
 }
 
-Bytes encodeFile(const MeshData& mesh) {
+Bytes encodeFile(const MeshData& mesh, ModelBinaryIO::CoordinateEncoding coordinateEncoding) {
     const bool narrow = mesh.getNumNodes() <= static_cast<std::size_t>(std::numeric_limits<std::uint32_t>::max());
     StringTable strings;
 
     std::vector<EncodedSection> sections;
     sections.push_back(encodeNodeIds(mesh));
-    sections.push_back(encodeCoordinates(mesh));
+    sections.push_back(encodeCoordinates(mesh, coordinateEncoding));
     sections.push_back(encodeElementBlocks(mesh, strings, narrow));
     sections.push_back(encodeNodeSets(mesh, strings));
     sections.push_back(encodePhysicalGroups(mesh, strings));
@@ -697,8 +745,48 @@ std::vector<NodeIndex> checkedIndices(std::vector<std::uint64_t> values, std::ui
     return values;
 }
 
+// Reads the coordinate payload that follows the node count: mode byte, then exact or quantized values.
+void decodeCoordinates(Cursor& c, std::size_t nodes, std::vector<double>& out, bool hasModeByte) {
+    const std::size_t values = nodes * 3;
+    const std::uint8_t mode = hasModeByte ? c.u8() : 0;
+    out.resize(values);
+    if (mode == 0) {
+        const auto* raw = c.take(values * 8);
+        if (hostLittleEndian()) {
+            std::memcpy(out.data(), raw, values * 8);
+        } else {
+            for (std::size_t i = 0; i < values; ++i) {
+                std::uint64_t bits = 0;
+                for (int k = 0; k < 8; ++k) bits |= static_cast<std::uint64_t>(raw[i * 8 + k]) << (8 * k);
+                std::memcpy(&out[i], &bits, 8);
+            }
+        }
+        return;
+    }
+    if (mode != 16 && mode != 32) throw Error("MGOM: unknown coordinate mode");
+
+    std::array<double, 3> lo{}, hi{};
+    for (std::size_t a = 0; a < 3; ++a) {
+        lo[a] = c.f64();
+        hi[a] = c.f64();
+        if (!std::isfinite(lo[a]) || !std::isfinite(hi[a]) || lo[a] > hi[a])
+            throw Error("MGOM: invalid quantization range");
+    }
+    const std::size_t width = mode / 8;
+    const double levels = static_cast<double>((std::uint64_t{1} << mode) - 1);
+    const auto* raw = c.take(values * width);
+    for (std::size_t i = 0; i < values; ++i) {
+        const auto a = i % 3;
+        std::uint64_t code = 0;
+        for (std::size_t k = 0; k < width; ++k) code |= static_cast<std::uint64_t>(raw[i * width + k]) << (8 * k);
+        if (static_cast<double>(code) > levels) throw Error("MGOM: quantized coordinate out of range");
+        const double range = hi[a] - lo[a];
+        out[i] = range > 0.0 ? lo[a] + static_cast<double>(code) * (range / levels) : lo[a];
+    }
+}
+
 ParsedModel parseModel(const Bytes& file, const std::vector<SectionRecord>& records, std::uint64_t nodeCount,
-                       std::uint64_t elementCount, std::uint64_t blockCount) {
+                       std::uint64_t elementCount, std::uint64_t blockCount, bool hasCoordinateMode) {
     ParsedModel model;
     const auto strings = decodeStrings(file, findSection(records, Strings));
     // The directory item counts are not covered by a checksum, so each one is checked against what the section
@@ -724,21 +812,10 @@ ParsedModel parseModel(const Bytes& file, const std::vector<SectionRecord>& reco
     expectCount(NodeIds, model.nodeIds.size());
     {
         auto c = sectionCursor(file, findSection(records, Coordinates), "MGOM coordinates");
-        const auto count = c.count(24);
+        const auto count = c.count(2 * 3); // smallest possible quantized payload per node
         if (count != nodeCount) throw Error("MGOM: coordinate count disagrees with the header");
-        const auto values = static_cast<std::size_t>(count) * 3;
-        model.coordinates.resize(values);
         expectCount(Coordinates, count);
-        const auto* raw = c.take(values * 8);
-        if (hostLittleEndian()) {
-            std::memcpy(model.coordinates.data(), raw, values * 8);
-        } else {
-            for (std::size_t i = 0; i < values; ++i) {
-                std::uint64_t bits = 0;
-                for (int k = 0; k < 8; ++k) bits |= static_cast<std::uint64_t>(raw[i * 8 + k]) << (8 * k);
-                std::memcpy(&model.coordinates[i], &bits, 8);
-            }
-        }
+        decodeCoordinates(c, static_cast<std::size_t>(count), model.coordinates, hasCoordinateMode);
         c.expectEnd();
     }
     {
@@ -899,7 +976,7 @@ void ModelBinaryIO::write(const std::filesystem::path& path, const MeshData& mes
         const auto errors = mesh.validate();
         if (!errors.empty()) throw Error("MGOM: refusing to write invalid mesh: " + errors.front());
     }
-    const Bytes file = encodeFile(mesh);
+    const Bytes file = encodeFile(mesh, options.coordinates);
 
     const auto nonce = static_cast<unsigned long long>(
         std::chrono::steady_clock::now().time_since_epoch().count());
@@ -943,7 +1020,7 @@ MeshData ModelBinaryIO::read(const std::filesystem::path& path, const Options& o
         if (static_cast<char>(h.u8()) != expected) throw Error("MGOM: bad magic");
     const auto major = h.u16();
     const auto minor = h.u16();
-    if (major != kMajor || minor != kMinor) throw Error("MGOM: unsupported version");
+    if (major != kMajor || minor > kMinor) throw Error("MGOM: unsupported version");
     if (h.u32() != kEndianMarker) throw Error("MGOM: endianness marker mismatch");
     if (h.u64() != 0) throw Error("MGOM: feature flags not understood by this reader");
     const auto nodeCount = h.u64();
@@ -960,7 +1037,7 @@ MeshData ModelBinaryIO::read(const std::filesystem::path& path, const Options& o
         throw Error("MGOM: directory is out of place");
 
     const auto records = readDirectory(file, directoryOffset, fileSize);
-    ParsedModel parsed = parseModel(file, records, nodeCount, elementCount, blockCount);
+    ParsedModel parsed = parseModel(file, records, nodeCount, elementCount, blockCount, minor >= 1);
 
     MeshData mesh;
     mesh.m_nodeIds = std::move(parsed.nodeIds);
