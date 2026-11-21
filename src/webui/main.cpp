@@ -20,6 +20,7 @@
 #include <OpenModel/GltfWriter.hpp>
 #include <OpenModel/GmshSettings.hpp>
 #include <OpenModel/MeshBinaryIO.hpp>
+#include <OpenModel/ModelBinaryIO.hpp>
 #include <OpenModel/MeshData.hpp>
 #include <OpenModel/MeshRuns.hpp>
 #include <OpenModel/MeshSelection.hpp>
@@ -1361,14 +1362,17 @@ void loadMesh(webui_event_t* e) {
     StateLock lock;
     if (!lock.ok()) { replyBusy(e); return; }
     const std::string text = getStringArg(e, 0);
-    if (text.empty()) { reply(e, false, "Enter the path of a .mgmb, .inp or .mail mesh or use Browse."); return; }
+    if (text.empty()) { reply(e, false, "Enter the path of a .omb, .mgmb, .inp or .mail mesh or use Browse."); return; }
     std::error_code ec;
     const auto file = absolutePath(text);
     if (!fs::is_regular_file(file, ec)) { reply(e, false, "File not found or not accessible: " + text); return; }
     const std::string ext = lowerExtension(file);
     MeshData loaded;
     std::string note;
-    if (ext == ".mgmb") {
+    if (ext == ".omb") {
+        try { loaded = ModelBinaryIO::read(file); }
+        catch (const std::exception& error) { reply(e, false, std::string("Reading MGOM failed: ") + error.what()); return; }
+    } else if (ext == ".mgmb") {
         try { loaded = MeshBinaryIO::read(file); }
         catch (const std::exception& error) { reply(e, false, std::string("Reading MGMB failed: ") + error.what()); return; }
     } else if (ext == ".inp") {
@@ -1382,7 +1386,7 @@ void loadMesh(webui_event_t* e) {
         for (const auto& d : result.diagnostics) note += "\n" + d.code + ": " + d.message;
         if (!result) { reply(e, false, "code_aster mesh import failed:" + note); return; }
     } else {
-        reply(e, false, "Unsupported format: use .mgmb, .inp or .mail (code_aster)."); return;
+        reply(e, false, "Unsupported format: use .omb, .mgmb, .inp or .mail (code_aster)."); return;
     }
     g.cad.reset();
     g.surface = SurfaceMesh{};
@@ -2618,6 +2622,33 @@ void saveMgmb(webui_event_t* e) {
     reply(e, true, "Mesh saved to " + path + " (" + std::to_string(fs::file_size(path, ec)) + " bytes).");
 }
 
+/** Maps the Save panel's precision choice ("exact", "q16", "q32") to the MGOM coordinate encoding. */
+bool coordinateEncoding(webui_event_t* e, ModelBinaryIO::CoordinateEncoding& encoding) {
+    const std::string mode = getStringArg(e, 2);
+    if (mode.empty() || mode == "exact") encoding = ModelBinaryIO::CoordinateEncoding::Exact64;
+    else if (mode == "q16") encoding = ModelBinaryIO::CoordinateEncoding::Quantized16;
+    else if (mode == "q32") encoding = ModelBinaryIO::CoordinateEncoding::Quantized32;
+    else { reply(e, false, "Unknown coordinate precision: " + mode); return false; }
+    return true;
+}
+
+void saveModel(webui_event_t* e) {
+    StateLock lock;
+    if (!lock.ok()) { replyBusy(e); return; }
+    if (g.mesh.getNumNodes() == 0) { reply(e, false, "No mesh to save: generate or load one."); return; }
+    std::string path;
+    if (!outputPath(e, path)) return;
+    ModelBinaryIO::CoordinateEncoding encoding = ModelBinaryIO::CoordinateEncoding::Exact64;
+    if (!coordinateEncoding(e, encoding)) return;
+    try { ModelBinaryIO::write(path, g.mesh, ModelBinaryIO::Options{true, encoding}); }
+    catch (const std::exception& error) { reply(e, false, std::string("Saving MGOM failed: ") + error.what()); return; }
+    std::error_code ec;
+    const std::string precision = encoding == ModelBinaryIO::CoordinateEncoding::Exact64
+        ? "exact coordinates"
+        : "quantized coordinates, lossy: see docs/MGOM_FORMAT.md for the error bound";
+    reply(e, true, "Model saved to " + path + " (" + std::to_string(fs::file_size(path, ec)) + " bytes, " + precision + ").");
+}
+
 void exportInp(webui_event_t* e) {
     StateLock lock;
     if (!lock.ok()) { replyBusy(e); return; }
@@ -2737,6 +2768,7 @@ int main() {
     webui_bind(window, "openmodel_status", getStatus);
     webui_bind(window, "openmodel_validate", validateMesh);
     webui_bind(window, "openmodel_save_mgmb", saveMgmb);
+    webui_bind(window, "openmodel_save_model", saveModel);
     webui_bind(window, "openmodel_export_inp", exportInp);
     webui_bind(window, "openmodel_export_mgwv", exportMgwv);
     webui_bind(window, "openmodel_export_glb", exportGlb);

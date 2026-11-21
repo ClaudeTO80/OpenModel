@@ -167,11 +167,12 @@ details.node details.node{margin-top:8px;background:transparent}
   <div class="panel" data-panel="file" role="tabpanel">
     <div class="group"><div class="items">
       <button class="rb" data-act="cad" title="Choose a CAD file (STEP, IGES, BREP, OBJ, STL…) and triangulate it"><span class="ic">📐</span>Import CAD…</button>
-      <button class="rb" data-act="mesh" title="Choose a .mgmb, .inp or .mail (code_aster) mesh"><span class="ic">📂</span>Open mesh…</button>
+      <button class="rb" data-act="mesh" title="Choose a .omb, .mgmb, .inp or .mail (code_aster) mesh"><span class="ic">📂</span>Open mesh…</button>
       <button class="rb" data-act="res" data-need="mesh" title="Choose a results file (.frd, .dat, .csv, .tab)"><span class="ic">📈</span>Open results…</button>
     </div><div class="gname">Open</div></div>
     <div class="group"><div class="items">
       <button class="rb" data-act="save-mgmb" data-need="mesh" title="Optimized binary format (base name: section 4)"><span class="ic">💾</span>MGMB</button>
+      <button class="rb" data-act="save-model" data-need="mesh" title="MGOM binary model; coordinate precision from the Save panel"><span class="ic">💾</span>MGOM</button>
       <button class="rb" data-act="save-inp" data-need="mesh" title="Abaqus / CalculiX"><span class="ic">📄</span>INP</button>
       <button class="rb" data-act="save-mgwv" data-need="mesh" title="For the WebGL viewer, with the loaded results"><span class="ic">🌐</span>MGWV</button>
       <button class="rb" data-act="save-glb" data-need="cad" title="CAD surface"><span class="ic">🧊</span>GLB</button>
@@ -195,8 +196,9 @@ details.node details.node{margin-top:8px;background:transparent}
       <button class="rb" data-act="focus-mesh" title="Go to the meshing parameters"><span class="ic">🎚</span>Parameters…</button>
     </div><div class="gname">Volume</div></div>
     <div class="group"><div class="items">
-      <button class="rb" data-act="mesh" title="Load a .mgmb or .inp mesh"><span class="ic">📂</span>Open mesh…</button>
+      <button class="rb" data-act="mesh" title="Load a .omb, .mgmb or .inp mesh"><span class="ic">📂</span>Open mesh…</button>
       <button class="rb" data-act="save-mgmb" data-need="mesh" title="Save in MGMB format"><span class="ic">💾</span>Save MGMB</button>
+      <button class="rb" data-act="save-model" data-need="mesh" title="Save in MGOM format"><span class="ic">💾</span>Save MGOM</button>
       <button class="rb" data-act="save-inp" data-need="mesh" title="Export for Abaqus / CalculiX"><span class="ic">📄</span>Export INP</button>
     </div><div class="gname">Mesh files</div></div>
     <div class="group"><div class="items">
@@ -483,12 +485,19 @@ details.node details.node{margin-top:8px;background:transparent}
     </details>
     <details class="node">
       <summary>Mesh files</summary>
-    <label for="loadPath">Load an existing mesh (.mgmb, .inp, .mail)</label>
-    <div class="row"><input id="loadPath" placeholder="/path/mesh.mgmb"><button onclick="browse('loadPath','mesh')">Browse…</button></div>
+    <label for="loadPath">Load an existing mesh (.omb, .mgmb, .inp, .mail)</label>
+    <div class="row"><input id="loadPath" placeholder="/path/mesh.omb"><button onclick="browse('loadPath','mesh')">Browse…</button></div>
     <button class="full" onclick="loadMesh()">Load and display</button>
     <label for="outBase">Save with base name (the extension is appended)</label>
     <input id="outBase" placeholder="/path/model">
+    <label for="coordMode">Coordinates in MGOM files</label>
+    <select id="coordMode" title="Exact is lossless. Quantized modes are smaller but lossy; see docs/MGOM_FORMAT.md">
+      <option value="exact">Exact (lossless)</option>
+      <option value="q16">16-bit quantized (lossy)</option>
+      <option value="q32">32-bit quantized (lossy)</option>
+    </select>
     <div class="grid2">
+      <button onclick="saveModel()" title="Binary model format MGOM, reloadable">Save MGOM</button>
       <button onclick="save('openmodel_save_mgmb','.mgmb')" title="Optimized binary format, reloadable">Save MGMB</button>
       <button onclick="save('openmodel_export_inp','.inp')" title="Abaqus / CalculiX">Export INP</button>
       <button onclick="save('openmodel_export_mgwv','.mgwv')" title="For the WebGL viewer">Export MGWV</button>
@@ -1046,6 +1055,7 @@ async function generateSelectedParts() {
 const loadMesh = () => act("openmodel_load_mesh", $("loadPath").value.trim());
 const loadResults = () => act("openmodel_load_results", $("resPath").value.trim(), $("resStep").value.trim());
 const save = (fn, ext) => act(fn, $("outBase").value.trim(), ext);
+const saveModel = () => act("openmodel_save_model", $("outBase").value.trim(), ".omb", $("coordMode")?.value || "exact");
 
 /* Shows only the Gmsh settings that apply to the chosen element type of the structured mesh. */
 function shapeChanged() {
@@ -1071,7 +1081,7 @@ function mesherChanged() {
 
 /* ---- server-side file browser (a web page cannot read local paths itself) ---- */
 let browseTarget = null, browseKind = "cad";
-const FILTERS = {cad: ".step,.stp,.iges,.igs,.brep,.brp,.obj,.stl,.ply,.fbx,.gltf,.glb,.dae,.3ds", mesh: ".mgmb,.inp,.mail", results: ".frd,.dat,.csv,.tsv,.txt,.tab"};
+const FILTERS = {cad: ".step,.stp,.iges,.igs,.brep,.brp,.obj,.stl,.ply,.fbx,.gltf,.glb,.dae,.3ds", mesh: ".omb,.mgmb,.inp,.mail", results: ".frd,.dat,.csv,.tsv,.txt,.tab"};
 let afterPick = null;
 async function browse(inputId, kind, then) {
   browseTarget = inputId; browseKind = kind; afterPick = then || null;
@@ -2126,6 +2136,7 @@ const RIBBON_ACTIONS = {
   res: () => browse("resPath", "results", loadResults),
   "res-clear": () => act("openmodel_clear_results"),
   "save-mgmb": () => save("openmodel_save_mgmb", ".mgmb"),
+  "save-model": () => saveModel(),
   "save-inp": () => save("openmodel_export_inp", ".inp"),
   "save-mgwv": () => save("openmodel_export_mgwv", ".mgwv"),
   "save-glb": () => save("openmodel_export_glb", ".glb"),
