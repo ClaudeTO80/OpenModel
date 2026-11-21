@@ -1485,40 +1485,108 @@ async function addLoad(type) {
   }
   await assign(type === "force" ? "force" : "press");
 }
-/** Detail of one load, shown in the sidebar overlay: its values, the part it applies to, and its actions. */
+/** Writes one key=value of a load line: replaces it, appends it, or removes it when the value is empty. */
+function setLineKey(line, key, value) {
+  const re = new RegExp("(^|\\s)" + key + "=\\S+", "i");
+  if (value === "") return line.replace(re, "");
+  if (re.test(line)) return line.replace(re, "$1" + key + "=" + value);
+  return line.trimEnd() + " " + key + "=" + value;
+}
+/** Renames a load everywhere the script names it: its own line and the loads= lists of the steps. */
+function renameLoadInScript(text, oldId, newId, index, newLine) {
+  const lines = text.split(/\r?\n/);
+  if (index >= 0) lines[index] = newLine;
+  return lines.map((l) => analysisCommand(l) === "step"
+    ? l.replace(/loads=(\S+)/i, (m, list) => "loads=" + list.split(",").map((x) => (x === oldId ? newId : x)).join(","))
+    : l).join("\n");
+}
+/** Detail of one load, shown in the sidebar overlay: its values (editable), the part it applies to, and its actions. */
 function showLoadDetail(entry) {
   const names = {gravity: "Gravity", force: "Force on nodes", pressure: "Pressure on faces"};
-  const value = (re) => { const m = re.exec(entry.line); return m ? m[1] : "—"; };
+  const value = (re) => { const m = re.exec(entry.line); return m ? m[1] : ""; };
   const target = (/\bgroup:(\S+)/i.exec(entry.line) || [])[1] || "";
   const info = lastGroups.find((x) => x.name === target);
   const unit = info ? ({node: "nodes", element: "elements", face: "faces"})[info.kind] : "";
-  const rows = [["Type", names[entry.kind] + (entry.off ? " (off)" : "")], ["Id", entry.id]];
-  if (entry.kind === "force") rows.push(["Total force Fx,Fy,Fz", value(/\bF=(\S+)/i)], ["Amplitude", value(/\bamp=(\S+)/i) === "—" ? "constant" : value(/\bamp=(\S+)/i)]);
-  if (entry.kind === "pressure") rows.push(["Pressure", value(/\bp=(\S+)/i)], ["Amplitude", value(/\bamp=(\S+)/i) === "—" ? "constant" : value(/\bamp=(\S+)/i)]);
-  if (entry.kind === "gravity") rows.push(["Acceleration gx,gy,gz", value(/\bg=(\S+)/i)], ["Applies to", "all volume parts of the model"]);
+  const esc = esc2;
+  const rows = [["Type", names[entry.kind] + (entry.off ? " (off)" : "")]];
   if (target) rows.push(["Applied to", info ? "group " + target + " · " + info.count + " " + unit : "group " + target + " (not in the mesh)"]);
   let panel = document.querySelector('#inspBody .spanel[data-spanel="loaddetail"]');
   if (!panel) { panel = document.createElement("div"); panel.className = "spanel"; panel.dataset.spanel = "loaddetail"; $("inspBody").append(panel); }
-  panel.innerHTML = '<details class="node" open><summary>' + esc2(names[entry.kind]) + "</summary>"
-    + '<dl class="loadDl">' + rows.map(([k, v]) => "<dt>" + esc2(k) + "</dt><dd>" + esc2(v) + "</dd>").join("") + "</dl>"
+  const field = (id, label, val, extra = "") => '<label for="' + id + '">' + esc(label) + '</label><input id="' + id + '" value="' + esc(val) + '" ' + extra + ">";
+  const amp = value(/\bamp=(\S+)/i);
+  let fields = "";
+  rows.push(["Id", entry.id]);
+  if (entry.kind === "force") {
+    fields = field("ldF", "Total force Fx,Fy,Fz", value(/\bF=(\S+)/i) || "0,0,-100") + field("ldAmp", "Amplitude (empty = constant)", amp);
+  } else if (entry.kind === "pressure") {
+    fields = field("ldP", "Pressure (positive = toward the body)", value(/\bp=(\S+)/i) || "1") + field("ldAmp", "Amplitude (empty = constant)", amp);
+  } else {
+    fields = field("ldGravity", "Acceleration gx,gy,gz", value(/\bg=(\S+)/i) || "0,0,-9810");
+  }
+  panel.innerHTML = '<details class="node" open><summary>' + esc(names[entry.kind]) + "</summary>"
+    + '<dl class="loadDl">' + rows.map(([k, v]) => "<dt>" + esc(k) + "</dt><dd>" + esc(v) + "</dd>").join("") + "</dl>"
+    + (entry.index >= 0 ? field("ldName", "Name (id)", entry.id) + fields : "")
     + (target ? '<button class="full" data-ld="show">Show in viewer</button>' : "")
-    + (entry.kind === "gravity" ? '<label for="ldGravity">Acceleration gx,gy,gz</label><input id="ldGravity" value="' + esc2(value(/\bg=(\S+)/i) === "—" ? "0,0,-9810" : value(/\bg=(\S+)/i)) + '">'
-      + '<div class="grid2"><button data-ld="apply">Apply</button><button data-ld="toggle">' + (entry.off ? "Switch on" : "Switch off") + "</button></div>" : "")
-    + (entry.kind !== "gravity" ? '<button class="full" data-ld="remove">Remove load</button>' : "")
+    + (entry.index >= 0 ? '<button class="full primary" data-ld="apply">Apply changes</button>' : "")
+    + (entry.kind === "gravity"
+      ? '<button class="full" data-ld="toggle">' + (entry.off ? "Switch on" : "Switch off") + "</button>"
+      : '<button class="full" data-ld="remove">Remove load</button>')
     + "</details>";
-  panel.querySelectorAll("[data-ld]").forEach((b) => b.addEventListener("click", async () => {
+  panel.querySelectorAll("[data-ld]").forEach((b) => b.addEventListener("click", () => {
     const act = b.dataset.ld;
     if (act === "show") showGroup(target);
     if (act === "toggle") setGravityOn(entry.off);
-    if (act === "apply") {
-      const g = numList($("ldGravity").value, 3);
-      if (!g) { show("The acceleration requires three comma-separated numbers gx,gy,gz.", "bad"); return; }
-      changeScriptLine(entry.index, (entry.off ? "# " : "") + "gravity g=" + g.join(","));
-    }
-    if (act === "remove") { changeScriptLine(entry.index, null); showSidebarTab("loads"); }
+    if (act === "remove") removeLoadEntry(entry);
+    if (act === "apply") applyLoadEdit(entry);
   }));
   showSidebarTab("loaddetail");
   $("inspTitle").textContent = names[entry.kind] + " · " + entry.id;
+}
+/** Removes a load line and its id from the loads= lists of the steps. */
+function removeLoadEntry(entry) {
+  const lines = $("anScript").value.split(/\r?\n/);
+  if (entry.index >= 0) lines.splice(entry.index, 1);
+  $("anScript").value = lines.map((l) => analysisCommand(l) === "step" ? stepWithoutLoad(l, entry.id) : l).join("\n");
+  renderAnalysisConditions(); renderTree(); showSidebarTab("loads");
+}
+/** A step line without one load id in its loads= list (the list is dropped when it becomes empty). */
+function stepWithoutLoad(line, id) {
+  return line.replace(/\bloads=(\S+)/i, (m, list) => {
+    const rest = list.split(",").filter((x) => x && x !== id);
+    return rest.length ? "loads=" + rest.join(",") : "";
+  }).replace(/\s+$/, "");
+}
+/** Applies the edited values and name of a force, pressure or gravity line. */
+function applyLoadEdit(entry) {
+  const name = $("ldName") ? $("ldName").value.trim() : entry.id;
+  if (!/^[A-Za-z0-9_.-]+$/.test(name)) { show("The name may contain letters, digits, _ - .", "bad"); return; }
+  const taken = parseScript($("anScript").value).loads.some((l) => l.id === name && l.id !== entry.id);
+  if (taken) { show("A load named " + name + " already exists.", "bad"); return; }
+  let line = entry.line;
+  if (entry.kind === "force") {
+    const F = numList($("ldF").value, 3);
+    if (!F) { show("The total force requires three comma-separated numbers Fx,Fy,Fz.", "bad"); return; }
+    line = setLineKey(line, "F", F.join(","));
+  } else if (entry.kind === "pressure") {
+    const p = Number($("ldP").value);
+    if (!Number.isFinite(p) || $("ldP").value.trim() === "") { show("The pressure must be a number.", "bad"); return; }
+    line = setLineKey(line, "p", String(p));
+  } else {
+    const g = numList($("ldGravity").value, 3);
+    if (!g) { show("The acceleration requires three comma-separated numbers gx,gy,gz.", "bad"); return; }
+    line = setLineKey(line, "g", g.join(","));
+  }
+  if (entry.kind !== "gravity") {
+    const amp = $("ldAmp").value.trim();
+    if (amp && !/^[A-Za-z0-9_.-]+$/.test(amp)) { show("The amplitude name may contain letters, digits, _ - .", "bad"); return; }
+    line = setLineKey(line, "amp", amp);
+    line = setLineKey(line, "id", name);
+  }
+  $("anScript").value = renameLoadInScript($("anScript").value, entry.id, name, entry.index, line);
+  renderAnalysisConditions(); renderTree();
+  const fresh = scriptLoadEntries().find((e) => e.id === (entry.kind === "gravity" ? entry.id : name));
+  if (fresh) showLoadDetail(fresh);
+  show("Load " + name + " updated.", "good");
 }
 function sbNode(key, row, kids) {
   const wrap = document.createElement("div"); wrap.className = "sbgroup";

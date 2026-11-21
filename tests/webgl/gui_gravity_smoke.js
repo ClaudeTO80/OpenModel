@@ -62,8 +62,8 @@ function check(ok, msg) { if (!ok) throw new Error("check failed: " + msg); cons
     await page.evaluate(() => [...document.querySelectorAll(".sbname")].find((n) => n.textContent === "gravity · gravity").click());
     await page.waitForTimeout(100);
     const detail = await page.evaluate(() => ({ open: !document.getElementById("inspector").hidden, title: document.getElementById("inspTitle").textContent,
-      text: document.querySelector('#inspBody .spanel[data-spanel="loaddetail"]')?.textContent || "" }));
-    check(detail.open && /Gravity/.test(detail.title) && /0,0,-9810/.test(detail.text), "a load opens its values in the overlay");
+      g: document.getElementById("ldGravity")?.value }));
+    check(detail.open && /Gravity/.test(detail.title) && detail.g === "0,0,-9810", "a load opens its values in the overlay");
 
     // Force needs a selection; without one the menu item says so.
     await page.evaluate(() => addLoad("force"));
