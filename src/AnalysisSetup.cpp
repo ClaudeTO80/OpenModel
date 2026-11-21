@@ -227,25 +227,11 @@ struct Parser {
             std::array<double, 3> g{};
             if (!positional.empty()) error("SCRIPT_UNEXPECTED", "Unexpected '" + positional[0] + "' after gravity");
             vector3("g", g);
-            std::string part, group;
-            take("part", part);
-            take("group", group);
-            if (!part.empty() && !group.empty()) { error("SCRIPT_BAD_TARGET", "gravity takes part= or group=, not both"); return; }
-            if (part.empty() && group.empty()) {
-                leftovers();
-                if (result.diagnostics.size() == errorsBefore) {
-                    if (result.model.hasGravity) { error("SCRIPT_DUPLICATE", "Only one gravity line for all parts is supported (use part= or group= for the others)"); return; }
-                    result.model.hasGravity = true;
-                    result.model.gravity = g;
-                }
-            } else {
-                BodyLoad b;
-                b.part = part;
-                b.group = group;
-                b.g = g;
-                b.id = conditionId("body", keys);
-                leftovers();
-                if (result.diagnostics.size() == errorsBefore) result.model.bodyLoads.push_back(b);
+            leftovers();
+            if (result.diagnostics.size() == errorsBefore) {
+                if (result.model.hasGravity) { error("SCRIPT_DUPLICATE", "Only one gravity line is supported"); return; }
+                result.model.hasGravity = true;
+                result.model.gravity = g;
             }
         } else if (command == "job") {
             if (positional.size() != 1 || !validConditionId(positional[0])) { error("SCRIPT_BAD_JOB", "job needs an id: job NAME (letters, digits, _ - .)"); return; }
@@ -385,7 +371,6 @@ AnalysisParseResult parseAnalysisScript(const std::string& text) {
         for (const auto& f : p.result.model.forces) loadIds.insert(f.id);
         for (const auto& q : p.result.model.pressures) loadIds.insert(q.id);
         if (p.result.model.hasGravity) loadIds.insert(kGravityLoadId);
-        for (const auto& b : p.result.model.bodyLoads) loadIds.insert(b.id);
         for (const auto& job : p.result.model.jobs)
             for (const auto& step : job.steps)
                 for (const auto& id : step.loads)
@@ -467,13 +452,6 @@ std::string serializeAnalysisScript(const AnalysisModel& model) {
     }
     if (model.hasGravity)
         out << "gravity g=" << model.gravity[0] << ',' << model.gravity[1] << ',' << model.gravity[2] << '\n';
-    for (const auto& b : model.bodyLoads) {
-        out << "gravity";
-        if (!b.id.empty()) out << " id=" << b.id;
-        out << " g=" << b.g[0] << ',' << b.g[1] << ',' << b.g[2];
-        if (b.part.empty()) out << " group=" << b.group; else out << " part=" << b.part;
-        out << '\n';
-    }
     for (const auto& job : model.jobs) {
         out << "job " << job.id << '\n';
         for (const auto& step : job.steps) {
@@ -553,17 +531,9 @@ std::vector<std::string> activeLoadIds(const AnalysisModel& m, const AnalysisSte
         for (const auto& f : m.forces) all.push_back(f.id);
         for (const auto& p : m.pressures) all.push_back(p.id);
         if (m.hasGravity) all.push_back(kGravityLoadId);
-        for (const auto& b : m.bodyLoads) all.push_back(b.id);
         return all;
     }
     return step.loads;
-}
-
-/** True when the gravity of the model (untargeted or on a part or group) is active in the loads given. */
-bool anyGravityActive(const AnalysisModel& m, const std::vector<std::string>& active) {
-    auto isActiveId = [&](const std::string& id) { return std::find(active.begin(), active.end(), id) != active.end(); };
-    if (m.hasGravity && isActiveId(kGravityLoadId)) return true;
-    return std::any_of(m.bodyLoads.begin(), m.bodyLoads.end(), [&](const BodyLoad& b) { return isActiveId(b.id); });
 }
 
 FixedSupport* findSupport(AnalysisModel& m, const std::string& id) { return findCondition(m.supports, id); }
@@ -988,7 +958,8 @@ SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& sc
     for (const auto& step : job->steps) {
         const auto active = activeLoadIds(model, step);
         if (step.type != StepType::Static) needDensity = true;
-        if (anyGravityActive(model, active)) needDensity = true;
+        if (model.hasGravity && std::find(active.begin(), active.end(), std::string(kGravityLoadId)) != active.end())
+            needDensity = true;
     }
     for (const AnalysisMaterial* mat : allMaterials)
         if (needDensity && !(mat->density > 0.0)) return failed(r, "A frequency analysis and gravity need the density (rho=)");
@@ -1003,7 +974,7 @@ SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& sc
         const auto& step = job->steps[s];
         const std::string label = "step " + std::to_string(s + 1) + " of job '" + job->id + "'";
         const auto active = activeLoadIds(model, step);
-        const bool gravityActive = anyGravityActive(model, active);
+        const bool gravityActive = model.hasGravity && std::find(active.begin(), active.end(), std::string(kGravityLoadId)) != active.end();
         if (step.type != StepType::Frequency) anyNonFrequency = true;
         if (step.type == StepType::Frequency && gravityActive)
             note(r, ImportDiagnosticLevel::Warning, "ANALYSIS_GRAVITY_IGNORED", label + ": loads (gravity included) have no effect in a frequency step");
@@ -1212,18 +1183,6 @@ SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& sc
         r.pressureFaces = faceLoads.size();
     }
 
-    // Gravity on a part or a group: the target must be a volume element block or a volume element group.
-    for (const auto& b : model.bodyLoads) {
-        if (b.part.empty()) {
-            bool found = false;
-            for (const auto& g : mesh.getPhysicalGroups()) found = found || (g.dimension == 3 && g.name == b.group);
-            for (const auto& g : mesh.getMeshGroupRegistry().groups()) found = found || (g.dimension == 3 && g.name == b.group);
-            if (!found) return failed(r, "gravity " + b.id + ": no volume element group named '" + b.group + "'");
-        } else if (std::find(volumeParts.begin(), volumeParts.end(), b.part) == volumeParts.end()) {
-            return failed(r, "gravity " + b.id + ": no volume part named '" + b.part + "'");
-        }
-    }
-
     // Write: the mesh through the existing writer, then the model.
     {
         AbaqusWriteOptions options;
@@ -1341,17 +1300,6 @@ SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& sc
                         lines << "MG_EALL, GRAV, " << magnitude << ", " << g[0] / magnitude << ", " << g[1] / magnitude << ", " << g[2] / magnitude << "\n";
                     else if (isZeroed(kGravityLoadId))
                         lines << "MG_EALL, GRAV, 0, 0, 0, 1\n";
-                }
-                if (name.empty()) {
-                    // Gravity on a part or a group: one card per target, on its element set (the block or the group, sanitized).
-                    for (const auto& b : model.bodyLoads) {
-                        const std::string set = AbaqusInpWriter::sanitizeName(b.part.empty() ? b.group : b.part);
-                        const double magnitude = std::sqrt(b.g[0] * b.g[0] + b.g[1] * b.g[1] + b.g[2] * b.g[2]);
-                        if (isWritten(b.id) && magnitude > 0.0)
-                            lines << set << ", GRAV, " << magnitude << ", " << b.g[0] / magnitude << ", " << b.g[1] / magnitude << ", " << b.g[2] / magnitude << "\n";
-                        else if (isZeroed(b.id))
-                            lines << set << ", GRAV, 0, 0, 0, 1\n";
-                    }
                 }
                 if (lines.str().empty()) continue;
                 out << "*DLOAD" << (name.empty() ? "" : ", AMPLITUDE=" + name) << "\n" << lines.str();

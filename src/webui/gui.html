@@ -66,6 +66,12 @@ iframe{display:block;width:100%;height:100%;border:0;background:var(--viewport)}
 #inspClose{padding:0 8px;font-size:18px;line-height:1.2}
 #inspBody{overflow:auto;min-height:0;padding:8px 10px}
 [hidden]{display:none!important}
+.loadMenu{position:fixed;z-index:60;display:grid;gap:2px;min-width:240px;background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.18);padding:4px}
+.loadMenu button{text-align:left;background:none;border:0;padding:6px 8px;border-radius:6px;cursor:pointer;color:var(--text)}
+.loadMenu button:hover{background:var(--line)}
+.loadDl{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;margin:6px 0;font-size:12px}
+.loadDl dt{color:var(--muted)}
+.loadDl dd{margin:0;word-break:break-word}
 .modal{position:fixed;inset:0;background:var(--scrim);display:grid;place-items:center;z-index:10}
 .dialog{background:var(--panel);border:1px solid var(--line);border-radius:10px;width:min(640px,92vw);max-height:80vh;display:grid;grid-template-rows:auto auto 1fr auto;padding:12px;gap:8px}
 .dialog h3{margin:0;font-size:14px}
@@ -589,15 +595,6 @@ details.node details.node{margin-top:8px;background:transparent}
   </div>
 
   <div class="spanel" data-spanel="loads" hidden>
-    <details class="node" open>
-      <summary>Gravity and body loads</summary>
-      <label for="asGravity">Acceleration gx,gy,gz (model units, needs rho)</label>
-      <input id="asGravity" value="0,0,-9810">
-      <label for="asGravTarget">Applies to</label>
-      <select id="asGravTarget" title="All volume parts: every element. A part: one volume part of the mesh. Selected elements: the elements selected in the viewer become an element group, and only they get the acceleration."></select>
-      <button class="full" onclick="addGravity()">Add gravity to script</button>
-      <p class="hint">Gravity acts on the volume elements of the target. Point loads: Force on nodes (selected nodes). Distributed loads: Pressure on faces (select the faces, one element face at a time with Face growth "Single face").</p>
-    </details>
     <details class="node" open>
       <summary>Loads and steps</summary>
       <label for="asForce">Total force Fx,Fy,Fz</label>
@@ -1412,41 +1409,116 @@ function syncConstraintSize() {
   const w = viewerApi(), el = $("cdSymbolSize");
   if (w && el && document.activeElement !== el) el.value = w.OpenModelViewer.state.consSize;
 }
-/** Fills the gravity target list: all parts, the selected elements, and each volume part of the mesh. Keeps the choice. */
-function renderGravityTargets() {
-  const box = $("asGravTarget"); if (!box) return;
-  const keep = box.value;
-  const options = [["all", "All volume parts"], ["selection", "Selected elements (new element group)"],
-    ...volumeParts().map((p) => ["part:" + p, "Part: " + p])];
-  const escape = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-  box.innerHTML = options.map(([v, t]) => `<option value="${escape(v)}">${escape(t)}</option>`).join("");
-  if (options.some(([v]) => v === keep)) box.value = keep;
+const ANALYSIS_COMMANDS = new Set(["material", "assign", "fix", "force", "pressure", "gravity", "amplitude", "job", "step", "output"]);
+/** Gravity is a load every model has by default; it is switched off by commenting its line out of the script. */
+const DEFAULT_GRAVITY = "gravity g=0,0,-9810";
+/** Adds the default gravity line when the script has no gravity line, active or switched off. */
+function ensureGravityLine() {
+  if ($("anScript").value.split(/\r?\n/).some((l) => /^\s*#?\s*gravity\b/i.test(l))) return;
+  appendScript(DEFAULT_GRAVITY);
+  renderAnalysisConditions(); renderTree();
 }
-/** Writes a script line: replaces the first line matching test, or appends the line. */
-function putScriptLine(test, line) {
+/** Gravity on or off. Off = its line commented out, so the solver ignores it; on = the line active again. */
+function setGravityOn(on) {
   const box = $("anScript"), lines = box.value.split(/\r?\n/);
-  const i = lines.findIndex(test);
-  if (i >= 0) { lines[i] = line; box.value = lines.join("\n"); renderAnalysisConditions(); renderTree(); }
-  else appendScript(line);
-}
-/** Adds gravity on all volume parts, on one part, or on the selected elements (as an element group) to the script. */
-async function addGravity() {
-  const g = numList($("asGravity").value, 3);
-  if (!g) { show("The acceleration requires three comma-separated numbers gx,gy,gz.", "bad"); return; }
-  const vec = "g=" + g.join(",");
-  const target = $("asGravTarget").value;
-  const isGravity = (l) => /^\s*gravity\b/i.test(l);
-  if (target === "all") {
-    putScriptLine((l) => isGravity(l) && !/\b(part|group)=/i.test(l), "gravity " + vec);
-  } else if (target.startsWith("part:")) {
-    const part = quotePart(target.slice(5));
-    putScriptLine((l) => isGravity(l) && l.includes(" part=" + part), "gravity " + vec + " part=" + part);
-  } else if (target === "selection") {
-    const n = 1 + Math.max(0, ...[...$("anScript").value.matchAll(/group=BODY(\d+)/g)].map((m) => Number(m[1])));
-    const name = "BODY" + n;
-    const r = await makeGroup("element", name, "");
-    if (r && r.ok) appendScript("gravity " + vec + " group=" + name);
+  const i = lines.findIndex((l) => /^\s*#?\s*gravity\b/i.test(l));
+  if (i < 0) { appendScript(on ? DEFAULT_GRAVITY : "# " + DEFAULT_GRAVITY); }
+  else {
+    lines[i] = on ? lines[i].replace(/^\s*#\s*/, "") : "# " + lines[i].replace(/^\s*#?\s*/, "");
+    box.value = lines.join("\n");
   }
+  renderAnalysisConditions(); renderTree();
+}
+/**
+ * The loads of the script in script order, switched-off gravity included:
+ * {kind, id, off, index (line of the script), line (its text)}.
+ */
+function scriptLoadEntries() {
+  const text = $("anScript").value, lines = text.split(/\r?\n/);
+  const entries = parseScript(text).loads.map((l) => ({kind: l.kind, id: l.id, off: false}));
+  const seen = {};
+  entries.forEach((e) => {
+    const ordinal = seen[e.kind] || 0; seen[e.kind] = ordinal + 1;
+    let k = -1; e.index = -1;
+    for (let i = 0; i < lines.length; i++) if (analysisCommand(lines[i]) === e.kind && ++k === ordinal) { e.index = i; break; }
+    e.line = e.index >= 0 ? lines[e.index] : "";
+  });
+  lines.forEach((l, i) => { if (/^\s*#\s*gravity\b/i.test(l)) entries.push({kind: "gravity", id: "gravity", off: true, index: i, line: l}); });
+  return entries;
+}
+/** Replaces (text !== null) or removes (text === null) one line of the script. */
+function changeScriptLine(index, text) {
+  const box = $("anScript"), lines = box.value.split(/\r?\n/);
+  if (index < 0 || index >= lines.length) return;
+  if (text === null) lines.splice(index, 1); else lines[index] = text;
+  box.value = lines.join("\n");
+  renderAnalysisConditions(); renderTree();
+}
+/** The Loads '+' menu: the load types. The load takes the current selection (nodes, faces) or the model (gravity). */
+let loadMenuOutside = null;
+function closeLoadMenu() {
+  const m = $("loadMenu"); if (m) m.remove();
+  if (loadMenuOutside) { document.removeEventListener("click", loadMenuOutside); loadMenuOutside = null; }
+}
+function openLoadMenu(anchor) {
+  closeLoadMenu();
+  const menu = document.createElement("div");
+  menu.id = "loadMenu"; menu.className = "loadMenu"; menu.setAttribute("role", "menu");
+  [["gravity", "Gravity (whole model)"], ["force", "Force on nodes (selected nodes)"], ["press", "Pressure on faces (selected faces)"]]
+    .forEach(([type, text]) => {
+      const b = document.createElement("button"); b.type = "button"; b.setAttribute("role", "menuitem"); b.textContent = text;
+      b.addEventListener("click", () => { closeLoadMenu(); addLoad(type); });
+      menu.append(b);
+    });
+  document.body.append(menu);
+  const r = anchor.getBoundingClientRect();
+  menu.style.left = r.left + "px"; menu.style.top = (r.bottom + 4) + "px";
+  loadMenuOutside = (e) => { if (!menu.contains(e.target)) closeLoadMenu(); };
+  setTimeout(() => document.addEventListener("click", loadMenuOutside), 0);
+}
+async function addLoad(type) {
+  if (type === "gravity") {
+    if (scriptLoadEntries().some((e) => e.kind === "gravity" && !e.off)) { show("Gravity is already on the model: see Loads.", "good"); return; }
+    setGravityOn(true);
+    show("Gravity added to the model.", "good");
+    return;
+  }
+  await assign(type === "force" ? "force" : "press");
+}
+/** Detail of one load, shown in the sidebar overlay: its values, the part it applies to, and its actions. */
+function showLoadDetail(entry) {
+  const names = {gravity: "Gravity", force: "Force on nodes", pressure: "Pressure on faces"};
+  const value = (re) => { const m = re.exec(entry.line); return m ? m[1] : "—"; };
+  const target = (/\bgroup:(\S+)/i.exec(entry.line) || [])[1] || "";
+  const info = lastGroups.find((x) => x.name === target);
+  const unit = info ? ({node: "nodes", element: "elements", face: "faces"})[info.kind] : "";
+  const rows = [["Type", names[entry.kind] + (entry.off ? " (off)" : "")], ["Id", entry.id]];
+  if (entry.kind === "force") rows.push(["Total force Fx,Fy,Fz", value(/\bF=(\S+)/i)], ["Amplitude", value(/\bamp=(\S+)/i) === "—" ? "constant" : value(/\bamp=(\S+)/i)]);
+  if (entry.kind === "pressure") rows.push(["Pressure", value(/\bp=(\S+)/i)], ["Amplitude", value(/\bamp=(\S+)/i) === "—" ? "constant" : value(/\bamp=(\S+)/i)]);
+  if (entry.kind === "gravity") rows.push(["Acceleration gx,gy,gz", value(/\bg=(\S+)/i)], ["Applies to", "all volume parts of the model"]);
+  if (target) rows.push(["Applied to", info ? "group " + target + " · " + info.count + " " + unit : "group " + target + " (not in the mesh)"]);
+  let panel = document.querySelector('#inspBody .spanel[data-spanel="loaddetail"]');
+  if (!panel) { panel = document.createElement("div"); panel.className = "spanel"; panel.dataset.spanel = "loaddetail"; $("inspBody").append(panel); }
+  panel.innerHTML = '<details class="node" open><summary>' + esc2(names[entry.kind]) + "</summary>"
+    + '<dl class="loadDl">' + rows.map(([k, v]) => "<dt>" + esc2(k) + "</dt><dd>" + esc2(v) + "</dd>").join("") + "</dl>"
+    + (target ? '<button class="full" data-ld="show">Show in viewer</button>' : "")
+    + (entry.kind === "gravity" ? '<label for="ldGravity">Acceleration gx,gy,gz</label><input id="ldGravity" value="' + esc2(value(/\bg=(\S+)/i) === "—" ? "0,0,-9810" : value(/\bg=(\S+)/i)) + '">'
+      + '<div class="grid2"><button data-ld="apply">Apply</button><button data-ld="toggle">' + (entry.off ? "Switch on" : "Switch off") + "</button></div>" : "")
+    + (entry.kind !== "gravity" ? '<button class="full" data-ld="remove">Remove load</button>' : "")
+    + "</details>";
+  panel.querySelectorAll("[data-ld]").forEach((b) => b.addEventListener("click", async () => {
+    const act = b.dataset.ld;
+    if (act === "show") showGroup(target);
+    if (act === "toggle") setGravityOn(entry.off);
+    if (act === "apply") {
+      const g = numList($("ldGravity").value, 3);
+      if (!g) { show("The acceleration requires three comma-separated numbers gx,gy,gz.", "bad"); return; }
+      changeScriptLine(entry.index, (entry.off ? "# " : "") + "gravity g=" + g.join(","));
+    }
+    if (act === "remove") { changeScriptLine(entry.index, null); showSidebarTab("loads"); }
+  }));
+  showSidebarTab("loaddetail");
+  $("inspTitle").textContent = names[entry.kind] + " · " + entry.id;
 }
 function sbNode(key, row, kids) {
   const wrap = document.createElement("div"); wrap.className = "sbgroup";
@@ -1504,7 +1576,7 @@ const SB_ADD = {
   mesh: () => focusSection("secMesh"),
   mat: () => { showSidebarTab("mat"); newKnownMaterial(); },
   cons: () => assign("fix"),
-  loads: () => focusFirst("loads"),
+  loads: (e) => openLoadMenu(e.currentTarget),
   jobs: () => $("anScript").focus(),
 };
 /** @brief Opens the first section of a category panel. @param key data-spanel value of the panel */
@@ -1816,8 +1888,7 @@ function parseScript(text) {
     } else if (command === "force" || command === "pressure") {
       out.loads.push({kind: command, id: idFor(command, keys.id)});
     } else if (command === "gravity") {
-      const targeted = keys.part !== undefined || keys.group !== undefined;
-      out.loads.push({kind: command, id: targeted ? idFor("body", keys.id) : (keys.id || "gravity")});
+      out.loads.push({kind: command, id: keys.id || "gravity"});
     } else if (command === "fix") {
       out.fixes.push({id: idFor("fix", keys.id), line});
     }
@@ -1894,7 +1965,8 @@ function renderTree() {
       ...meshConstraints.map((c, i) => sbNode("mc:" + i, sbRow({label: "mesh · " + c.dofs, sub: c.nodes + " nodes",
         onPick: () => focusFirst("cons")}), [])),
     ]},
-    {key: "loads", label: "Loads", kids: script.loads.map((l) => treeItem(l.id + " · " + l.kind, "load:" + l.id))},
+    {key: "loads", label: "Loads", kids: scriptLoadEntries().map((e) => sbNode("load:" + e.kind + ":" + e.id,
+      sbRow({label: e.id + " · " + e.kind + (e.off ? " (off)" : ""), onPick: () => showLoadDetail(e)}), []))},
     {key: "jobs", label: "Jobs", kids: jobKids, pick: () => $("anScript").focus()},
     {key: "sel", label: "Selection", kids: []},
   ];
@@ -1908,7 +1980,6 @@ function renderTree() {
   });
   highlightTree();
   renderPartMaterials();
-  renderGravityTargets();
 }
 /**
  * @brief Keeps the tree in step with the viewer and rebuilds it only when something it shows changed.
@@ -1966,6 +2037,8 @@ function focusSection(id) {
 $("inspClose").addEventListener("click", closeInspector);
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("inspector").hidden) closeInspector(); });
 renderTree();
+// The default gravity is added once the whole script has run (it uses constants declared further down).
+window.addEventListener("load", ensureGravityLine);
 setInterval(syncTree, 700);
 var RIBBON_EXTRA = {};
 RIBBON_EXTRA["pick-node"] = () => setPickMode("node");
@@ -2026,7 +2099,7 @@ function logLines(lines, reset) {
 }
 async function analysisExample() {
   const r = await call("openmodel_default_analysis");
-  if (r.ok) { $("anScript").value = r.message; renderAnalysisConditions(); }
+  if (r.ok) { $("anScript").value = r.message; renderAnalysisConditions(); ensureGravityLine(); }
 }
 const analysisWrite = async () => {
   const synced = await act("openmodel_analysis_load", $("anScript").value);
@@ -2105,7 +2178,9 @@ function currentSelection() {
   return n ? sel : null;
 }
 const esc2 = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+let lastGroups = [];
 function renderGroups(groups) {
+  lastGroups = groups || [];
   const label = { node: "nodes", element: "elements", face: "faces" };
   $("grpList").innerHTML = groups.length ? groups.map((g, i) =>
     `<li style="display:flex;gap:6px;align-items:center;margin:2px 0"><span style="flex:1" title="group:${esc2(g.name)}"><b>${esc2(g.name)}</b> · ${g.count} ${label[g.kind]}</span><button data-group="${i}" style="padding:2px 8px">Show</button></li>`).join("")
@@ -2258,7 +2333,6 @@ async function makeGroup(kind, name, prefix) {
   if (r && r.ok) { $("grpName").value = ""; }
   return r;
 }
-const ANALYSIS_COMMANDS = new Set(["material", "assign", "fix", "force", "pressure", "gravity", "amplitude", "job", "step", "output"]);
 function analysisCommand(line) {
   const text = line.trim();
   if (!text || text.startsWith("#")) return null;

@@ -1,9 +1,9 @@
 /**
- * @brief Smoke test of the gravity and body-load controls of the Loads panel.
+ * @brief Smoke test of the default gravity and of the Loads menu and detail panel.
  *
- * Checks the target list (all parts, selected elements), that gravity for all parts is written once (a second write
- * replaces the line), that a targeted gravity line is numbered body-N like the solver numbers it, and that the
- * selected-elements target asks for a selection when none is made.
+ * Checks that gravity is on the model by default, that it can be switched off (its line commented out) and on again,
+ * that the Loads + menu lists the load types and adds gravity without duplicating it, that a load of the tree opens
+ * its detail panel, and that the part-only gravity control is gone.
  *
  * Usage: node tests/webgl/gui_gravity_smoke.js <url of gui.html>
  * Serve src/webui over HTTP first (with viewer.html); needs the `playwright` package (NODE_PATH) and a Chromium.
@@ -29,30 +29,47 @@ function check(ok, msg) { if (!ok) throw new Error("check failed: " + msg); cons
     await page.goto(url);
     await page.waitForTimeout(500);
 
-    const targets = await page.evaluate(() => [...document.querySelectorAll("#asGravTarget option")].map((o) => o.value));
-    check(targets.includes("all") && targets.includes("selection"), "the gravity target list offers all parts and the selected elements");
+    const script = () => page.evaluate(() => $("anScript").value);
+    check(/^gravity g=0,0,-9810$/m.test(await script()), "gravity is on the model by default");
+    check(await page.locator("#asGravTarget").count() === 0, "the part-only gravity control is gone");
 
-    await page.evaluate(() => { $("asGravity").value = "0,0,-9810"; $("asGravTarget").value = "all"; });
-    await page.evaluate(() => addGravity());
+    // The Loads row lists gravity; switching it off comments the line out and the tree says so.
+    await page.evaluate(() => setGravityOn(false));
+    check(/^# gravity g=0,0,-9810$/m.test(await script()), "switching gravity off comments its line out");
+    const offRow = await page.evaluate(() => [...document.querySelectorAll(".sbrow .sbname")].map((n) => n.textContent));
+    check(offRow.includes("gravity · gravity (off)"), "the tree shows gravity as off");
+
+    // The + of Loads opens the list of load types.
+    await page.evaluate(() => {
+      const row = [...document.querySelectorAll(".sbrow")].find((r) => r.querySelector(".sbname")?.textContent === "Loads");
+      [...row.querySelectorAll("button")].find((b) => b.textContent.trim() === "+").click();
+    });
     await page.waitForTimeout(100);
-    let script = await page.evaluate(() => $("anScript").value);
-    check((script.match(/^gravity\b/gm) || []).length === 1 && /^gravity g=0,0,-9810$/m.test(script), "gravity for all parts is written as one line");
-
-    await page.evaluate(() => { $("asGravity").value = "0,0,-5"; });
-    await page.evaluate(() => addGravity());
-    script = await page.evaluate(() => $("anScript").value);
-    check((script.match(/^gravity\b/gm) || []).length === 1 && /^gravity g=0,0,-5$/m.test(script), "a second all-parts gravity replaces the first line");
-
-    const ids = await page.evaluate(() => parseScript("gravity g=0,0,-1 part=Housing\ngravity id=ZG g=0,0,-2 group=ZONE\ngravity g=0,0,-3\n").loads.map((l) => l.id));
-    check(ids.join() === "body-1,ZG,gravity", "targeted gravity gets body-N ids, an explicit id is kept");
-
-    await page.evaluate(() => { $("asGravTarget").value = "selection"; });
-    await page.evaluate(() => addGravity());
+    const items = await page.evaluate(() => [...document.querySelectorAll("#loadMenu button")].map((b) => b.textContent));
+    check(items.length === 3 && items.some((t) => t.startsWith("Gravity")) && items.some((t) => t.startsWith("Force")) && items.some((t) => t.startsWith("Pressure")),
+      "the + of Loads lists gravity, force and pressure");
+    await page.locator("#loadMenu button", { hasText: "Gravity" }).click();
     await page.waitForTimeout(100);
+    check(/^gravity g=0,0,-9810$/m.test(await script()), "choosing gravity from the menu switches it back on");
+    check((await script()).match(/^gravity\b/gm).length === 1, "gravity is not duplicated");
+
+    // Choosing it again while it is on says so.
+    await page.evaluate(() => addLoad("gravity"));
     const msg = await page.evaluate(() => $("result").textContent);
-    check(/Select nodes, elements or faces/.test(msg), "the selected-elements target asks for a selection when none is made");
+    check(/already on the model/.test(msg), "adding gravity while it is on says so");
 
-    await page.evaluate(() => setPickGrowth("single"));
+    // A load of the tree opens its detail panel in the sidebar overlay.
+    await page.evaluate(() => [...document.querySelectorAll(".sbname")].find((n) => n.textContent === "gravity · gravity").click());
+    await page.waitForTimeout(100);
+    const detail = await page.evaluate(() => ({ open: !document.getElementById("inspector").hidden, title: document.getElementById("inspTitle").textContent,
+      text: document.querySelector('#inspBody .spanel[data-spanel="loaddetail"]')?.textContent || "" }));
+    check(detail.open && /Gravity/.test(detail.title) && /0,0,-9810/.test(detail.text), "a load opens its values in the overlay");
+
+    // Force needs a selection; without one the menu item says so.
+    await page.evaluate(() => addLoad("force"));
+    const msg2 = await page.evaluate(() => $("result").textContent);
+    check(/Select nodes, elements or faces/.test(msg2), "a force needs a selection");
+
     check(errors.length === 0, "no page errors (" + errors.join(" | ") + ")");
     console.log("gui gravity smoke: all checks passed");
   } finally {

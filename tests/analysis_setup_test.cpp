@@ -558,25 +558,6 @@ void testTimeLoadsAndDynamic() {
         CHECK(std::fabs(back.model.jobs.front().steps.front().dynamicMinIncrement - 1e-6) < 1e-15);
     }
 
-    // Gravity on a part or a group (body loads): parsed, numbered, serialized and refused when ambiguous.
-    {
-        const auto body = parseAnalysisScript(
-            "material E=210000 nu=0.3 rho=7.85e-9\n"
-            "gravity g=0,0,-9.81 part=Housing\n"
-            "gravity id=G2 g=0,0,-5 group=ZONE\n"
-            "gravity g=0,0,-1\n"
-            "step static loads=body-1,G2,gravity\n");
-        CHECK(body.success);
-        CHECK(body.model.hasGravity && body.model.bodyLoads.size() == 2);
-        CHECK(body.model.bodyLoads[0].id == "body-1" && body.model.bodyLoads[0].part == "Housing" && body.model.bodyLoads[0].group.empty());
-        CHECK(body.model.bodyLoads[1].id == "G2" && body.model.bodyLoads[1].group == "ZONE" && body.model.bodyLoads[1].g[2] == -5.0);
-        CHECK(body.model.jobs.front().steps.front().loads.size() == 3);
-        const auto again = parseAnalysisScript(serializeAnalysisScript(body.model));
-        CHECK(again.success && again.model.bodyLoads.size() == 2 && again.model.bodyLoads[1].part.empty());
-        CHECK(!parseAnalysisScript("material E=210000 nu=0.3 rho=7.85e-9\ngravity g=0,0,-1 part=A group=B\n").success);
-        CHECK(parseAnalysisScript("material E=210000 nu=0.3 rho=7.85e-9\ngravity g=0,0,-1 part=A\ngravity g=0,0,-2\n").success);  // one untargeted line plus targeted ones
-    }
-
     // Refusals.
     auto fails = [](const std::string& text) { return !parseAnalysisScript(text).success; };
     const std::string base = "material E=210000 nu=0.3 rho=7.85e-9\n";
@@ -590,26 +571,6 @@ void testTimeLoadsAndDynamic() {
     CHECK(fails(base + "step dynamic period=1\n"));                                     // dt missing
     CHECK(fails(base + "step dynamic dt=2 period=1\n"));                                // dt > period
     CHECK(fails(base + "step dynamic dt=0.1 period=1 dtmin=0.5\n") == false);           // dtmin > dt is allowed
-
-    // Gravity on a part and on an element group: one GRAV card per target on its element set; unknown targets refused.
-    {
-        const fs::path dir = tempDir();
-        MeshData hex = makeHex();
-        const auto model = parseOk(base +
-                                   "fix group:Bottom\n"
-                                   "gravity g=0,0,-10 part=solid\n"
-                                   "step static loads=body-1\n");
-        const auto r = writeSolverInput(hex, model, dir / "body.inp");
-        CHECK(r.success);
-        const std::string t = slurp(dir / "body.inp");
-        CHECK(contains(t, "*DLOAD\nSOLID, GRAV, 10, 0, 0, -1\n"));
-        CHECK(!contains(t, "MG_EALL, GRAV"));
-        const auto missing = parseOk(base + "fix group:Bottom\ngravity g=0,0,-10 part=nope\nstep static\n");
-        CHECK(!writeSolverInput(hex, missing, dir / "missing.inp").success);
-        const auto surfaceOnly = parseOk(base + "fix group:Bottom\ngravity g=0,0,-10 group=faces\nstep static\n");
-        CHECK(!writeSolverInput(hex, surfaceOnly, dir / "surface.inp").success);   // 'faces' is a surface group, not a volume one
-        fs::remove_all(dir);
-    }
 
     // Deck text: amplitudes before the step, loads grouped by amplitude, dynamic step, gravity constant.
     {
