@@ -13,7 +13,7 @@
   --btn:#e6eaf0;--btn-line:#c4ccd8;--btn-hover:#d8dee8;--prim:#1f6feb;--prim-line:#1558c0;--on-prim:#ffffff;--hover:#e3e8f0;--rb-hover:#dde4ee;--result:#1d3b5c;--viewport:#e9ecf1;--scrim:#0006}
 *{box-sizing:border-box}
 html,body{height:100%;margin:0}
-body{background:var(--bg);color:var(--text);font:13px/1.45 system-ui,"Segoe UI",sans-serif;display:grid;grid-template-rows:auto minmax(0,1fr);overflow:hidden}
+body{background:var(--bg);color:var(--text);font:13px/1.45 system-ui,"Segoe UI",sans-serif;display:grid;grid-template-rows:auto minmax(0,1fr) auto;overflow:hidden}
 #shell{display:grid;grid-template-columns:minmax(300px,360px) minmax(0,1fr);min-height:0}
 aside{overflow-y:auto;padding:12px;border-right:1px solid var(--line);display:grid;gap:10px;align-content:start}
 h1{margin:0;font-size:17px}
@@ -35,9 +35,32 @@ button.primary{background:var(--prim);border-color:var(--prim-line);color:var(--
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px}
 .grid2 button{margin:0}
 .hint{color:var(--muted);font-size:11.5px;margin:6px 0 0}
+#progressLog .log-error{color:#c0392b;font-weight:600}
+#progressLog .log-warning{color:#b9770e}
+#progressLog .log-debug{color:var(--muted)}
 #result{white-space:pre-wrap;overflow-wrap:anywhere;margin:0;min-height:64px;max-height:200px;overflow:auto;font:12px/1.45 ui-monospace,Consolas,monospace;color:var(--result)}
 #result.bad{color:var(--bad)} #result.good{color:var(--good)}
-main{position:relative;min-width:0}
+main{position:relative;min-width:0;min-height:0}
+#workarea{display:grid;grid-template-rows:minmax(0,1fr) auto;min-width:0;min-height:0}
+#dock{position:relative;display:grid;grid-template-rows:auto minmax(0,1fr);height:var(--dock-h,210px);min-height:0;background:var(--panel);border-top:1px solid var(--line)}
+#dock.collapsed{height:auto}
+#dock.collapsed #dockResize,#dock.collapsed .dockBody{display:none}
+#dockResize{position:absolute;top:-4px;left:0;right:0;height:9px;cursor:row-resize;touch-action:none;z-index:2}
+#dockResize:hover{background:var(--accent);opacity:.35}
+.dockHead{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 8px;border-bottom:1px solid var(--line)}
+.dockTab{background:none;border:0;border-bottom:2px solid transparent;border-radius:0;padding:7px 10px;color:var(--muted);cursor:pointer}
+.dockTab[aria-selected="true"]{color:var(--text);border-bottom-color:var(--accent)}
+.dockBody{min-height:0;overflow:hidden;display:grid;grid-template-rows:auto minmax(0,1fr);padding:6px 8px}
+.dockBody[hidden]{display:none}
+.dockTools{display:flex;gap:8px;align-items:end;margin-bottom:6px}
+.dockTools>div{display:grid;gap:2px}
+#progressLog,#solverLog{min-height:0;overflow:auto;font-family:monospace;font-size:11px;white-space:pre-wrap;margin:0}
+#selectionOverlay{position:absolute;top:10px;right:10px;z-index:4;width:min(300px,calc(100% - 20px));max-height:calc(100% - 20px);overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.18);padding:6px 10px}
+#selectionOverlay>details{margin:0}
+#statusbar{display:flex;align-items:center;gap:16px;padding:3px 10px;border-top:1px solid var(--line);background:var(--panel);color:var(--muted);font-size:11.5px;white-space:nowrap;min-width:0}
+#statusMesh{flex:none;color:var(--text)}
+.statusMsg{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;background:none;border:0;color:inherit;text-align:left;padding:0;cursor:pointer;font:inherit}
+#statusVersion{margin-left:auto;flex:none}
 iframe{display:block;width:100%;height:100%;border:0;background:var(--viewport)}
 .inspector{position:absolute;top:0;left:0;bottom:0;width:min(400px,calc(100% - 20px));display:grid;grid-template-rows:auto minmax(0,1fr);background:var(--panel);border:1px solid var(--line);border-radius:0 10px 10px 0;box-shadow:0 8px 24px rgba(0,0,0,.18);z-index:5}
 .inspector[hidden]{display:none}
@@ -105,6 +128,7 @@ iframe{display:block;width:100%;height:100%;border:0;background:var(--viewport)}
 .sbrow{display:flex;align-items:center;gap:4px;min-height:28px;padding:2px 3px 2px 6px;border-radius:6px}
 .sbrow:hover{background:var(--hover)}
 .sbname{flex:1;min-width:0;padding:3px 6px;border-radius:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sbsub{flex:none;max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--muted);padding-right:4px}
 .sbrow>.sbname[role="treeitem"]{cursor:pointer}
 .sbgroup>.sbrow>.sbname{font-weight:700}
 .sbname:focus-visible,.sbeye:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
@@ -284,27 +308,6 @@ details.node details.node{margin-top:8px;background:transparent}
 <div id="shell">
 <aside>
   <div><h1>OpenModel Workbench</h1><div class="sub" id="version">CAD → FEM mesh → visualization</div></div>
-
-  <details id="secSel" class="node" open>
-    <summary>Selection</summary>
-    <label for="selMode">Select in the viewer</label>
-    <select id="selMode" onchange="setPickMode(this.value)">
-      <option value="off">Off</option><option value="node">Nodes</option><option value="element">Elements</option><option value="face">Faces</option>
-    </select>
-    <details class="node">
-      <summary>Advanced selection</summary>
-    <div class="grid2"><div><label for="selAngle">Face angle (°)</label><input id="selAngle" type="number" min="0" max="180" step="0.5" value="1" title="A click on a face also selects the connected faces whose plane is within this angle of the clicked one (0 = only the clicked face; 90 or more = every connected face)" onchange="setPickAngle(this.value)"></div>
-      <div><label for="selBoxOn">Box</label><input id="selBoxOn" type="checkbox" onchange="setPickBox(this.checked)"></div></div>
-    <label for="selGrowth">Face growth</label>
-    <select id="selGrowth" title="Same normal: the angle is measured against the clicked face, so a curved surface is not followed. Smooth surface: the angle is measured between neighbouring faces, so the selection follows a curved surface." onchange="setPickGrowth(this.value)">
-      <option value="same-normal">Same normal</option><option value="smooth">Smooth surface</option>
-    </select>
-    <div class="grid2"><div><label for="selHoles">Holes</label><input id="selHoles" type="checkbox" checked title="A click on the wall of a hole (a bolt hole, a bore) selects the whole wall" onchange="setPickHoles(this.checked)"></div>
-      <div><label for="selHoleArc">Hole arc (°)</label><input id="selHoleArc" type="number" min="30" max="360" step="10" value="330" title="Smallest angle around its axis a wall must cover to count as a hole: 330 = a closed hole, 170 also takes the half of a hole cut by a symmetry plane" onchange="setPickHoleArc(this.value)"></div></div>
-    </details>
-    <p class="hint" id="selInfo">Selection: none.</p>
-    <p class="hint" id="cadFaceInfo">CAD faces: none selected.</p>
-  </details>
 
   <nav class="sbtree" id="sbTree" aria-label="Model browser">
     <div id="sbTreeBody"></div>
@@ -627,7 +630,6 @@ details.node details.node{margin-top:8px;background:transparent}
     <input id="anSolver" placeholder="/usr/bin/ccx">
     <div class="grid2"><button id="btnWrite" onclick="analysisWrite()">Write input</button><button id="btnRun" class="primary" onclick="analysisRun()">Run solver</button></div>
     <div class="grid2"><button id="btnCancel" onclick="analysisCancel()" disabled>Cancel</button><button onclick="analysisExample()">Example</button></div>
-    <pre id="solverLog" style="max-height:180px;overflow:auto;font-size:11px;margin-top:6px" aria-live="polite">No analysis started.</pre>
     <p class="hint">Commands: <code>material E= nu= rho=</code>, <code>fix plane:x=0 [dof=1,2,3]</code>, <code>force plane:x=10 F=fx,fy,fz</code>, <code>pressure group:NAME p=</code>, <code>gravity g=gx,gy,gz</code>, <code>step static</code> or <code>step frequency modes=N</code>. Selectors: <code>all</code>, <code>group:NAME</code>, <code>plane:x|y|z=VALUE</code>. Use consistent units of your choice. When the run finishes, the results are loaded automatically.</p>
     </details>
     <details class="node" open>
@@ -652,12 +654,64 @@ details.node details.node{margin-top:8px;background:transparent}
   <section><h2>Messages</h2><pre id="result">Ready. Import a CAD model, load a mesh or try the demo model.</pre></section>
 </aside>
 
-<main><iframe id="viewer" src="viewer.html" title="FEM viewer"></iframe>
+<div id="workarea"><main><iframe id="viewer" src="viewer.html" title="FEM viewer"></iframe>
+<div id="selectionOverlay">
+  <details id="secSel" class="node" open>
+    <summary>Selection</summary>
+    <label for="selMode">Select in the viewer</label>
+    <select id="selMode" onchange="setPickMode(this.value)">
+      <option value="off">Off</option><option value="node">Nodes</option><option value="element">Elements</option><option value="face">Faces</option>
+    </select>
+    <details class="node">
+      <summary>Advanced selection</summary>
+    <div class="grid2"><div><label for="selAngle">Face angle (°)</label><input id="selAngle" type="number" min="0" max="180" step="0.5" value="1" title="A click on a face also selects the connected faces whose plane is within this angle of the clicked one (0 = only the clicked face; 90 or more = every connected face)" onchange="setPickAngle(this.value)"></div>
+      <div><label for="selBoxOn">Box</label><input id="selBoxOn" type="checkbox" onchange="setPickBox(this.checked)"></div></div>
+    <label for="selGrowth">Face growth</label>
+    <select id="selGrowth" title="Same normal: the angle is measured against the clicked face, so a curved surface is not followed. Smooth surface: the angle is measured between neighbouring faces, so the selection follows a curved surface." onchange="setPickGrowth(this.value)">
+      <option value="same-normal">Same normal</option><option value="smooth">Smooth surface</option>
+    </select>
+    <div class="grid2"><div><label for="selHoles">Holes</label><input id="selHoles" type="checkbox" checked title="A click on the wall of a hole (a bolt hole, a bore) selects the whole wall" onchange="setPickHoles(this.checked)"></div>
+      <div><label for="selHoleArc">Hole arc (°)</label><input id="selHoleArc" type="number" min="30" max="360" step="10" value="330" title="Smallest angle around its axis a wall must cover to count as a hole: 330 = a closed hole, 170 also takes the half of a hole cut by a symmetry plane" onchange="setPickHoleArc(this.value)"></div></div>
+    </details>
+    <p class="hint" id="selInfo">Selection: none.</p>
+    <p class="hint" id="cadFaceInfo">CAD faces: none selected.</p>
+  </details>
+</div>
 <section id="inspector" class="inspector" hidden aria-label="Details">
   <header class="inspHead"><span id="inspTitle"></span><button type="button" id="inspClose" aria-label="Close details" title="Close (Esc)">×</button></header>
   <div id="inspBody"></div>
 </section></main>
+<section id="dock" aria-label="Log and solver output">
+  <div id="dockResize" role="separator" aria-orientation="horizontal" aria-label="Resize the panel" title="Drag to resize"></div>
+  <header class="dockHead">
+    <div role="tablist" aria-label="Panels">
+      <button type="button" role="tab" class="dockTab" id="tabLog" data-dock="log" aria-selected="true">Log</button>
+      <button type="button" role="tab" class="dockTab" id="tabSolver" data-dock="solver" aria-selected="false">Solver</button>
+    </div>
+    <button type="button" id="dockToggle" title="Hide the panel">Hide</button>
+  </header>
+  <div id="dockLog" class="dockBody" role="tabpanel">
+    <div class="dockTools">
+      <div><label for="logFilter">Show</label>
+        <select id="logFilter" onchange="renderProgressLog()" title="Errors only, warnings and errors, information, or everything">
+          <option value="error">Errors</option><option value="warning">Warnings</option><option value="info" selected>Information</option><option value="debug">Debug</option>
+        </select></div>
+      <button onclick="clearProgressLog()" title="Clears the list on this page; the backend keeps its log">Clear</button>
+      <button onclick="saveProgressLog()" title="Saves every entry as a text file">Save…</button>
+    </div>
+    <div id="progressLog" role="log" aria-live="polite"></div>
+  </div>
+  <div id="dockSolver" class="dockBody" role="tabpanel" hidden>
+    <pre id="solverLog" aria-live="polite">No analysis started.</pre>
+  </div>
+</section>
 </div>
+</div>
+<footer id="statusbar">
+  <span id="statusMesh">No mesh</span>
+  <button type="button" class="statusMsg" id="statusMessage" title="Open the log">Ready</button>
+  <span id="statusVersion"></span>
+</footer>
 
 <div class="modal" id="modal" hidden>
   <div class="dialog" role="dialog" aria-modal="true" aria-label="Choose file">
@@ -795,6 +849,150 @@ $("viewer").addEventListener("load", () => {
 });
 
 const importModel = () => act("openmodel_import_model", $("cadPath").value.trim(), $("linear").value, $("angular").value);
+/**
+ * @brief Imports a CAD file dropped on the 3D viewer, the same as choosing it with Import CAD.
+ * The content goes to the backend as base64 because a browser does not give the path of a dropped file.
+ * @param file the dropped File object
+ */
+async function importDroppedCad(file) {
+  if (busy) { show("Wait for the current operation to finish, then drop the file again.", "bad"); return; }
+  const encoded = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(",")[1] || "");
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+  const r = await act("openmodel_import_cad_upload", file.name, encoded, $("linear").value, $("angular").value);
+  // The model tree names the CAD after this field: show the imported file, not the one imported before.
+  if (r && r.ok) $("cadPath").value = file.name;
+}
+/**
+ * @brief The progress log of the backend: the messages of the running operations, polled while the page is open.
+ * entries holds the most recent ones (at most LOG_MAX); last is the sequence number of the most recent one read.
+ */
+const progressLog = {last: 0, entries: [], latest: null};
+const LOG_MAX = 2000;
+const LOG_RANK = {error: 0, warning: 1, info: 2, debug: 3};
+let progressPolling = false;
+/** @brief Asks the backend for the entries after the last one read and shows them. Polls do not overlap. */
+async function pollProgressLog() {
+  if (progressPolling) return;
+  progressPolling = true;
+  try {
+    const r = await call("openmodel_log_since", String(progressLog.last));
+    if (!r || !r.ok || !Array.isArray(r.entries)) return;
+    if (r.entries.length) {
+      progressLog.entries.push(...r.entries);
+      progressLog.latest = r.entries[r.entries.length - 1];
+      if (progressLog.entries.length > LOG_MAX) progressLog.entries.splice(0, progressLog.entries.length - LOG_MAX);
+      renderProgressLog();
+    }
+    progressLog.last = Math.max(progressLog.last, Number(r.last) || 0);
+  } finally {
+    progressPolling = false;
+  }
+}
+/** @brief Shows the entries allowed by the filter, one line each; the list follows the newest line unless the user scrolled up. */
+function renderProgressLog() {
+  const box = $("progressLog");
+  if (!box) return;
+  const limit = LOG_RANK[$("logFilter").value] ?? LOG_RANK.info;
+  const follow = box.scrollTop + box.clientHeight >= box.scrollHeight - 4;
+  box.replaceChildren(...progressLog.entries.filter((entry) => (LOG_RANK[entry.level] ?? 2) <= limit).map((entry) => {
+    const line = document.createElement("div");
+    const time = new Date(entry.time).toLocaleTimeString();
+    line.className = "log-" + entry.level;
+    line.textContent = time + "  " + entry.level.toUpperCase().padEnd(7) + " " + entry.source + ": " + entry.text;
+    return line;
+  }));
+  if (follow) box.scrollTop = box.scrollHeight;
+  renderStatusBar();
+}
+/** @brief Empties the list on this page. The backend keeps its own log, but only the entries after this point are shown. */
+function clearProgressLog() {
+  progressLog.entries = [];
+  renderProgressLog();
+}
+/** @brief Saves every entry, whatever the filter, as a text file. */
+function saveProgressLog() {
+  const text = progressLog.entries.map((entry) => new Date(entry.time).toISOString() + " " + entry.level.toUpperCase() + " " + entry.source + ": " + entry.text).join("\n") + "\n";
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(new Blob([text], {type: "text/plain"}));
+  link.download = "openmodel-log.txt";
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+}
+setInterval(pollProgressLog, 700);
+/** @brief The status bar: the counts of the shown mesh, the most recent message of the log (any level), and the version. */
+function renderStatusBar() {
+  const shown = meshRuns.find((run) => run.shown);
+  $("statusMesh").textContent = shown
+    ? "Mesh " + shown.name + ": " + Number(shown.nodes).toLocaleString() + " nodes, " + Number(shown.elements).toLocaleString() + " elements"
+    : "No mesh";
+  // The latest message the backend sent, kept even when the list of this page is cleared.
+  const last = progressLog.latest;
+  const message = $("statusMessage");
+  message.textContent = last ? last.text : "Ready";
+  message.className = "statusMsg" + (last ? " log-" + last.level : "");
+}
+const DOCK_KEY = "openmodel.dock";
+/** @brief The saved state of the dock (open, tab, height); empty when nothing was saved or storage is unavailable. */
+function dockState() { try { return JSON.parse(localStorage.getItem(DOCK_KEY)) || {}; } catch (e) { return {}; } }
+/** @brief Merges the given fields into the saved state of the dock. */
+function saveDockState(patch) { try { localStorage.setItem(DOCK_KEY, JSON.stringify(Object.assign(dockState(), patch))); } catch (e) { /* storage unavailable: keep working */ } }
+/** @brief Shows the Log or the Solver tab of the dock. */
+function showDockTab(name) {
+  for (const tab of document.querySelectorAll(".dockTab")) tab.setAttribute("aria-selected", tab.dataset.dock === name ? "true" : "false");
+  $("dockLog").hidden = name !== "log";
+  $("dockSolver").hidden = name !== "solver";
+  saveDockState({tab: name});
+}
+/** @brief Opens or hides the body of the dock. The tabs stay visible, so the panel can always be reopened. */
+function setDockOpen(open) {
+  $("dock").classList.toggle("collapsed", !open);
+  $("dockToggle").textContent = open ? "Hide" : "Show";
+  $("dockToggle").title = open ? "Hide the panel" : "Show the panel";
+  saveDockState({open});
+}
+/** @brief Drag the top edge of the dock to change its height; the pointer is captured so the viewer does not take the moves. */
+function startDockResize(ev) {
+  const handle = $("dockResize"), dock = $("dock"), area = $("workarea");
+  handle.setPointerCapture(ev.pointerId);
+  const startY = ev.clientY, startHeight = dock.getBoundingClientRect().height;
+  const move = (e) => {
+    const top = area.getBoundingClientRect().height - 80;
+    const height = Math.min(Math.max(startHeight + (startY - e.clientY), 120), Math.max(120, top));
+    dock.style.setProperty("--dock-h", height + "px");
+  };
+  const up = () => {
+    handle.removeEventListener("pointermove", move);
+    handle.removeEventListener("pointerup", up);
+    saveDockState({height: parseInt(dock.style.getPropertyValue("--dock-h"), 10) || undefined});
+  };
+  handle.addEventListener("pointermove", move);
+  handle.addEventListener("pointerup", up);
+}
+/** @brief Restores the dock and the version, and wires the tabs, the toggle, the resize and the status bar. */
+function initDock() {
+  const saved = dockState();
+  if (saved.height) $("dock").style.setProperty("--dock-h", saved.height + "px");
+  showDockTab(saved.tab === "solver" ? "solver" : "log");
+  setDockOpen(saved.open !== false);
+  for (const tab of document.querySelectorAll(".dockTab")) tab.addEventListener("click", () => { showDockTab(tab.dataset.dock); setDockOpen(true); });
+  $("dockToggle").addEventListener("click", () => setDockOpen($("dock").classList.contains("collapsed")));
+  $("statusMessage").addEventListener("click", () => { showDockTab("log"); setDockOpen(true); });
+  $("dockResize").addEventListener("pointerdown", startDockResize);
+  call("openmodel_about").then((r) => { if (r && r.ok) $("statusVersion").textContent = "OpenModel " + r.version; });
+  renderStatusBar();
+}
+window.addEventListener("DOMContentLoaded", initDock);
+// The viewer page posts the CAD files dropped on it: only the embedded viewer of this window may send them.
+window.addEventListener("message", (ev) => {
+  const data = ev.data;
+  if (!data || data.type !== "openmodel-cad-drop" || ev.origin !== location.origin) return;
+  if (ev.source !== $("viewer").contentWindow || !(data.file instanceof Blob)) return;
+  importDroppedCad(data.file);
+});
 const retessellate = () => act("openmodel_retessellate", $("linear").value, $("angular").value);
 // One JSON object argument: WebUI does not deliver calls with more than 17 arguments.
 // Keys must match kVolumeKeys in src/webui/main.cpp; the tetrahedral keys are read from the object by name.
@@ -1090,7 +1288,7 @@ let sbActiveCat = null;
  * @param o.onAdd     called when the "+" is pressed, or null for a row without it
  * @return the row element
  */
-function sbRow({label, state = null, eyeState = state, onPick = null, onEye = null, onAdd = null, onDel = null, check = null}) {
+function sbRow({label, state = null, eyeState = state, onPick = null, onEye = null, onAdd = null, onDel = null, check = null, sub = ""}) {
   const row = document.createElement("div");
   row.className = "sbrow" + (state === "off" ? " off" : "") + (state === "mixed" ? " mixed" : "");
   const name = document.createElement("span");
@@ -1108,6 +1306,11 @@ function sbRow({label, state = null, eyeState = state, onPick = null, onEye = nu
     row.append(box);
   }
   row.append(name);
+  if (sub) {
+    const note = document.createElement("span");
+    note.className = "sbsub"; note.textContent = sub;
+    row.append(note);
+  }
   if (onEye) {
     const eye = document.createElement("button");
     const shown = eyeState !== "off";
@@ -1309,15 +1512,15 @@ async function assignSelectedGroup() {
   const id = sel.value;
   const inScript = scriptMaterialIds($("anScript").value.split(/\r?\n/));
   if (!inScript.includes(id)) {
-    // A known material not in the script yet: its line takes the database values. With no material line it is the default
-    // (no id=); otherwise it is a further material with its own id=, as the script expects.
+    // A known material not in the script yet: its line takes the database values. The line always carries id=, because
+    // the assign line refers to it; the first material line of the script is the default material.
     $("matDb").value = id;
     fillFromDatabase();
     const E = $("matE").value.trim(), nu = $("matNu").value.trim(), rho = $("matRho").value.trim();
     if (!Number.isFinite(Number(E)) || E === "" || !Number.isFinite(Number(nu)) || nu === "") {
       show("The known material " + id + " has no valid E or nu.", "bad"); return;
     }
-    appendScript("material" + (inScript.length ? " id=" + id : "") + " E=" + E + " nu=" + nu
+    appendScript("material id=" + id + " E=" + E + " nu=" + nu
       + (rho !== "" ? " rho=" + rho : "") + " name=" + id);
   }
   await assignPartMaterial(selectedMatGroup, id);
@@ -1334,12 +1537,27 @@ function scriptMaterialIds(lines) {
     return m ? m[1] : null;
   }).filter((id) => id !== null);
 }
+/** Id of the default material: that of the first material line of the script, or null when the line has no id=. */
+function defaultMaterialId(lines) {
+  const first = lines.find((l) => analysisCommand(l) === "material");
+  const m = first ? /(?:^|\s)id=([A-Za-z0-9_.-]+)/.exec(first.trim()) : null;
+  return m ? m[1] : null;
+}
+/** Part name of an assign line: a bare word, or a double-quoted run that may hold blanks. */
+function assignPart(line) {
+  const m = /^\s*assign\s+(?:"([^"]*)"|(\S+))/i.exec(line);
+  return m ? (m[1] !== undefined ? m[1] : m[2]) : null;
+}
+/** Writes a part name for an assign line: quoted when it has blanks or characters the script reads as syntax. */
+function quotePart(name) {
+  return name === "" || /[\s=#"]/.test(name) ? '"' + name + '"' : name;
+}
 /** Part name -> material id, from the assign lines of the script. */
 function partAssignments(lines) {
   const out = new Map();
   lines.forEach((l) => {
     if (analysisCommand(l) !== "assign") return;
-    const part = l.trim().split(/\s+/)[1];
+    const part = assignPart(l);
     const m = /(?:^|\s)material=(\S+)/i.exec(l);
     if (part && m) out.set(part, m[1]);
   });
@@ -1348,8 +1566,8 @@ function partAssignments(lines) {
 /** Writes the material of one part into the script: an assign line, or none when it is the default material. */
 async function assignPartMaterial(part, id) {
   const kept = $("anScript").value.split(/\r?\n/)
-    .filter((l) => !(analysisCommand(l) === "assign" && l.trim().split(/\s+/)[1] === part));
-  if (id !== scriptMaterialIds(kept)[0]) kept.push("assign " + part + " material=" + id);
+    .filter((l) => !(analysisCommand(l) === "assign" && assignPart(l) === part));
+  if (id !== defaultMaterialId(kept)) kept.push("assign " + quotePart(part) + " material=" + id);
   const r = await act("openmodel_analysis_load", kept.join("\n"));
   if (!r || !r.ok) { renderPartMaterials(); return; }
   $("anScript").value = r.message;
@@ -1400,7 +1618,7 @@ function renderPartMaterials() {
 function materialTreeKids(meta) {
   const lines = $("anScript").value.split(/\r?\n/);
   const assigned = partAssignments(lines);
-  const fallback = scriptMaterialIds(lines)[0] || "none";
+  const fallback = defaultMaterialId(lines) || "none";
   // Groups as in Mesh > Groups, each with its material: the script assignment by name, else the group's own material.
   const dim = listedGroupDim(meta);
   const groups = meta.groups.filter((g) => g.dimension === dim).map((g) => sbNode("matgrp:" + g.name,
@@ -1421,6 +1639,7 @@ async function refreshMeshRuns() {
   if (!r || !r.ok) return;
   meshRuns = r.runs || [];
   renderTree();
+  renderStatusBar();
 }
 /**
  * @brief A mesh of the session as a row of the Mesh branch: the eye shows it in the viewer, the × removes it.
@@ -1547,6 +1766,16 @@ function renderTree() {
     const label = "step " + st.kind + (st.reset ? " (reset)" : "");
     return sbNode("step:" + ji + ":" + si, sbRow({label}), ids.map((id) => treeItem(id, "use:" + ji + ":" + si + ":" + id)));
   })));
+  // Status of each category, shown beside its name so the state of the model is visible without opening it.
+  const shownRun = meshRuns.find((run) => run.shown) || meshRuns[0];
+  const solved = !!(m && m.meta && m.meta.results);
+  const subs = {
+    cad: cadName ? "imported" : "none",
+    mesh: meshRuns.length ? meshRuns.length + " · " + Number(shownRun.nodes).toLocaleString() + " nodes" : "not meshed",
+    cons: script.fixes.length ? script.fixes.length + " set" : "none",
+    loads: script.loads.length ? script.loads.length + " set" : "none",
+    jobs: script.jobs.length ? script.jobs.length + " · " + (solved ? "results" : "no results") : "none",
+  };
   const cats = [
     {key: "cad", label: "CAD", kids: [
       ...(cadName ? [treeItem(cadName, "cad:part")] : []),
@@ -1555,14 +1784,15 @@ function renderTree() {
     ]},
     {key: "mesh", label: "Mesh", kids: meshKids},
     {key: "mat", label: "Material", kids: m ? materialTreeKids(m.meta) : []},
-    {key: "cons", label: "Constraints", kids: script.fixes.map((f) => treeItem(f.id + " · " + f.line.replace(/^fix\s*/i, ""), "fix:" + f.id))},
+    {key: "cons", label: "Constraints", kids: script.fixes.map((f) => sbNode("fix:" + f.id,
+      sbRow({label: f.id + " · " + f.line.replace(/^fix\s*/i, ""), onPick: () => focusSection("condFix")}), []))},
     {key: "loads", label: "Load cases", kids: script.loads.map((l) => treeItem(l.id + " · " + l.kind, "load:" + l.id))},
     {key: "jobs", label: "Jobs", kids: jobKids, pick: () => $("anScript").focus()},
   ];
   cats.forEach(({key, label, kids, pick}) => {
     const eye = eyes[key];
     const row = sbRow({label, onPick: pick || (() => showSidebarTab(key)), eyeState: eye && eye.state,
-      onEye: eye ? eye.toggle : null, onAdd: SB_ADD[key]});
+      onEye: eye ? eye.toggle : null, onAdd: SB_ADD[key], sub: subs[key] || ""});
     row.querySelector(".sbname").dataset.cat = key;
     box.append(sbNode("cat:" + key, row, kids));
   });
@@ -2039,17 +2269,15 @@ function renderAnalysisConditions() {
     remove.type = "button"; remove.textContent = "Remove";
     remove.addEventListener("click", async () => {
       if (!confirm("Remove this condition?")) return;
-      const id = idMatch && idMatch[1];
-      if (id) {
-        const r = await act("openmodel_analysis_delete", id);
-        if (!r || !r.ok) return;
-        $("anScript").value = r.message;
-      } else {
-        lines.splice(index, 1);
-        $("anScript").value = lines.join("\n");
-        const synced = await act("openmodel_analysis_load", $("anScript").value);
-        if (!synced || !synced.ok) return;
-      }
+      // Edits the script text, then loads it: the backend does not hold the script when the example was only shown
+      // in the box, so deleting by id there failed without a message.
+      const current = $("anScript").value.split(/\r?\n/);
+      if (current[index] !== line) { show("The script changed: the list is out of date.", "bad"); renderAnalysisConditions(); return; }
+      current.splice(index, 1);
+      $("anScript").value = current.join("\n");
+      const synced = await act("openmodel_analysis_load", $("anScript").value);
+      if (!synced || !synced.ok) { renderAnalysisConditions(); return; }
+      $("anScript").value = synced.message;
       renderAnalysisConditions();
     });
     item.append(content, edit, remove);
@@ -2311,7 +2539,6 @@ setInterval(syncRibbon, 700);
     const first = meshers.find((m) => m.available);
     if (first) $("mesher").value = first.id; else { noMesher = true; $("btnMesh").disabled = true; }
     mesherChanged();
-    analysisExample();
   } else show(d.message, "bad");
     })();
 </script>

@@ -56,11 +56,30 @@ button:focus-visible, select:focus-visible, input:focus-visible, label:focus-wit
 .sw { width: 12px; height: 12px; border-radius: 3px; border: 1px solid rgba(128,128,128,.5); flex: none; }
 .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 .ct { color: var(--muted); font-variant-numeric: tabular-nums; }
-#compSec[hidden], #defSec[hidden], #resultsInfo[hidden], #blocksSec[hidden], #drop[hidden], #scalarBox[hidden], #clipBox[hidden], #legendBox[hidden] { display: none; }
+#compSec[hidden], #defSec[hidden], #resultsInfo[hidden], #blocksSec[hidden], #drop[hidden], #scalarBox[hidden], #clipBox[hidden], #legendBox[hidden], #viewTools[hidden], #colorbar[hidden], #resultsPanel[hidden] { display: none; }
 #bar { height: 12px; border-radius: 3px; border: 1px solid var(--line); margin: 4px 0 8px; }
 main { position: relative; min-width: 0; min-height: 0; max-width: 100%; max-height: 100%; height: 100%; overflow: hidden; background: var(--viewport); }
 canvas { display: block; box-sizing: border-box; width: 100%; height: 100%; max-width: 100%; max-height: 100%; min-width: 0; min-height: 0; touch-action: none; cursor: grab; }
 canvas.drag { cursor: grabbing; }
+/* Overlay on the canvas: section plane and display mode. Every control drives the input it mirrors in the sidebar. */
+#viewTools { position: absolute; top: 10px; left: 10px; z-index: 3; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; max-width: calc(100% - 20px); }
+.vtGroup { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; background: color-mix(in srgb, var(--panel) 90%, transparent); border: 1px solid var(--line); border-radius: 6px; padding: 3px; }
+.vtGroup .vtTitle { color: var(--muted); font-size: 12px; padding: 0 6px 0 4px; }
+.vtGroup button { border: 0; background: transparent; color: var(--text); padding: 3px 8px; border-radius: 4px; font: inherit; font-size: 12px; }
+.vtGroup button:hover:not(:disabled) { background: var(--panel-2); }
+.vtGroup button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+.vtGroup button:disabled { opacity: .45; cursor: default; }
+.vtGroup input[type=range] { width: 120px; }
+#colorbar { position: absolute; right: 10px; bottom: 10px; z-index: 3; width: 220px; max-width: calc(100% - 20px); background: color-mix(in srgb, var(--panel) 90%, transparent); border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px; font-size: 12px; font-variant-numeric: tabular-nums; }
+#colorbar .cbTitle { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#colorbar .cbBar { height: 10px; border-radius: 3px; border: 1px solid var(--line); margin: 5px 0 3px; }
+#colorbar .cbLabels { display: flex; justify-content: space-between; color: var(--muted); }
+/* Results card on the canvas (top right): load case, mode, component shown and the scale of the deformed shape. */
+#resultsPanel { position: absolute; top: 10px; right: 10px; z-index: 3; width: min(260px, calc(100% - 20px)); background: color-mix(in srgb, var(--panel) 90%, transparent); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; font-size: 12px; }
+#resultsPanel .rpTitle { font-weight: 600; margin-bottom: 6px; }
+#resultsPanel dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 3px 10px; margin: 0; font-variant-numeric: tabular-nums; }
+#resultsPanel dt { color: var(--muted); }
+#resultsPanel dd { margin: 0; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #axes { position: absolute; left: 12px; bottom: 46px; width: 112px; height: 112px; pointer-events: none; }
 #axes[hidden] { display: none; }
 #hud { position: absolute; left: 12px; bottom: 10px; color: var(--muted); background: color-mix(in srgb, var(--panel) 80%, transparent); border: 1px solid var(--line); border-radius: 6px; padding: 5px 9px; pointer-events: none; }
@@ -191,6 +210,31 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
   <canvas id="gl"></canvas>
   <div id="drop"><div><b>Drop an .mgwv file here</b>generated with <code>openmodel export-web</code></div></div>
   <div id="msg" hidden></div>
+  <div id="viewTools" hidden>
+    <div class="vtGroup" role="group" aria-label="Section plane">
+      <button type="button" id="vtSection" aria-pressed="false" title="Cut the model with a plane (the Section panel on the left has the same control)">Section</button>
+      <button type="button" data-vt-axis="0" aria-pressed="false">X</button>
+      <button type="button" data-vt-axis="1" aria-pressed="false">Y</button>
+      <button type="button" data-vt-axis="2" aria-pressed="false">Z</button>
+      <button type="button" id="vtFlip" aria-pressed="false">Flip</button>
+      <input type="range" id="vtPos" min="0" max="1000" value="500" aria-label="Section position">
+    </div>
+    <div class="vtGroup" role="group" aria-label="Display mode">
+      <span class="vtTitle">Display</span>
+      <button type="button" data-vt-wire="none" aria-pressed="false">Hidden</button>
+      <button type="button" data-vt-wire="skin" aria-pressed="false">Surface</button>
+      <button type="button" data-vt-wire="all" aria-pressed="false">All</button>
+    </div>
+  </div>
+  <div id="resultsPanel" hidden>
+    <div class="rpTitle">Results</div>
+    <dl id="rpList"></dl>
+  </div>
+  <div id="colorbar" hidden>
+    <div class="cbTitle" id="cbTitle"></div>
+    <div class="cbBar" id="cbBar"></div>
+    <div class="cbLabels"><span id="cbMin"></span><span id="cbMax"></span></div>
+  </div>
   <div id="selBox" hidden style="position:absolute;border:1px dashed var(--accent);background:color-mix(in srgb, var(--accent) 15%, transparent);pointer-events:none"></div>
   <canvas id="axes" width="112" height="112" aria-label="Axes of the model coordinate system"></canvas>
   <div id="hud">Left: rotate (or select, if enabled) · Right or Shift: pan · Wheel: zoom · Double-click: fit</div>
@@ -594,6 +638,8 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     S.range = [f.min, f.max];
     $("smin").value = f.min; $("smax").value = f.max;
     S.dirty = true;
+    updateColorbar();
+    updateResultsPanel();
   }
   function refreshVisibility() {
     gl.deleteTexture(S.tex.vis);
@@ -904,6 +950,72 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
       box.checked = on === ids.length; box.indeterminate = on > 0 && on < ids.length;
     });
   }
+  /** Formats a value of the colour range for the colour bar; a non finite value is shown as a dash. */
+  const fmtRange = (v) => (Number.isFinite(v) ? String(Number(v.toPrecision(4))) : "-");
+  /** Colour bar on the canvas: shown only for the scalar field colouring, with the range in use. */
+  function updateColorbar() {
+    const field = S.model && S.model.fields[S.fieldIndex];
+    const on = S.mode === "scalar" && !!field;
+    $("colorbar").hidden = !on;
+    if (!on) return;
+    $("cbBar").style.background = $("bar").style.background;
+    $("cbTitle").textContent = field.name;
+    $("cbMin").textContent = fmtRange(S.range[0]);
+    $("cbMax").textContent = fmtRange(S.range[1]);
+  }
+  /** Brings the overlay in line with the sidebar inputs, which stay the single source of state. */
+  function syncViewTools() {
+    const ready = !!S.model;
+    $("viewTools").hidden = !ready;
+    if (!ready) { updateColorbar(); return; }
+    const sec = !!S.clipOn;
+    $("vtSection").setAttribute("aria-pressed", String(sec));
+    document.querySelectorAll("[data-vt-axis]").forEach((b) => {
+      b.setAttribute("aria-pressed", String(+b.dataset.vtAxis === +S.clipAxis));
+      b.disabled = !sec;
+    });
+    $("vtFlip").setAttribute("aria-pressed", String(!!S.clipFlip));
+    $("vtFlip").disabled = !sec;
+    $("vtPos").disabled = !sec;
+    $("vtPos").value = Math.round(S.clipPos * 1000);
+    document.querySelectorAll("[data-vt-wire]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.vtWire === S.wire)));
+    updateColorbar();
+  }
+  /** Overlay controls set the sidebar input and fire its own change or input event, so the same handler runs. */
+  function fireOn(id, type) { $(id).dispatchEvent(new Event(type)); }
+  function setupViewTools() {
+    $("vtSection").addEventListener("click", () => { $("clipOn").checked = !S.clipOn; fireOn("clipOn", "change"); syncViewTools(); });
+    document.querySelectorAll("[data-vt-axis]").forEach((b) => b.addEventListener("click", () => {
+      $("clipAxis").value = b.dataset.vtAxis; fireOn("clipAxis", "change"); syncViewTools();
+    }));
+    $("vtFlip").addEventListener("click", () => { $("clipFlip").checked = !S.clipFlip; fireOn("clipFlip", "change"); syncViewTools(); });
+    $("vtPos").addEventListener("input", (e) => { $("clipPos").value = e.target.value; fireOn("clipPos", "input"); });
+    document.querySelectorAll("[data-vt-wire]").forEach((b) => b.addEventListener("click", () => {
+      $("wire").value = b.dataset.vtWire; fireOn("wire", "change"); syncViewTools();
+    }));
+  }
+  /** Results card: the load case, the mode, the component coloured, and the scale of the deformed shape with its value. */
+  function updateResultsPanel() {
+    const model = S.model, meta = model && model.meta;
+    const show = !!model && !!meta.results;
+    $("resultsPanel").hidden = !show;
+    if (!show) return;
+    const rows = [["Load case", meta.results.label]];
+    if (model.modes.length) {
+      const m = model.modes[S.modeIndex];
+      rows.push(["Mode", modeText(m)], ["Frequency", String(Number(m.frequency.toPrecision(6)))]);
+    }
+    const field = model.fields[S.fieldIndex];
+    if (S.mode === "scalar" && field) rows.push(["Component", field.name + (field.element ? " (per element)" : " (nodal)")]);
+    if (model.disp && meta.deformation) {
+      if (S.defOn) {
+        const shown = meta.deformation.max * S.defFactor, size = bounds().diag;
+        const pct = size > 0 ? 100 * shown / size : 0;
+        rows.push(["Deformation x", trim(S.defFactor)], ["Max shown", fmtRange(shown) + " (" + pct.toPrecision(2) + " % of size)"]);
+      } else rows.push(["Deformation", "hidden"]);
+    }
+    $("rpList").innerHTML = rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd title="${esc(v)}">${esc(v)}</dd>`).join("");
+  }
   function fillLegend() {
     const m = S.model.meta, box = $("legendBox");
     if (S.mode !== "region" && S.mode !== "surface") { box.hidden = true; return; }
@@ -923,6 +1035,8 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     fillBlocks(); fillComponents(); fillLegend();
     const hasField = S.model && S.model.fields.length > 0;
     for (const o of $("colorMode").options) if (o.value === "scalar") o.disabled = !hasField;
+    syncViewTools();
+    updateResultsPanel();
     S.dirty = true;
   }
   // Deformed shape controls. The slider runs from 0 to 10x the suggested factor (largest displacement = 10% of the model size).
@@ -965,6 +1079,7 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     // The factor suggested for the whole file (largest displacement of any mode) stays valid for every mode.
     $("modeSel").value = i;
     $("modeFreq").textContent = String(Number(mode.frequency.toPrecision(6)));
+    updateResultsPanel();
     S.dirty = true;
   }
   function setupResultsInfo(meta) {
@@ -988,6 +1103,7 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
       S.clipOn = false; $("clipOn").checked = false;
       $("fileName").textContent = name || "model";
       $("drop").hidden = true; showMessage("");
+    updateResultsPanel();
       S.pickMode = "off"; $("pickMode").value = "off"; canvas.style.cursor = ""; $("pickCount").textContent = "none";
       $("pickSec").hidden = !model.canPick;
       setupDeformation(model); setupResultsInfo(model.meta);
@@ -1009,17 +1125,18 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
   document.querySelectorAll("[data-view]").forEach((b) => b.addEventListener("click", () => setView(b.dataset.view)));
   $("colorMode").addEventListener("change", (e) => { S.mode = e.target.value; refreshUi(); });
   $("fieldSel").addEventListener("change", (e) => setField(+e.target.value));
-  $("smin").addEventListener("input", (e) => { S.range[0] = +e.target.value; S.dirty = true; });
-  $("smax").addEventListener("input", (e) => { S.range[1] = +e.target.value; S.dirty = true; });
-  $("wire").addEventListener("change", (e) => { S.wire = e.target.value; S.dirty = true; });
+  $("smin").addEventListener("input", (e) => { S.range[0] = +e.target.value; S.dirty = true; updateColorbar(); });
+  $("smax").addEventListener("input", (e) => { S.range[1] = +e.target.value; S.dirty = true; updateColorbar(); });
+  $("wire").addEventListener("change", (e) => { S.wire = e.target.value; S.dirty = true; syncViewTools(); });
+  setupViewTools();
   $("axesOn").addEventListener("change", (e) => { S.axes = e.target.checked; S.dirty = true; });
   $("consOn").addEventListener("change", (e) => { S.consOn = e.target.checked; S.dirty = true; });
   $("consSize").addEventListener("input", (e) => { const v = Number(e.target.value); if (v > 0) { S.consSize = Math.min(v, 30); S.dirty = true; } });
-  $("defOn").addEventListener("change", (e) => { S.defOn = e.target.checked; S.dirty = true; });
-  $("defScale").addEventListener("input", (e) => { S.defFactor = S.defSuggested * e.target.value / 100; $("defFactor").value = trim(S.defFactor); S.dirty = true; });
+  $("defOn").addEventListener("change", (e) => { S.defOn = e.target.checked; updateResultsPanel(); S.dirty = true; });
+  $("defScale").addEventListener("input", (e) => { S.defFactor = S.defSuggested * e.target.value / 100; $("defFactor").value = trim(S.defFactor); updateResultsPanel(); S.dirty = true; });
   $("defFactor").addEventListener("input", (e) => {
     const f = +e.target.value; if (!(f >= 0)) return;
-    S.defFactor = f; $("defScale").value = Math.min(1000, S.defSuggested > 0 ? f / S.defSuggested * 100 : 0); S.dirty = true;
+    S.defFactor = f; $("defScale").value = Math.min(1000, S.defSuggested > 0 ? f / S.defSuggested * 100 : 0); updateResultsPanel(); S.dirty = true;
   });
   $("modeSel").addEventListener("change", (e) => setMode(+e.target.value));
   $("modeAnim").addEventListener("change", (e) => { S.animate = e.target.checked; S.lastTick = 0; S.dirty = true; });
@@ -1053,7 +1170,18 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
 
   view.addEventListener("dragover", (e) => { e.preventDefault(); view.classList.add("over"); });
   view.addEventListener("dragleave", () => view.classList.remove("over"));
-  view.addEventListener("drop", (e) => { e.preventDefault(); view.classList.remove("over"); loadFile(e.dataTransfer.files[0]); });
+  // A CAD file dropped here is added to the model by the OpenModel window, as Import CAD does; any other file is loaded here.
+  const CAD_FILE = /\.(step|stp|iges|igs|brep|brp|obj|stl|ply|fbx|gltf|glb|dae|3ds)$/i;
+  view.addEventListener("drop", (e) => {
+    e.preventDefault(); view.classList.remove("over");
+    const file = e.dataTransfer.files[0];
+    if (file && CAD_FILE.test(file.name)) {
+      if (window.parent === window) showMessage("Open this viewer from OpenModel to add a CAD file to the model.");
+      else window.parent.postMessage({ type: "openmodel-cad-drop", file }, location.origin);
+      return;
+    }
+    loadFile(file);
+  });
 
   /* --------------------------------------------------------------- picking */
   // Off-screen id buffers: one holds the triangle drawn at each pixel, the other the vertex (node) markers.

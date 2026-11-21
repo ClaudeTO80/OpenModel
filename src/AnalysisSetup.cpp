@@ -96,22 +96,36 @@ struct Parser {
         std::string text = raw;
         const auto hash = text.find('#');
         if (hash != std::string::npos) text.erase(hash);
-        std::istringstream in(text);
-        std::vector<std::string> tokens;
-        for (std::string t; in >> t;) tokens.push_back(t);
+        // Tokens are split on blanks, except inside double quotes, so a name may hold blanks: assign "Housing B" ...
+        // The quotes are dropped; eq is the position of the first '=' outside quotes (npos when there is none).
+        struct Token { std::string text; std::size_t eq; };
+        std::vector<Token> tokens;
+        for (std::size_t i = 0; i < text.size();) {
+            if (std::isspace(static_cast<unsigned char>(text[i]))) { ++i; continue; }
+            Token t{"", std::string::npos};
+            bool quoted = false;
+            for (; i < text.size() && (quoted || !std::isspace(static_cast<unsigned char>(text[i]))); ++i) {
+                const char c = text[i];
+                if (c == '"') quoted = !quoted;
+                else {
+                    if (c == '=' && !quoted && t.eq == std::string::npos) t.eq = t.text.size();
+                    t.text.push_back(c);
+                }
+            }
+            tokens.push_back(std::move(t));
+        }
         if (tokens.empty()) return;
-        const std::string command = lowered(tokens[0]);
+        const std::string command = lowered(tokens[0].text);
 
         std::map<std::string, std::string> keys;
         std::vector<std::string> positional;
         for (std::size_t i = 1; i < tokens.size(); ++i) {
-            const std::string& t = tokens[i];
-            if (startsWith(t, "plane:") || startsWith(t, "group:") || lowered(t) == "all") { positional.push_back(t); continue; }
-            const auto eq = t.find('=');
-            if (eq == std::string::npos || eq == 0) { positional.push_back(t); continue; }
-            const std::string key = lowered(t.substr(0, eq));
+            const Token& t = tokens[i];
+            if (startsWith(t.text, "plane:") || startsWith(t.text, "group:") || lowered(t.text) == "all") { positional.push_back(t.text); continue; }
+            if (t.eq == std::string::npos || t.eq == 0) { positional.push_back(t.text); continue; }
+            const std::string key = lowered(t.text.substr(0, t.eq));
             if (keys.count(key)) { error("SCRIPT_DUPLICATE_KEY", "'" + key + "' is given twice"); return; }
-            keys[key] = t.substr(eq + 1);
+            keys[key] = t.text.substr(t.eq + 1);
         }
         auto take = [&](const char* key, std::string& value) {
             const auto it = keys.find(key);
@@ -324,7 +338,7 @@ struct Parser {
             }
             leftovers();
         } else {
-            error("SCRIPT_UNKNOWN_COMMAND", "Unknown command '" + tokens[0] + "' (material, assign, fix, force, pressure, gravity, amplitude, job, step, output)");
+            error("SCRIPT_UNKNOWN_COMMAND", "Unknown command '" + tokens[0].text + "' (material, assign, fix, force, pressure, gravity, amplitude, job, step, output)");
         }
     }
 };
@@ -385,7 +399,12 @@ std::string serializeAnalysisScript(const AnalysisModel& model) {
     };
     materialLine(model.material);
     for (const auto& m : model.materials) materialLine(m);
-    for (const auto& pm : model.partMaterials) out << "assign " << pm.part << " material=" << pm.materialId << '\n';
+    // A part name with blanks or characters the parser reads as syntax is written in double quotes.
+    auto partText = [](const std::string& part) {
+        const bool plain = !part.empty() && part.find_first_of(" \t=#\"") == std::string::npos;
+        return plain ? part : "\"" + part + "\"";
+    };
+    for (const auto& pm : model.partMaterials) out << "assign " << partText(pm.part) << " material=" << pm.materialId << '\n';
     auto selectorText = [](const NodeSelector& selector) {
         if (selector.kind == SelectorKind::All) return std::string("all");
         if (selector.kind == SelectorKind::Group) return std::string("group:") + selector.name;

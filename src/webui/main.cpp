@@ -14,6 +14,7 @@
 #include <OpenModel/BuildInfo.hpp>
 #include <OpenModel/CodeAster.hpp>
 #include <OpenModel/ProcessRunner.hpp>
+#include <OpenModel/ProgressLog.hpp>
 #include <OpenModel/CADModel.hpp>
 #include <OpenModel/FemResults.hpp>
 #include <OpenModel/GltfWriter.hpp>
@@ -86,6 +87,7 @@
 #include "gui_html.inc"
 #include "viewer_html.inc"
 #include "FlatJson.hpp"
+#include "Base64.hpp"
 
 namespace {
 
@@ -777,6 +779,81 @@ void createDemo(webui_event_t* e) {
     reply(e, true, "Demo model loaded: " + meshSummary() + ".");
 }
 
+void importCadFile(webui_event_t* e, const fs::path& file, double linear, double angular);
+
+/** Extensions of the CAD and mesh files the Import CAD browse filter offers; a dropped file must be one of them. */
+bool isImportableCadName(const std::string& ext) {
+    static const std::set<std::string> known{".step", ".stp", ".iges", ".igs", ".brep", ".brp", ".obj", ".stl",
+                                             ".ply", ".fbx", ".gltf", ".glb", ".dae", ".3ds"};
+    return known.count(ext) > 0;
+}
+
+/**
+ * Handler of "openmodel_log_since": the progress-log entries after the sequence number given, at most 1000 of the most
+ * recent. It takes no lock: the page reads the log while an operation runs.
+ */
+void logSince(webui_event_t* e) {
+    std::uint64_t after = 0;
+    const std::string text = getStringArg(e, 0);
+    if (!text.empty()) {
+        try { after = std::stoull(text); } catch (...) { after = 0; }
+    }
+    constexpr std::uint64_t window = 1000;
+    auto& log = OpenModel::ProgressLog::instance();
+    const std::uint64_t last = log.lastSequence();
+    if (last > window && after < last - window) after = last - window;
+    const auto entries = log.since(after);
+    std::ostringstream out;
+    out << "{\"ok\":true,\"last\":" << last << ",\"entries\":[";
+    for (std::size_t i = 0; i < entries.size(); ++i) {
+        const auto& entry = entries[i];
+        if (i > 0) out << ',';
+        out << "{\"seq\":" << entry.sequence << ",\"level\":\"" << OpenModel::progressLevelName(entry.level)
+            << "\",\"source\":\"" << jsonEscape(entry.source) << "\",\"time\":" << entry.timeMilliseconds
+            << ",\"text\":\"" << jsonEscape(entry.text) << "\"}";
+    }
+    out << "]}";
+    webui_return_string(e, out.str().c_str());
+}
+
+/**
+ * Imports a CAD file dropped on the viewer, as Import CAD does for a chosen file. A browser does not give the real
+ * path of a dropped file, so the page sends its name and its content in base64. The content is written to
+ * <temporary directory>/openmodel-cad/<name>, which is reused for the same name: the CAD face groups saved next to it
+ * (cadGroupsPath) follow its size and date, so a changed file drops them as usual.
+ */
+void importCadUpload(webui_event_t* e) {
+    StateLock lock;
+    if (!lock.ok()) { replyBusy(e); return; }
+    const std::string name = getStringArg(e, 0);
+    const std::string encoded = getStringArg(e, 1);
+    const double linear = getDoubleArg(e, 2, g.linearDeflection);
+    const double angular = getDoubleArg(e, 3, g.angularDeflection);
+    if (!validParameters(linear, angular)) {
+        reply(e, false, "Invalid parameters: linear deflection > 0 and angular deflection in (0, pi]."); return;
+    }
+    // Only the last component of the name is used: a dropped file never chooses a folder.
+    const std::string leaf = fs::path(name).filename().string();
+    if (leaf.empty() || leaf == "." || leaf == ".." || !isImportableCadName(lowerExtension(fs::path(leaf)))) {
+        reply(e, false, "Drop a CAD file: STEP, IGES, BREP, or OBJ/STL/... via Assimp."); return;
+    }
+    std::string content;
+    if (!decodeBase64(encoded, content) || content.empty()) { reply(e, false, "The dropped file could not be read."); return; }
+    std::error_code ec;
+    const fs::path tempRoot = fs::temp_directory_path(ec);
+    if (ec) { reply(e, false, "No temporary folder to store the dropped file: " + ec.message()); return; }
+    const fs::path folder = tempRoot / "openmodel-cad";
+    fs::create_directories(folder, ec);
+    if (ec) { reply(e, false, "Cannot create " + folder.string() + ": " + ec.message()); return; }
+    const fs::path file = folder / leaf;
+    {
+        std::ofstream out(file, std::ios::binary | std::ios::trunc);
+        out.write(content.data(), static_cast<std::streamsize>(content.size()));
+        if (!out.good()) { reply(e, false, "Cannot store the dropped file: " + file.string()); return; }
+    }
+    importCadFile(e, file, linear, angular);
+}
+
 void importModel(webui_event_t* e) {
     StateLock lock;
     if (!lock.ok()) { replyBusy(e); return; }
@@ -790,6 +867,12 @@ void importModel(webui_event_t* e) {
     std::error_code ec;
     const auto file = absolutePath(path);
     if (!fs::is_regular_file(file, ec)) { reply(e, false, "File not found or not accessible: " + path); return; }
+    importCadFile(e, file, linear, angular);
+}
+
+/** Imports and tessellates a CAD file that exists on disk, then replies to the page. Call with the state locked. */
+void importCadFile(webui_event_t* e, const fs::path& file, double linear, double angular) {
+    OpenModel::ProgressLog::instance().add(OpenModel::ProgressLevel::Info, "OpenModel", "CAD import: " + file.string());
     const std::string ext = lowerExtension(file);
     std::shared_ptr<CADModel> candidate;
     if (ext == ".step" || ext == ".stp" || ext == ".iges" || ext == ".igs" || ext == ".brep" || ext == ".brp") {
@@ -805,7 +888,10 @@ void importModel(webui_event_t* e) {
         reply(e, false, "Mesh formats require the Assimp backend (-DOPENMODEL_BUILD_ASSIMP_BACKEND=ON)."); return;
 #endif
     }
-    if (!candidate->loadFromFile(file.string())) { reply(e, false, "Import failed: " + candidate->getLastError()); return; }
+    if (!candidate->loadFromFile(file.string())) {
+        OpenModel::ProgressLog::instance().add(OpenModel::ProgressLevel::Error, "OpenModel", "CAD import failed: " + candidate->getLastError());
+        reply(e, false, "Import failed: " + candidate->getLastError()); return;
+    }
 
     // Transactional update: restore the previous state when tessellation fails.
     AppState previous = g;
@@ -815,6 +901,7 @@ void importModel(webui_event_t* e) {
     std::string error;
     if (!tessellateCurrent(error)) {
         g = std::move(previous);
+        OpenModel::ProgressLog::instance().add(OpenModel::ProgressLevel::Error, "OpenModel", "Tessellation failed: " + error);
         reply(e, false, "Tessellation failed: " + error); return;
     }
     g.source = file.string();
@@ -833,6 +920,7 @@ void importModel(webui_event_t* e) {
         ? "\nCAD structure: none (the file contains no assembly, names or groups, or the format does not carry them)."
         : "\nCAD structure: " + std::to_string(g.cad->getComponents().size()) + " assembly nodes (" + std::to_string(leafComponents) +
           " components), " + std::to_string(faceGroups) + " face groups, " + std::to_string(solidGroups) + " solid groups.";
+    OpenModel::ProgressLog::instance().add(OpenModel::ProgressLevel::Info, "OpenModel", "Model imported and triangulated: " + std::to_string(g.surface.triangleCount()) + " triangles, " + std::to_string(g.surface.parts.size()) + " parts.");
     reply(e, true, "Model imported and triangulated.\nFile: " + g.source + structure + "\nParts: " + std::to_string(g.surface.parts.size()) +
         "\nVertices: " + std::to_string(g.surface.vertexCount()) + "\nTriangles: " + std::to_string(g.surface.triangleCount()) +
         "\nLinear deflection: " + std::to_string(g.linearDeflection) + "\nAngular deflection: " + std::to_string(g.angularDeflection) +
@@ -1027,9 +1115,11 @@ void generateVolume(webui_event_t* e) {
         generateVolumeLocked(e, args);
     } catch (const std::exception& error) {
         std::cerr << "Volume mesh generation failed: " << error.what() << "\n";
+        OpenModel::ProgressLog::instance().add(OpenModel::ProgressLevel::Error, "OpenModel", std::string("Volume mesh generation failed: ") + error.what());
         reply(e, false, std::string("Volume mesh generation stopped: ") + error.what());
     } catch (...) {
         std::cerr << "Volume mesh generation failed: unknown exception\n";
+        OpenModel::ProgressLog::instance().add(OpenModel::ProgressLevel::Error, "OpenModel", "Volume mesh generation failed: unknown exception");
         reply(e, false, "Volume mesh generation stopped by an unknown error.");
     }
 }
@@ -1195,6 +1285,7 @@ void generateVolumeLocked(webui_event_t* e, const VolumeArgs& args) {
     }
     if (!built) {
         for (const auto& note : notes) failure += "\n" + note;
+        OpenModel::ProgressLog::instance().add(OpenModel::ProgressLevel::Error, "OpenModel", "Volume mesh generation failed: " + failure);
         reply(e, false, "Volume mesh generation failed: " + failure + logNote); return;
     }
 
@@ -1253,6 +1344,7 @@ void generateVolumeLocked(webui_event_t* e, const VolumeArgs& args) {
             cadNodeSetSummary += "\nNode Set " + userGroup.name + "_NODES: " +
                 std::to_string(set->second.size()) + " nodes";
     }
+    OpenModel::ProgressLog::instance().add(OpenModel::ProgressLevel::Info, "OpenModel", "Volume mesh generated and validated with " + label + ".");
     reply(e, true, "Volume mesh generated and validated with " + label + ".\n" + meshingReport(g.mesh, meshingSeconds) +
         cadNodeSetSummary + "\nOrder: " + std::to_string(order) +
         "\nRequested maximum size: " + std::to_string(size) +
@@ -2608,6 +2700,8 @@ int main() {
     webui_bind(window, "openmodel_list_dir", listDirectory);
     webui_bind(window, "openmodel_create_demo", createDemo);
     webui_bind(window, "openmodel_import_model", importModel);
+    webui_bind(window, "openmodel_import_cad_upload", importCadUpload);
+    webui_bind(window, "openmodel_log_since", logSince);
     webui_bind(window, "openmodel_retessellate", retessellate);
     webui_bind(window, "openmodel_generate_volume", generateVolume);
     webui_bind(window, "openmodel_load_mesh", loadMesh);

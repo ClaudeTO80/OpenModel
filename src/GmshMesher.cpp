@@ -1,4 +1,5 @@
 #include <OpenModel/GmshMesher.hpp>
+#include <OpenModel/ProgressLog.hpp>
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -539,6 +540,22 @@ bool GmshMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Mesh
                 }
             } logCapture{true, m_log, options.logFile};
             gmsh::logger::start();
+            // The lines of the Gmsh log that the progress log has already recorded. The progress log reads them
+            // after each meshing step, on this thread, so the page can show the run while it goes on.
+            std::size_t gmshLinesRecorded = 0;
+            const auto recordGmshLog = [&] {
+                std::vector<std::string> lines;
+                gmsh::logger::get(lines);
+                for (std::size_t i = gmshLinesRecorded; i < lines.size(); ++i) {
+                    OpenModel::ProgressLevel level = OpenModel::ProgressLevel::Info;
+                    std::string text;
+                    if (!OpenModel::parseGmshLogLine(lines[i], level, text)) continue;
+                    // The OpenModel trace lines are recorded already, by trace().
+                    if (text.rfind("[OpenModel]", 0) == 0) continue;
+                    OpenModel::ProgressLog::instance().add(level, "Gmsh", text);
+                }
+                gmshLinesRecorded = lines.size();
+            };
             // The OpenModel trace lines are information, so they appear from the Info level up.
             m_trace = options.logLevel == LogLevel::Info || options.logLevel == LogLevel::Debug;
             const auto startTime = std::chrono::steady_clock::now();
@@ -740,9 +757,11 @@ bool GmshMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Mesh
                 try {
                     trace("Meshing in " + std::to_string(meshDimension) + "D (" + std::to_string(entities.size()) + " entities of that dimension) at " + elapsed() + " s");
                     gmsh::model::mesh::generate(meshDimension);
+                    recordGmshLog();
                     trace("Gmsh meshing finished at " + elapsed() + " s");
                     meshed = true;
                 } catch (const std::exception& e) {
+                    recordGmshLog();
                     if (attempt + 1 == recombinationAttempts.size()) {
                         generationError = e.what();
                     } else {
@@ -957,6 +976,8 @@ bool GmshMesher::buildMesh(const std::shared_ptr<CADModel>& cadModel, const Mesh
 }
 
 void GmshMesher::trace(const std::string& message) const {
+    // Recorded for the progress log whatever the Gmsh level; written to the Gmsh log only from the Info level up.
+    OpenModel::ProgressLog::instance().add(OpenModel::ProgressLevel::Info, "OpenModel", message);
     if (!m_trace) return;
     try { gmsh::logger::write("[OpenModel] " + message, "info"); } catch (...) { /* tracing never fails the run */ }
 }

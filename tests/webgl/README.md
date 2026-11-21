@@ -95,3 +95,37 @@ Checks the single model tree of the GUI without a backend: the six categories, n
 python3 -m http.server 8765 --directory src/webui &
 node tests/webgl/gui_tree_smoke.js http://localhost:8765/gui.html
 ```
+
+## Viewer CAD drop (`viewer_cad_drop_smoke.js`)
+Embeds `examples/webgl-fem-viewer` in a parent page and drops files on the view: a CAD file must be posted to the parent
+(the GUI adds it to the model), an `.mgwv` file must stay in the viewer. Needs only Node.js with `playwright` and a Chromium.
+
+```bash
+NODE_PATH=... node tests/webgl/viewer_cad_drop_smoke.js examples/webgl-fem-viewer/index.html
+```
+
+## Log section (`gui_log_smoke.js`)
+Loads `src/webui/gui.html` with a stub bridge that answers `openmodel_log_since` with four messages, one per level, and checks the
+filter, Clear and the polling, the bottom panel (Log and Solver tabs, hide), and the status bar (mesh counts, latest message, version). Serve `src/webui` over HTTP (for example `python3 -m http.server`) and pass the URL of `gui.html`.
+
+```bash
+NODE_PATH=... node tests/webgl/gui_log_smoke.js http://127.0.0.1:8765/gui.html
+```
+
+## Workbench layout (`gui_workbench_smoke.js`)
+Checks that the Selection controls sit in the card over the viewer (same ids, initial state kept) and that each category of the
+model tree shows its state (CAD, mesh count and nodes, constraints, load cases, jobs). Same setup as `gui_log_smoke.js`.
+
+```bash
+NODE_PATH=... node tests/webgl/gui_workbench_smoke.js http://127.0.0.1:8765/gui.html
+```
+
+## Viewer section overlay (`viewer_section_smoke.js`)
+Checks that the overlay on the canvas (section plane, display mode) drives the sidebar inputs and the viewer state, that the
+colour bar appears for the scalar colouring with the range in use, and that the results card shows the load case and follows the
+deformation factor (the last two need a file with results). Without a model file it checks only that the overlay and the
+colour bar stay hidden and that the page reports no errors; the full run needs an `.mgwv` file with a scalar field.
+
+```bash
+NODE_PATH=... node tests/webgl/viewer_section_smoke.js examples/webgl-fem-viewer/index.html [file.mgwv]
+```

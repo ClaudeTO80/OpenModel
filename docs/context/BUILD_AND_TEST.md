@@ -16,7 +16,7 @@ Opzioni CMake principali (default tra parentesi):
 - Backend opzionali, spenti per default: `OPENMODEL_BUILD_GMSH_BACKEND`, `OPENMODEL_BUILD_OCC_BACKEND`, `OPENMODEL_BUILD_ASSIMP_BACKEND`, `OPENMODEL_BUILD_TETGEN_BACKEND`, `OPENMODEL_BUILD_NETGEN_BACKEND`, `OPENMODEL_BUILD_MFEM_BACKEND`.
 - `OPENMODEL_BUILD_WEBUI` (OFF): richiede l'SDK WebUI, vedi sotto.
 - `OPENMODEL_TEST_WEBGL_VIEWER` (OFF): test di browser, richiede Node.js con Playwright.
-- `OPENMODEL_VERSION` (0.1.3): versione del pacchetto.
+- `OPENMODEL_VERSION` (0.1.5): versione del pacchetto.
 
 ## Gmsh
 

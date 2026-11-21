@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.20)
 # The single place where the OpenModel version is set. It feeds project(), the installed CMake package,
 # the CPack file names and the generated <OpenModel/Version.hpp> (macros and OpenModel::version()).
 # Override it with -DOPENMODEL_VERSION=x.y.z (for example from a release script).
-set(OPENMODEL_VERSION "0.1.3" CACHE STRING "OpenModel version, MAJOR.MINOR.PATCH (minor and patch 0-99)")
+set(OPENMODEL_VERSION "0.1.5" CACHE STRING "OpenModel version, MAJOR.MINOR.PATCH (minor and patch 0-99)")
 if(NOT OPENMODEL_VERSION MATCHES "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]?)\\.(0|[1-9][0-9]?)$")
     message(FATAL_ERROR "OPENMODEL_VERSION must look like MAJOR.MINOR.PATCH with minor and patch between 0 and 99, no leading zeros (got '${OPENMODEL_VERSION}')")
 endif()
@@ -67,6 +67,7 @@ set(OPENMODEL_CORE_SOURCES
     src/MeshData.cpp
     src/MeshBodies.cpp
     src/MeshRuns.cpp
+    src/ProgressLog.cpp
     src/MeshBinaryIO.cpp
     src/Version.cpp
     "${OPENMODEL_BUILD_INFO_SOURCE}"
@@ -213,6 +214,7 @@ if(OPENMODEL_BUILD_TESTS)
     endfunction()
     openmodel_add_test(core_smoke_test tests/core_smoke_test.cpp)
     openmodel_add_test(version_test tests/version_test.cpp)
+    openmodel_add_test(progress_log_test tests/progress_log_test.cpp)
     # The version CMake was configured with, to be compared with what the macros and the library report.
     target_compile_definitions(version_test PRIVATE OPENMODEL_EXPECTED_VERSION="${PROJECT_VERSION}")
     openmodel_add_test(build_info_test tests/build_info_test.cpp)
