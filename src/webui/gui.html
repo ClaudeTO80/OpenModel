@@ -55,8 +55,6 @@ main{position:relative;min-width:0;min-height:0}
 .dockTools{display:flex;gap:8px;align-items:end;margin-bottom:6px}
 .dockTools>div{display:grid;gap:2px}
 #progressLog,#solverLog{min-height:0;overflow:auto;font-family:monospace;font-size:11px;white-space:pre-wrap;margin:0}
-#selectionOverlay{position:absolute;top:10px;right:10px;z-index:4;width:min(300px,calc(100% - 20px));max-height:calc(100% - 20px);overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.18);padding:6px 10px}
-#selectionOverlay>details{margin:0}
 #statusbar{display:flex;align-items:center;gap:16px;padding:3px 10px;border-top:1px solid var(--line);background:var(--panel);color:var(--muted);font-size:11.5px;white-space:nowrap;min-width:0}
 #statusMesh{flex:none;color:var(--text)}
 .statusMsg{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;background:none;border:0;color:inherit;text-align:left;padding:0;cursor:pointer;font:inherit}
@@ -68,6 +66,12 @@ iframe{display:block;width:100%;height:100%;border:0;background:var(--viewport)}
 #inspClose{padding:0 8px;font-size:18px;line-height:1.2}
 #inspBody{overflow:auto;min-height:0;padding:8px 10px}
 [hidden]{display:none!important}
+.loadMenu{position:fixed;z-index:60;display:grid;gap:2px;min-width:240px;background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.18);padding:4px}
+.loadMenu button{text-align:left;background:none;border:0;padding:6px 8px;border-radius:6px;cursor:pointer;color:var(--text)}
+.loadMenu button:hover{background:var(--line)}
+.loadDl{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;margin:6px 0;font-size:12px}
+.loadDl dt{color:var(--muted)}
+.loadDl dd{margin:0;word-break:break-word}
 .modal{position:fixed;inset:0;background:var(--scrim);display:grid;place-items:center;z-index:10}
 .dialog{background:var(--panel);border:1px solid var(--line);border-radius:10px;width:min(640px,92vw);max-height:80vh;display:grid;grid-template-rows:auto auto 1fr auto;padding:12px;gap:8px}
 .dialog h3{margin:0;font-size:14px}
@@ -152,6 +156,7 @@ details.node details.node{margin-top:8px;background:transparent}
     <button class="tab" role="tab" data-tab="file">File</button>
     <button class="tab" role="tab" data-tab="geo">Geometry</button>
     <button class="tab" role="tab" data-tab="mesh">Mesh</button>
+    <button class="tab" role="tab" data-tab="sel">Selection</button>
     <button class="tab" role="tab" data-tab="solve">Analysis</button>
     <button class="tab" role="tab" data-tab="res">Results</button>
     <button class="tab" role="tab" data-tab="view">View</button>
@@ -209,6 +214,12 @@ details.node details.node{margin-top:8px;background:transparent}
       <button class="rb" data-act="an-run" data-need="idle" title="Write the input, run CalculiX in the background and load the results"><span class="ic">▶</span>Run solver</button>
       <button class="rb" data-act="an-cancel" data-need="solver" title="Stop the running solver"><span class="ic">⏹</span>Cancel</button>
     </div><div class="gname">Solver</div></div>
+  </div>
+
+  <div class="panel" data-panel="sel" role="tabpanel" hidden>
+    <div class="group"><div class="items">
+      <button class="rb" data-act="sel-options" title="Show the selection options (face angle, growth, holes, box) in the sidebar"><span class="ic">⚙</span>Options…</button>
+    </div><div class="gname">Panel</div></div>
     <div class="group"><div class="items">
       <button class="rb" data-act="pick-node" data-on="pick:node" data-need="pick" title="Select nodes in the viewer (click; Ctrl+click adds; Alt+drag = box)"><span class="ic">•</span>Nodes</button>
       <button class="rb" data-act="pick-element" data-on="pick:element" data-need="pick" title="Select elements (those with a visible face are shown)"><span class="ic">▣</span>Elements</button>
@@ -568,6 +579,8 @@ details.node details.node{margin-top:8px;background:transparent}
     <button id="btnCdClear" onclick="constraintClear()" style="margin-top:6px">Remove all constraints</button>
     <p class="hint">Select a face (mode Faces: the connected faces with the same normal, or the wall of a hole, are selected together), tick the degrees of freedom to block and press Apply: they are blocked on every node of the selection, mid-side nodes included. The constraints are drawn in the viewer and written to the solver input. Rotations are stored and drawn, but the solver ignores them on solid elements.</p>
     <ul id="cdList" style="list-style:none;margin:4px 0 8px;padding:0;font-size:12px"></ul>
+    <label for="cdSymbolSize">Symbol size (% of model radius)</label>
+    <input id="cdSymbolSize" type="number" min="0.5" max="30" step="0.5" value="2.2" onchange="setConstraintSize(this.value)">
     </details>
     <details class="node" open>
       <summary>Script constraints (fix)</summary>
@@ -652,10 +665,7 @@ details.node details.node{margin-top:8px;background:transparent}
   </dialog>
 
   <section><h2>Messages</h2><pre id="result">Ready. Import a CAD model, load a mesh or try the demo model.</pre></section>
-</aside>
-
-<div id="workarea"><main><iframe id="viewer" src="viewer.html" title="FEM viewer"></iframe>
-<div id="selectionOverlay">
+  <div class="spanel" data-spanel="sel" hidden>
   <details id="secSel" class="node" open>
     <summary>Selection</summary>
     <label for="selMode">Select in the viewer</label>
@@ -668,7 +678,7 @@ details.node details.node{margin-top:8px;background:transparent}
       <div><label for="selBoxOn">Box</label><input id="selBoxOn" type="checkbox" onchange="setPickBox(this.checked)"></div></div>
     <label for="selGrowth">Face growth</label>
     <select id="selGrowth" title="Same normal: the angle is measured against the clicked face, so a curved surface is not followed. Smooth surface: the angle is measured between neighbouring faces, so the selection follows a curved surface." onchange="setPickGrowth(this.value)">
-      <option value="same-normal">Same normal</option><option value="smooth">Smooth surface</option>
+      <option value="same-normal">Same normal</option><option value="smooth">Smooth surface</option><option value="single">Single face</option>
     </select>
     <div class="grid2"><div><label for="selHoles">Holes</label><input id="selHoles" type="checkbox" checked title="A click on the wall of a hole (a bolt hole, a bore) selects the whole wall" onchange="setPickHoles(this.checked)"></div>
       <div><label for="selHoleArc">Hole arc (°)</label><input id="selHoleArc" type="number" min="30" max="360" step="10" value="330" title="Smallest angle around its axis a wall must cover to count as a hole: 330 = a closed hole, 170 also takes the half of a hole cut by a symmetry plane" onchange="setPickHoleArc(this.value)"></div></div>
@@ -676,7 +686,10 @@ details.node details.node{margin-top:8px;background:transparent}
     <p class="hint" id="selInfo">Selection: none.</p>
     <p class="hint" id="cadFaceInfo">CAD faces: none selected.</p>
   </details>
-</div>
+  </div>
+</aside>
+
+<div id="workarea"><main><iframe id="viewer" src="viewer.html" title="FEM viewer"></iframe>
 <section id="inspector" class="inspector" hidden aria-label="Details">
   <header class="inspHead"><span id="inspTitle"></span><button type="button" id="inspClose" aria-label="Close details" title="Close (Esc)">×</button></header>
   <div id="inspBody"></div>
@@ -1196,6 +1209,10 @@ let viewerLoading = false;
 let viewerSeq = 0;
 /** Signature of the viewer branch as last built; the branch is rebuilt only when it changes. */
 let viewerSig = null;
+/** True once the user has asked for selection (a pick mode or Selection > Options): only then the sidebar shows the Selection category. */
+let selectionShown = false;
+/** Mesh constraints as the backend classes them: one entry per (degrees of freedom, values). Shown in the tree. */
+let meshConstraints = [];
 
 /**
  * @brief Gives the model loaded in the viewer, if any.
@@ -1288,7 +1305,7 @@ let sbActiveCat = null;
  * @param o.onAdd     called when the "+" is pressed, or null for a row without it
  * @return the row element
  */
-function sbRow({label, state = null, eyeState = state, onPick = null, onEye = null, onAdd = null, onDel = null, check = null, sub = ""}) {
+function sbRow({label, state = null, eyeState = state, onPick = null, onEye = null, onAdd = null, onDel = null, check = null, sub = "", onRename = null}) {
   const row = document.createElement("div");
   row.className = "sbrow" + (state === "off" ? " off" : "") + (state === "mixed" ? " mixed" : "");
   const name = document.createElement("span");
@@ -1305,6 +1322,7 @@ function sbRow({label, state = null, eyeState = state, onPick = null, onEye = nu
     box.addEventListener("change", () => check.onToggle(box.checked));
     row.append(box);
   }
+  if (onRename) name.addEventListener("dblclick", () => editSbName(name, label, onRename));
   row.append(name);
   if (sub) {
     const note = document.createElement("span");
@@ -1346,6 +1364,230 @@ function sbRow({label, state = null, eyeState = state, onPick = null, onEye = nu
  * @param kids  child elements; an empty list makes a leaf
  * @return the node element
  */
+/** Replaces a row name by a text field: Enter or leaving the field commits the new name, Escape cancels. */
+function editSbName(name, current, commit) {
+  const input = document.createElement("input");
+  input.type = "text"; input.value = current; input.className = "sbedit"; input.setAttribute("aria-label", "Name");
+  name.replaceWith(input); input.focus(); input.select();
+  let done = false;
+  const finish = (ok) => {
+    if (done) return; done = true;
+    if (ok && input.value.trim() !== "" && input.value.trim() !== current) commit(input.value.trim());
+    else renderTree();
+  };
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter") finish(true); else if (e.key === "Escape") finish(false); });
+  input.addEventListener("blur", () => finish(true));
+}
+/** Renames a fix line of the script: sets its id= key (the solver uses it as the constraint's name). */
+function renameFix(oldId, newId) {
+  if (!/^[A-Za-z0-9_.-]+$/.test(newId)) { show("The constraint name may contain letters, digits, _ - .", "bad"); return; }
+  const text = $("anScript").value, parsed = parseScript(text);
+  if ([...parsed.fixes, ...parsed.loads].some((c) => c.id === newId)) { show("A constraint or load named " + newId + " already exists.", "bad"); return; }
+  const k = parsed.fixes.findIndex((f) => f.id === oldId);
+  if (k < 0) return;
+  const lines = text.split(/\r?\n/);
+  let seen = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (analysisCommand(lines[i]) !== "fix") continue;
+    if (++seen !== k) continue;
+    lines[i] = /\sid=\S+/i.test(lines[i]) ? lines[i].replace(/(\sid=)\S+/i, "$1" + newId) : lines[i].trimEnd() + " id=" + newId;
+    break;
+  }
+  $("anScript").value = lines.join("\n");
+  renderAnalysisConditions();
+  renderTree();
+  show("Constraint " + oldId + " renamed to " + newId + ".", "good");
+}
+/** Sets the symbol size of the constraint glyphs in the viewer (percent of the model radius). */
+function setConstraintSize(value) {
+  const n = Number(value);
+  if (!(n > 0)) { show("The symbol size must be a positive number.", "bad"); return; }
+  vset({constraintSize: Math.min(n, 30)});
+}
+/** Keeps the symbol size field in step with the viewer, unless the user is typing in it. */
+function syncConstraintSize() {
+  const w = viewerApi(), el = $("cdSymbolSize");
+  if (w && el && document.activeElement !== el) el.value = w.OpenModelViewer.state.consSize;
+}
+const ANALYSIS_COMMANDS = new Set(["material", "assign", "fix", "force", "pressure", "gravity", "amplitude", "job", "step", "output"]);
+/** Gravity is a load every model has by default; it is switched off by commenting its line out of the script. */
+const DEFAULT_GRAVITY = "gravity g=0,0,-9810";
+/** Adds the default gravity line when the script has no gravity line, active or switched off. */
+function ensureGravityLine() {
+  if ($("anScript").value.split(/\r?\n/).some((l) => /^\s*#?\s*gravity\b/i.test(l))) return;
+  appendScript(DEFAULT_GRAVITY);
+  renderAnalysisConditions(); renderTree();
+}
+/** Gravity on or off. Off = its line commented out, so the solver ignores it; on = the line active again. */
+function setGravityOn(on) {
+  const box = $("anScript"), lines = box.value.split(/\r?\n/);
+  const i = lines.findIndex((l) => /^\s*#?\s*gravity\b/i.test(l));
+  if (i < 0) { appendScript(on ? DEFAULT_GRAVITY : "# " + DEFAULT_GRAVITY); }
+  else {
+    lines[i] = on ? lines[i].replace(/^\s*#\s*/, "") : "# " + lines[i].replace(/^\s*#?\s*/, "");
+    box.value = lines.join("\n");
+  }
+  renderAnalysisConditions(); renderTree();
+}
+/**
+ * The loads of the script in script order, switched-off gravity included:
+ * {kind, id, off, index (line of the script), line (its text)}.
+ */
+function scriptLoadEntries() {
+  const text = $("anScript").value, lines = text.split(/\r?\n/);
+  const entries = parseScript(text).loads.map((l) => ({kind: l.kind, id: l.id, off: false}));
+  const seen = {};
+  entries.forEach((e) => {
+    const ordinal = seen[e.kind] || 0; seen[e.kind] = ordinal + 1;
+    let k = -1; e.index = -1;
+    for (let i = 0; i < lines.length; i++) if (analysisCommand(lines[i]) === e.kind && ++k === ordinal) { e.index = i; break; }
+    e.line = e.index >= 0 ? lines[e.index] : "";
+  });
+  lines.forEach((l, i) => { if (/^\s*#\s*gravity\b/i.test(l)) entries.push({kind: "gravity", id: "gravity", off: true, index: i, line: l}); });
+  return entries;
+}
+/** Replaces (text !== null) or removes (text === null) one line of the script. */
+function changeScriptLine(index, text) {
+  const box = $("anScript"), lines = box.value.split(/\r?\n/);
+  if (index < 0 || index >= lines.length) return;
+  if (text === null) lines.splice(index, 1); else lines[index] = text;
+  box.value = lines.join("\n");
+  renderAnalysisConditions(); renderTree();
+}
+/** The Loads '+' menu: the load types. The load takes the current selection (nodes, faces) or the model (gravity). */
+let loadMenuOutside = null;
+function closeLoadMenu() {
+  const m = $("loadMenu"); if (m) m.remove();
+  if (loadMenuOutside) { document.removeEventListener("click", loadMenuOutside); loadMenuOutside = null; }
+}
+function openLoadMenu(anchor) {
+  closeLoadMenu();
+  const menu = document.createElement("div");
+  menu.id = "loadMenu"; menu.className = "loadMenu"; menu.setAttribute("role", "menu");
+  [["gravity", "Gravity (whole model)"], ["force", "Force on nodes (selected nodes)"], ["press", "Pressure on faces (selected faces)"]]
+    .forEach(([type, text]) => {
+      const b = document.createElement("button"); b.type = "button"; b.setAttribute("role", "menuitem"); b.textContent = text;
+      b.addEventListener("click", () => { closeLoadMenu(); addLoad(type); });
+      menu.append(b);
+    });
+  document.body.append(menu);
+  const r = anchor.getBoundingClientRect();
+  menu.style.left = r.left + "px"; menu.style.top = (r.bottom + 4) + "px";
+  loadMenuOutside = (e) => { if (!menu.contains(e.target)) closeLoadMenu(); };
+  setTimeout(() => document.addEventListener("click", loadMenuOutside), 0);
+}
+async function addLoad(type) {
+  if (type === "gravity") {
+    if (scriptLoadEntries().some((e) => e.kind === "gravity" && !e.off)) { show("Gravity is already on the model: see Loads.", "good"); return; }
+    setGravityOn(true);
+    show("Gravity added to the model.", "good");
+    return;
+  }
+  await assign(type === "force" ? "force" : "press");
+}
+/** Writes one key=value of a load line: replaces it, appends it, or removes it when the value is empty. */
+function setLineKey(line, key, value) {
+  const re = new RegExp("(^|\\s)" + key + "=\\S+", "i");
+  if (value === "") return line.replace(re, "");
+  if (re.test(line)) return line.replace(re, "$1" + key + "=" + value);
+  return line.trimEnd() + " " + key + "=" + value;
+}
+/** Renames a load everywhere the script names it: its own line and the loads= lists of the steps. */
+function renameLoadInScript(text, oldId, newId, index, newLine) {
+  const lines = text.split(/\r?\n/);
+  if (index >= 0) lines[index] = newLine;
+  return lines.map((l) => analysisCommand(l) === "step"
+    ? l.replace(/loads=(\S+)/i, (m, list) => "loads=" + list.split(",").map((x) => (x === oldId ? newId : x)).join(","))
+    : l).join("\n");
+}
+/** Detail of one load, shown in the sidebar overlay: its values (editable), the part it applies to, and its actions. */
+function showLoadDetail(entry) {
+  const names = {gravity: "Gravity", force: "Force on nodes", pressure: "Pressure on faces"};
+  const value = (re) => { const m = re.exec(entry.line); return m ? m[1] : ""; };
+  const target = (/\bgroup:(\S+)/i.exec(entry.line) || [])[1] || "";
+  const info = lastGroups.find((x) => x.name === target);
+  const unit = info ? ({node: "nodes", element: "elements", face: "faces"})[info.kind] : "";
+  const esc = esc2;
+  const rows = [["Type", names[entry.kind] + (entry.off ? " (off)" : "")]];
+  if (target) rows.push(["Applied to", info ? "group " + target + " · " + info.count + " " + unit : "group " + target + " (not in the mesh)"]);
+  let panel = document.querySelector('#inspBody .spanel[data-spanel="loaddetail"]');
+  if (!panel) { panel = document.createElement("div"); panel.className = "spanel"; panel.dataset.spanel = "loaddetail"; $("inspBody").append(panel); }
+  const field = (id, label, val, extra = "") => '<label for="' + id + '">' + esc(label) + '</label><input id="' + id + '" value="' + esc(val) + '" ' + extra + ">";
+  const amp = value(/\bamp=(\S+)/i);
+  let fields = "";
+  rows.push(["Id", entry.id]);
+  if (entry.kind === "force") {
+    fields = field("ldF", "Total force Fx,Fy,Fz", value(/\bF=(\S+)/i) || "0,0,-100") + field("ldAmp", "Amplitude (empty = constant)", amp);
+  } else if (entry.kind === "pressure") {
+    fields = field("ldP", "Pressure (positive = toward the body)", value(/\bp=(\S+)/i) || "1") + field("ldAmp", "Amplitude (empty = constant)", amp);
+  } else {
+    fields = field("ldGravity", "Acceleration gx,gy,gz", value(/\bg=(\S+)/i) || "0,0,-9810");
+  }
+  panel.innerHTML = '<details class="node" open><summary>' + esc(names[entry.kind]) + "</summary>"
+    + '<dl class="loadDl">' + rows.map(([k, v]) => "<dt>" + esc(k) + "</dt><dd>" + esc(v) + "</dd>").join("") + "</dl>"
+    + (entry.index >= 0 ? field("ldName", "Name (id)", entry.id) + fields : "")
+    + (target ? '<button class="full" data-ld="show">Show in viewer</button>' : "")
+    + (entry.index >= 0 ? '<button class="full primary" data-ld="apply">Apply changes</button>' : "")
+    + (entry.kind === "gravity"
+      ? '<button class="full" data-ld="toggle">' + (entry.off ? "Switch on" : "Switch off") + "</button>"
+      : '<button class="full" data-ld="remove">Remove load</button>')
+    + "</details>";
+  panel.querySelectorAll("[data-ld]").forEach((b) => b.addEventListener("click", () => {
+    const act = b.dataset.ld;
+    if (act === "show") showGroup(target);
+    if (act === "toggle") setGravityOn(entry.off);
+    if (act === "remove") removeLoadEntry(entry);
+    if (act === "apply") applyLoadEdit(entry);
+  }));
+  showSidebarTab("loaddetail");
+  $("inspTitle").textContent = names[entry.kind] + " · " + entry.id;
+}
+/** Removes a load line and its id from the loads= lists of the steps. */
+function removeLoadEntry(entry) {
+  const lines = $("anScript").value.split(/\r?\n/);
+  if (entry.index >= 0) lines.splice(entry.index, 1);
+  $("anScript").value = lines.map((l) => analysisCommand(l) === "step" ? stepWithoutLoad(l, entry.id) : l).join("\n");
+  renderAnalysisConditions(); renderTree(); showSidebarTab("loads");
+}
+/** A step line without one load id in its loads= list (the list is dropped when it becomes empty). */
+function stepWithoutLoad(line, id) {
+  return line.replace(/\bloads=(\S+)/i, (m, list) => {
+    const rest = list.split(",").filter((x) => x && x !== id);
+    return rest.length ? "loads=" + rest.join(",") : "";
+  }).replace(/\s+$/, "");
+}
+/** Applies the edited values and name of a force, pressure or gravity line. */
+function applyLoadEdit(entry) {
+  const name = $("ldName") ? $("ldName").value.trim() : entry.id;
+  if (!/^[A-Za-z0-9_.-]+$/.test(name)) { show("The name may contain letters, digits, _ - .", "bad"); return; }
+  const taken = parseScript($("anScript").value).loads.some((l) => l.id === name && l.id !== entry.id);
+  if (taken) { show("A load named " + name + " already exists.", "bad"); return; }
+  let line = entry.line;
+  if (entry.kind === "force") {
+    const F = numList($("ldF").value, 3);
+    if (!F) { show("The total force requires three comma-separated numbers Fx,Fy,Fz.", "bad"); return; }
+    line = setLineKey(line, "F", F.join(","));
+  } else if (entry.kind === "pressure") {
+    const p = Number($("ldP").value);
+    if (!Number.isFinite(p) || $("ldP").value.trim() === "") { show("The pressure must be a number.", "bad"); return; }
+    line = setLineKey(line, "p", String(p));
+  } else {
+    const g = numList($("ldGravity").value, 3);
+    if (!g) { show("The acceleration requires three comma-separated numbers gx,gy,gz.", "bad"); return; }
+    line = setLineKey(line, "g", g.join(","));
+  }
+  if (entry.kind !== "gravity") {
+    const amp = $("ldAmp").value.trim();
+    if (amp && !/^[A-Za-z0-9_.-]+$/.test(amp)) { show("The amplitude name may contain letters, digits, _ - .", "bad"); return; }
+    line = setLineKey(line, "amp", amp);
+    line = setLineKey(line, "id", name);
+  }
+  $("anScript").value = renameLoadInScript($("anScript").value, entry.id, name, entry.index, line);
+  renderAnalysisConditions(); renderTree();
+  const fresh = scriptLoadEntries().find((e) => e.id === (entry.kind === "gravity" ? entry.id : name));
+  if (fresh) showLoadDetail(fresh);
+  show("Load " + name + " updated.", "good");
+}
 function sbNode(key, row, kids) {
   const wrap = document.createElement("div"); wrap.className = "sbgroup";
   const caret = document.createElement("button");
@@ -1401,14 +1643,15 @@ const SB_ADD = {
   cad: () => RIBBON_ACTIONS.cad(),
   mesh: () => focusSection("secMesh"),
   mat: () => { showSidebarTab("mat"); newKnownMaterial(); },
-  cons: () => focusFirst("cons"),
-  loads: () => focusFirst("loads"),
+  cons: () => assign("fix"),
+  loads: (e) => openLoadMenu(e.currentTarget),
   jobs: () => $("anScript").focus(),
 };
 /** @brief Opens the first section of a category panel. @param key data-spanel value of the panel */
 function focusFirst(key) {
   const d = document.querySelector(`.spanel[data-spanel="${key}"] > details`);
-  if (d) focusSection(d.id);
+  if (!d) return;
+  if (d.id) focusSection(d.id); else showSidebarTab(key);
 }
 /**
  * @brief One eye per material of the mesh: hides or shows the groups that carry that material.
@@ -1726,7 +1969,7 @@ function treeItem(label, key, kids = []) {
 }
 /**
  * @brief Rebuilds the model tree; every node starts closed. Categories: CAD (the imported part), Mesh (the meshes
- * of this session, then the groups), Material, Constraints (the fix lines of the script), Load cases (the loads of
+ * of this session, then the groups), Material, Constraints (the fix lines of the script), Loads (the loads of
  * the script) and Jobs (each job, its steps, and the loads each step uses).
  */
 function renderTree() {
@@ -1772,7 +2015,7 @@ function renderTree() {
   const subs = {
     cad: cadName ? "imported" : "none",
     mesh: meshRuns.length ? meshRuns.length + " · " + Number(shownRun.nodes).toLocaleString() + " nodes" : "not meshed",
-    cons: script.fixes.length ? script.fixes.length + " set" : "none",
+    cons: script.fixes.length + meshConstraints.length ? (script.fixes.length + meshConstraints.length) + " set" : "none",
     loads: script.loads.length ? script.loads.length + " set" : "none",
     jobs: script.jobs.length ? script.jobs.length + " · " + (solved ? "results" : "no results") : "none",
   };
@@ -1784,12 +2027,19 @@ function renderTree() {
     ]},
     {key: "mesh", label: "Mesh", kids: meshKids},
     {key: "mat", label: "Material", kids: m ? materialTreeKids(m.meta) : []},
-    {key: "cons", label: "Constraints", kids: script.fixes.map((f) => sbNode("fix:" + f.id,
-      sbRow({label: f.id + " · " + f.line.replace(/^fix\s*/i, ""), onPick: () => focusSection("condFix")}), []))},
-    {key: "loads", label: "Load cases", kids: script.loads.map((l) => treeItem(l.id + " · " + l.kind, "load:" + l.id))},
+    {key: "cons", label: "Constraints", kids: [
+      ...script.fixes.map((f) => sbNode("fix:" + f.id, sbRow({label: f.id, sub: f.line.replace(/^fix\s*/i, ""),
+        onPick: () => focusSection("condFix"), onRename: (name) => renameFix(f.id, name)}), [])),
+      ...meshConstraints.map((c, i) => sbNode("mc:" + i, sbRow({label: "mesh · " + c.dofs, sub: c.nodes + " nodes",
+        onPick: () => focusFirst("cons")}), [])),
+    ]},
+    {key: "loads", label: "Loads", kids: scriptLoadEntries().map((e) => sbNode("load:" + e.kind + ":" + e.id,
+      sbRow({label: e.id + " · " + e.kind + (e.off ? " (off)" : ""), onPick: () => showLoadDetail(e)}), []))},
     {key: "jobs", label: "Jobs", kids: jobKids, pick: () => $("anScript").focus()},
+    {key: "sel", label: "Selection", kids: []},
   ];
   cats.forEach(({key, label, kids, pick}) => {
+    if (key === "sel" && !selectionShown) return;
     const eye = eyes[key];
     const row = sbRow({label, onPick: pick || (() => showSidebarTab(key)), eyeState: eye && eye.state,
       onEye: eye ? eye.toggle : null, onAdd: SB_ADD[key], sub: subs[key] || ""});
@@ -1806,13 +2056,19 @@ function renderTree() {
 function syncTree() {
   readViewerVis();
   const m = viewerModel();
-  const sig = JSON.stringify([viewerSeq, m ? [...viewerVis.hidden].sort() : null, viewerVis.constraints, viewerVis.axes, viewerVis.deform, viewerVis.geometry, $("anScript").value, $("cadPath").value]);
+  const sig = JSON.stringify([viewerSeq, meshConstraints, m ? [...viewerVis.hidden].sort() : null, viewerVis.constraints, viewerVis.axes, viewerVis.deform, viewerVis.geometry, $("anScript").value, $("cadPath").value]);
   if (sig !== viewerSig) { viewerSig = sig; renderTree(); }
 }
 /**
  * @brief Shows one model setup category (CAD, Mesh, Material, Constraints, Load cases) and hides the others.
  * @param name category key, the data-spanel value of its panel
  */
+/** @brief Shows the Selection category in the sidebar and opens its options; called when the user asks for selection. */
+function openSelectionPanel() {
+  selectionShown = true;
+  renderTree();
+  showSidebarTab("sel");
+}
 function showSidebarTab(name) {
   sbActiveCat = name;
   highlightTree();
@@ -1849,11 +2105,14 @@ function focusSection(id) {
 $("inspClose").addEventListener("click", closeInspector);
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("inspector").hidden) closeInspector(); });
 renderTree();
+// The default gravity is added once the whole script has run (it uses constants declared further down).
+window.addEventListener("load", ensureGravityLine);
 setInterval(syncTree, 700);
 var RIBBON_EXTRA = {};
 RIBBON_EXTRA["pick-node"] = () => setPickMode("node");
 RIBBON_EXTRA["pick-element"] = () => setPickMode("element");
 RIBBON_EXTRA["pick-face"] = () => setPickMode("face");
+RIBBON_EXTRA["sel-options"] = () => openSelectionPanel();
 RIBBON_EXTRA["sel-clear"] = () => { const pk = pickApi(); if (pk) pk.clear(); syncRibbon(); };
 RIBBON_EXTRA["grp-make"] = () => { const sel = currentSelection(); if (sel) makeGroup(sel.mode); else show("Select nodes, elements or faces in the viewer first.", "bad"); };
 RIBBON_EXTRA["as-fix"] = () => assign("fix");
@@ -1908,7 +2167,7 @@ function logLines(lines, reset) {
 }
 async function analysisExample() {
   const r = await call("openmodel_default_analysis");
-  if (r.ok) { $("anScript").value = r.message; renderAnalysisConditions(); }
+  if (r.ok) { $("anScript").value = r.message; renderAnalysisConditions(); ensureGravityLine(); }
 }
 const analysisWrite = async () => {
   const synced = await act("openmodel_analysis_load", $("anScript").value);
@@ -1949,9 +2208,22 @@ Object.assign(RIBBON_EXTRA, {
 
 /* ---------------------------------------------------------------- selection and groups */
 const pickApi = () => { const w = viewerApi(); return w && w.OpenModelViewer && w.OpenModelViewer.pick && w.OpenModelViewer.pick.available() ? w.OpenModelViewer.pick : null; };
-function setPickMode(mode) { const pk = pickApi(); if (pk) pk.setMode(mode); syncRibbon(); }
+function setPickMode(mode) {
+  const pk = pickApi();
+  if (pk) { pk.setMode(mode); if (mode !== "off") openSelectionPanel(); }
+  syncRibbon();
+}
 function setPickAngle(v) { const pk = pickApi(); if (pk) pk.setAngle(v); }
-function setPickGrowth(v) { const pk = pickApi(); if (pk) pk.setGrowth(v); }
+/** Face growth: "Single face" selects the clicked element face only (angle 0, no hole walls); the others set the growth rule. */
+function setPickGrowth(v) {
+  const pk = pickApi(); if (!pk) return;
+  if (v === "single") {
+    pk.setGrowth("same-normal"); pk.setAngle(0); pk.setHoles(false);
+    $("selAngle").value = 0; $("selHoles").checked = false;
+    return;
+  }
+  pk.setGrowth(v);
+}
 function setPickHoles(on) { const pk = pickApi(); if (pk) pk.setHoles(on); }
 function setPickHoleArc(v) { const pk = pickApi(); if (pk) pk.setHoleArc(v); }
 function setPickBox(on) { const pk = pickApi(); if (pk) pk.setBox(on); }
@@ -1974,7 +2246,9 @@ function currentSelection() {
   return n ? sel : null;
 }
 const esc2 = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+let lastGroups = [];
 function renderGroups(groups) {
+  lastGroups = groups || [];
   const label = { node: "nodes", element: "elements", face: "faces" };
   $("grpList").innerHTML = groups.length ? groups.map((g, i) =>
     `<li style="display:flex;gap:6px;align-items:center;margin:2px 0"><span style="flex:1" title="group:${esc2(g.name)}"><b>${esc2(g.name)}</b> · ${g.count} ${label[g.kind]}</span><button data-group="${i}" style="padding:2px 8px">Show</button></li>`).join("")
@@ -1992,11 +2266,13 @@ function constraintValuesText() {
   return v.join(",");
 }
 function renderConstraints(list) {
+  meshConstraints = list || [];
   const names = ["ux", "uy", "uz", "rx", "ry", "rz"];
   $("cdList").innerHTML = list.length ? list.map((c) => {
     const val = c.values.map((x, i) => (c.mask & (1 << i)) && x !== 0 ? names[i] + "=" + x : "").filter(Boolean).join(" ");
     return `<li style="margin:2px 0"><b>${esc2(c.dofs)}</b> · ${c.nodes} nodes${val ? " · " + esc2(val) : ""}</li>`;
   }).join("") : '<li style="color:var(--muted)">No constraints.</li>';
+  renderTree();
 }
 async function refreshConstraints() { const r = await call("openmodel_constraint_list"); if (r && r.constraints) renderConstraints(r.constraints); }
 async function constraintApply() {
@@ -2125,7 +2401,6 @@ async function makeGroup(kind, name, prefix) {
   if (r && r.ok) { $("grpName").value = ""; }
   return r;
 }
-const ANALYSIS_COMMANDS = new Set(["material", "assign", "fix", "force", "pressure", "gravity", "amplitude", "job", "step", "output"]);
 function analysisCommand(line) {
   const text = line.trim();
   if (!text || text.startsWith("#")) return null;
@@ -2482,6 +2757,7 @@ function syncRibbon() {
   }
   $("selInfo").textContent = "Selection: " + selText + ".";
   if (document.activeElement !== $("selMode")) $("selMode").value = pickMode;
+  syncConstraintSize();
   $("selMode").disabled = busy || !has.pick;
   const on = M ? {
     def: S.defOn && !!M.disp, anim: !!S.animate, clip: S.clipOn,

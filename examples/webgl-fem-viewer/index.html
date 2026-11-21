@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head>
+<script>if (window.parent !== window) document.documentElement.classList.add("embedded");</script>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>OpenModel · FEM Viewer</title>
@@ -92,6 +93,10 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
   body { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, auto) minmax(0, 1fr); }
   aside { border-right: 0; border-bottom: 1px solid var(--line); max-height: min(42vh, 100%); }
 }
+/* Embedded in the OpenModel GUI: the GUI sidebar and ribbon already show the model info, view and colour options,
+   so the viewer keeps only the canvas. The section bar appears only while the section is on. */
+.embedded body { grid-template-columns: minmax(0, 1fr); }
+.embedded aside { display: none; }
 </style>
 </head>
 <body>
@@ -966,7 +971,8 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
   /** Brings the overlay in line with the sidebar inputs, which stay the single source of state. */
   function syncViewTools() {
     const ready = !!S.model;
-    $("viewTools").hidden = !ready;
+    // Embedded: the section bar (and its display row) appears only while the section plane is on.
+    $("viewTools").hidden = !ready || (document.documentElement.classList.contains("embedded") && !S.clipOn);
     if (!ready) { updateColorbar(); return; }
     const sec = !!S.clipOn;
     $("vtSection").setAttribute("aria-pressed", String(sec));

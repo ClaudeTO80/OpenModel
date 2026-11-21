@@ -1,5 +1,5 @@
 /**
- * @brief Smoke test of the workbench layout: the Selection card over the viewer and the status of the model tree.
+ * @brief Smoke test of the workbench layout: the Selection category shown in the sidebar only when requested, and the status of the model tree.
  *
  * A stub bridge answers one shown mesh run. The test checks that the Selection controls moved from the sidebar into
  * the card over the viewer (same ids, still working) and that each tree category shows its state.
@@ -34,20 +34,36 @@ function check(ok, msg) { if (!ok) throw new Error("check failed: " + msg); cons
     await page.evaluate(() => refreshMeshRuns());
     await page.waitForTimeout(800);
 
-    const layout = await page.evaluate(() => {
-      const card = document.getElementById("selectionOverlay");
+    // Selection is hidden until requested: no Selection row in the tree, and its controls sit in a hidden sidebar panel.
+    const before = await page.evaluate(() => {
       const sel = document.getElementById("selMode");
-      const inCard = !!card && !!sel && card.contains(sel);
-      const sidebar = document.querySelector("aside");
+      const panel = document.querySelector('.spanel[data-spanel="sel"]');
       return {
-        inMain: !!card && card.parentElement.tagName === "MAIN",
-        inCard,
-        outsideSidebar: !!sidebar && !sidebar.contains(sel),
-        mesh: [...document.querySelectorAll(".sbrow")].map((row) => [row.querySelector(".sbname")?.textContent, row.querySelector(".sbsub")?.textContent]),
+        noOverlay: !document.getElementById("selectionOverlay"),
+        inPanel: !!panel && panel.contains(sel) && panel.closest("#inspBody") !== null,
+        panelHidden: !!panel && panel.hidden,
+        rows: [...document.querySelectorAll(".sbrow")].map((row) => row.querySelector(".sbname")?.textContent),
       };
     });
-    check(layout.inMain, "the Selection card sits over the viewer, inside the main area");
-    check(layout.inCard && layout.outsideSidebar, "the Selection controls moved out of the sidebar into the card");
+    check(before.noOverlay && before.inPanel, "the Selection controls are in the sidebar panel, not in an overlay over the viewer");
+    check(!before.rows.includes("Selection"), "the Selection category is not in the tree until it is requested");
+
+    // Requested (ribbon Selection > Options): the category appears and its panel opens on the left.
+    await page.evaluate(() => openSelectionPanel());
+    await page.waitForTimeout(200);
+    const after = await page.evaluate(() => {
+      const insp = document.getElementById("inspector");
+      const r = insp.getBoundingClientRect(), m = document.querySelector("main").getBoundingClientRect();
+      return {
+        open: !insp.hidden,
+        onLeft: r.left - m.left < 5 && r.width < m.width,
+        hasSel: document.getElementById("inspBody").contains(document.getElementById("selMode")),
+        rows: [...document.querySelectorAll(".sbrow")].map((row) => [row.querySelector(".sbname")?.textContent, row.querySelector(".sbsub")?.textContent]),
+      };
+    });
+    check(after.open && after.onLeft && after.hasSel, "requested, the Selection options open on the left, in the sidebar details");
+    check(after.rows.some(([n]) => n === "Selection"), "requested, the Selection category appears in the tree");
+    const layout = { mesh: after.rows };
     const byName = Object.fromEntries(layout.mesh.filter(([n]) => n));
     check(byName["Mesh"] === "1 · 61,436 nodes", "the Mesh category shows its mesh count and nodes");
     check(byName["Constraints"] === "none" && byName["Jobs"] === "none", "empty categories say none");
