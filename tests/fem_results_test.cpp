@@ -1137,6 +1137,39 @@ void testDatBindingAndMerge() {
 
 } // namespace
 
+/**
+ * A coordinate that is zero in the mesh may come back from the solver with a wrong magnitude (see ResultBinding.cpp).
+ * A small difference there is accepted with a warning; a large one still rejects the results.
+ */
+void testZeroCoordinateArtefacts() {
+    const MeshData mesh = makeMesh();
+    std::size_t target = mesh.getNumNodes();
+    for (std::size_t i = 0; i < mesh.getNumNodes() && target == mesh.getNumNodes(); ++i)
+        if (mesh.nodeCoordinates(static_cast<NodeIndex>(i))[1] == 0.0) target = i;
+    CHECK(target < mesh.getNumNodes());
+    if (target == mesh.getNumNodes()) return;
+    const NodeId id = mesh.nodeId(static_cast<NodeIndex>(target));
+
+    auto resultWithY = [&](double y) {
+        FemResults out;
+        CHECK(parseFrd(makeResultFile(mesh), out));
+        for (std::size_t i = 0; i < out.modelNodeIds.size(); ++i)
+            if (out.modelNodeIds[i] == id) out.modelCoordinates[i][1] = y;
+        return out;
+    };
+
+    const FemResults artefact = resultWithY(0.05);   // about 0.5% of the model size, not zero
+    WebViewOptions view;
+    auto b = bindResults(mesh, artefact, BindOptions{}, view);
+    CHECK(b.success && hasCode(b.diagnostics, "BIND_ZERO_COORDINATES") && !hasCode(b.diagnostics, "BIND_COORDINATES"));
+    CHECK(!view.fields.empty());
+
+    const FemResults real = resultWithY(0.5);        // about 5% of the model size: a different mesh
+    WebViewOptions untouched;
+    b = bindResults(mesh, real, BindOptions{}, untouched);
+    CHECK(!b.success && b.error.find("different mesh") != std::string::npos && untouched.fields.empty());
+}
+
 int main() {
     testFrdParsing();
     testFrdNumbersAndContinuation();
@@ -1146,6 +1179,7 @@ int main() {
     testCsv();
     testBinding();
     testBindingPartialData();
+    testZeroCoordinateArtefacts();
     testWebViewIntegration();
     testTensorInvariants();
     testElementResults();
