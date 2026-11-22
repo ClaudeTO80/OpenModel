@@ -54,7 +54,8 @@ openmodel validate-demo
 openmodel demo-inp <output.inp>
 openmodel demo-gltf <output.gltf>   |   demo-glb <output.glb>
 openmodel demo-web <output.mgwv> [cells-per-side]
-openmodel export-web <input.mgmb|input.inp|input.mail> <output.mgwv> [--no-interior] [--field x|y|z|r]
+openmodel convert <input.omb|input.mgmb|input.inp|input.mail> <output.omb|.mgmb|.inp> [--coords exact|q16|q32]   # MGOM; --coords only for .omb
+openmodel export-web <input.omb|input.mgmb|input.inp|input.mail> <output.mgwv> [--no-interior] [--field x|y|z|r]
                      [--results <file.frd|file.dat|file.csv> ...] [--step N] [--displacement NAME|none] [--modes N]
                      [--engineering-strain] [--no-derived] [--no-coordinate-check]
 openmodel results-info <file.frd|file.dat|file.csv> [more files, merged]
@@ -63,7 +64,7 @@ openmodel solve <mesh.mgmb|mesh.inp> <analysis.txt> <workdir> [--solver ccx-path
 openmodel export-aster <mesh> <analysis.txt> <dir> [--job NAME] [--solver MUMPS] [--cpus N] [--memory MB] [--time S]
 openmodel solve-aster <mesh> <analysis.txt> <dir> [--launcher run_aster] [--web out.mgwv]
 openmodel export-mail <mesh> <out.mail>
-openmodel mesh-volume <input.step|input.iges|input.brep> <output.inp|.mgmb|.mgwv> <max-element-size> [order]   # only with the Gmsh backend
+openmodel mesh-volume <input.step|input.iges|input.brep> <output.inp|.omb|.mgmb|.mgwv> <max-element-size> [order]   # only with the Gmsh backend
 ```
 
 Example: load a CalculiX result on its mesh and view it.
