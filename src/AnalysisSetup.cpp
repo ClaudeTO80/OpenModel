@@ -223,6 +223,19 @@ struct Parser {
             p.id = conditionId("pressure", keys);
             leftovers();
             if (result.diagnostics.size() == errorsBefore) result.model.pressures.push_back(p);
+        } else if (command == "distributed") {
+            DistributedLoad d;
+            NodeSelector sel;
+            if (positional.size() != 1 || !selector(positional[0], sel) || sel.kind != SelectorKind::Group) {
+                error("SCRIPT_SELECTOR", "distributed needs a surface group: distributed group:NAME F=fx,fy,fz");
+                return;
+            }
+            d.group = sel.name;
+            vector3("f", d.total);
+            take("amp", d.amplitude);
+            d.id = conditionId("distributed", keys);
+            leftovers();
+            if (result.diagnostics.size() == errorsBefore) result.model.distributed.push_back(d);
         } else if (command == "gravity") {
             std::array<double, 3> g{};
             if (!positional.empty()) error("SCRIPT_UNEXPECTED", "Unexpected '" + positional[0] + "' after gravity");
@@ -370,6 +383,7 @@ AnalysisParseResult parseAnalysisScript(const std::string& text) {
         std::set<std::string> loadIds;
         for (const auto& f : p.result.model.forces) loadIds.insert(f.id);
         for (const auto& q : p.result.model.pressures) loadIds.insert(q.id);
+        for (const auto& d : p.result.model.distributed) loadIds.insert(d.id);
         if (p.result.model.hasGravity) loadIds.insert(kGravityLoadId);
         for (const auto& job : p.result.model.jobs)
             for (const auto& step : job.steps)
@@ -384,6 +398,8 @@ AnalysisParseResult parseAnalysisScript(const std::string& text) {
         if (!known(f.amplitude)) p.error("SCRIPT_UNKNOWN_AMPLITUDE", "force uses amplitude '" + f.amplitude + "' that is not defined");
     for (const auto& q : p.result.model.pressures)
         if (!known(q.amplitude)) p.error("SCRIPT_UNKNOWN_AMPLITUDE", "pressure uses amplitude '" + q.amplitude + "' that is not defined");
+    for (const auto& d : p.result.model.distributed)
+        if (!known(d.amplitude)) p.error("SCRIPT_UNKNOWN_AMPLITUDE", "distributed uses amplitude '" + d.amplitude + "' that is not defined");
     p.result.success = std::none_of(p.result.diagnostics.begin(), p.result.diagnostics.end(),
                                     [](const ImportDiagnostic& d) { return d.level == ImportDiagnosticLevel::Error; });
     return std::move(p.result);
@@ -448,6 +464,13 @@ std::string serializeAnalysisScript(const AnalysisModel& model) {
         if (!pressure.id.empty()) out << " id=" << pressure.id;
         out << " group:" << pressure.group << " p=" << pressure.pressure;
         if (!pressure.amplitude.empty()) out << " amp=" << pressure.amplitude;
+        out << '\n';
+    }
+    for (const auto& d : model.distributed) {
+        out << "distributed";
+        if (!d.id.empty()) out << " id=" << d.id;
+        out << " group:" << d.group << " F=" << d.total[0] << ',' << d.total[1] << ',' << d.total[2];
+        if (!d.amplitude.empty()) out << " amp=" << d.amplitude;
         out << '\n';
     }
     if (model.hasGravity)
@@ -530,6 +553,7 @@ std::vector<std::string> activeLoadIds(const AnalysisModel& m, const AnalysisSte
     if (step.allLoads) {
         for (const auto& f : m.forces) all.push_back(f.id);
         for (const auto& p : m.pressures) all.push_back(p.id);
+        for (const auto& d : m.distributed) all.push_back(d.id);
         if (m.hasGravity) all.push_back(kGravityLoadId);
         return all;
     }
@@ -914,6 +938,99 @@ int surfaceCorners(ElementType type) {
     }
 }
 
+/** A boundary face of the solid: volume element, CalculiX face number (1-based) and its corner nodes in CalculiX order. */
+struct BoundaryFace {
+    ElementId element = 0;
+    int face = 0;
+    std::vector<NodeIndex> corners;
+};
+
+/** Area of a face given by its corners: a fan of triangles from the first corner (exact for triangles, planar quads). */
+double faceArea(const MeshData& mesh, const std::vector<NodeIndex>& corners) {
+    double area = 0.0;
+    const auto p0 = mesh.nodeCoordinates(corners[0]);
+    for (std::size_t k = 1; k + 1 < corners.size(); ++k) {
+        const auto p1 = mesh.nodeCoordinates(corners[k]);
+        const auto p2 = mesh.nodeCoordinates(corners[k + 1]);
+        const double ux = p1[0] - p0[0], uy = p1[1] - p0[1], uz = p1[2] - p0[2];
+        const double vx = p2[0] - p0[0], vy = p2[1] - p0[1], vz = p2[2] - p0[2];
+        const double cx = uy * vz - uz * vy, cy = uz * vx - ux * vz, cz = ux * vy - uy * vx;
+        area += 0.5 * std::sqrt(cx * cx + cy * cy + cz * cz);
+    }
+    return area;
+}
+
+/**
+ * Boundary faces of the volume elements that coincide with the surface elements of the physical group `name` (or of a
+ * generic mesh group of dimension 2). Same matching as the pressure loads; each face is listed with its element and its
+ * corner nodes, so that its area can be computed.
+ */
+bool resolveSurfaceFaces(const MeshData& mesh, const MeshData& solid, const std::string& name, std::vector<BoundaryFace>& out, std::string& error) {
+    const std::vector<ElementId>* members = nullptr;
+    int dimension = -1;
+    for (const auto& g : mesh.getPhysicalGroups())
+        if (g.name == name) { members = &g.elementIds; dimension = g.dimension; break; }
+    if (!members)
+        for (const auto& g : mesh.getPhysicalGroups())
+            if (lowered(g.name) == lowered(name)) { members = &g.elementIds; dimension = g.dimension; break; }
+    if (!members) {
+        const MeshGroup* generic = mesh.getMeshGroupRegistry().find(name);
+        if (!generic)
+            for (const auto& g : mesh.getMeshGroupRegistry().groups())
+                if (lowered(g.name) == lowered(name)) { generic = &g; break; }
+        if (generic) { members = &generic->elementIds; dimension = generic->dimension; }
+    }
+    if (!members) { error = "unknown surface group '" + name + "'"; return false; }
+    if (dimension != 2) { error = "group '" + name + "' is not a surface group (dimension " + std::to_string(dimension) + ")"; return false; }
+    if (members->empty()) { error = "surface group '" + name + "' has no surface elements"; return false; }
+
+    struct Record { ElementId element; int face; std::vector<NodeIndex> corners; };
+    std::map<std::array<NodeIndex, 4>, std::vector<Record>> faces;
+    for (const auto& block : solid.getElementBlocks()) {
+        const auto table = faceTable(block.type);
+        if (table.empty()) continue;
+        for (std::size_t e = 0; e < block.size(); ++e)
+            for (std::size_t f = 0; f < table.size(); ++f) {
+                std::array<NodeIndex, 4> key{{~NodeIndex(0), ~NodeIndex(0), ~NodeIndex(0), ~NodeIndex(0)}};
+                Record record{block.ids[e], static_cast<int>(f) + 1, {}};
+                for (std::size_t k = 0; k < table[f].size(); ++k) {
+                    const NodeIndex n = block.connectivity[e * block.nodesPerElement + static_cast<std::size_t>(table[f][k])];
+                    key[k] = n;
+                    record.corners.push_back(n);
+                }
+                std::sort(key.begin(), key.begin() + static_cast<std::ptrdiff_t>(table[f].size()));
+                faces[key].push_back(std::move(record));
+            }
+    }
+    std::unordered_map<ElementId, std::pair<const ElementBlock*, std::size_t>> location;
+    for (const auto& block : mesh.getElementBlocks())
+        for (std::size_t e = 0; e < block.size(); ++e) location.emplace(block.ids[e], std::make_pair(&block, e));
+
+    std::size_t unmatched = 0, shared = 0;
+    for (const ElementId id : *members) {
+        const auto at = location.find(id);
+        const int corners = at == location.end() ? 0 : surfaceCorners(at->second.first->type);
+        if (corners == 0) { ++unmatched; continue; }
+        const auto& block = *at->second.first;
+        std::array<NodeIndex, 4> key{{~NodeIndex(0), ~NodeIndex(0), ~NodeIndex(0), ~NodeIndex(0)}};
+        for (int k = 0; k < corners; ++k) key[static_cast<std::size_t>(k)] = block.connectivity[at->second.second * block.nodesPerElement + static_cast<std::size_t>(k)];
+        std::sort(key.begin(), key.begin() + corners);
+        const auto hit = faces.find(key);
+        if (hit == faces.end()) { ++unmatched; continue; }
+        if (hit->second.size() != 1) { ++shared; continue; }
+        out.push_back(BoundaryFace{hit->second[0].element, hit->second[0].face, hit->second[0].corners});
+    }
+    if (unmatched) {
+        error = std::to_string(unmatched) + " surface element(s) of '" + name + "' are not faces of a tetrahedron/hexahedron";
+        return false;
+    }
+    if (shared) {
+        error = std::to_string(shared) + " surface element(s) of '" + name + "' lie between two volume elements; a load needs a boundary surface";
+        return false;
+    }
+    return true;
+}
+
 std::string idList(const MeshData& mesh, const std::vector<NodeIndex>& nodes) {
     std::ostringstream out;
     std::size_t count = 0;
@@ -969,6 +1086,9 @@ SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& sc
     for (const auto& p : model.pressures)
         if (!p.amplitude.empty() && !std::any_of(model.amplitudes.begin(), model.amplitudes.end(), [&](const AnalysisAmplitude& a) { return a.name == p.amplitude; }))
             return failed(r, "pressure uses the undefined amplitude '" + p.amplitude + "'");
+    for (const auto& d : model.distributed)
+        if (!d.amplitude.empty() && !std::any_of(model.amplitudes.begin(), model.amplitudes.end(), [&](const AnalysisAmplitude& a) { return a.name == d.amplitude; }))
+            return failed(r, "distributed uses the undefined amplitude '" + d.amplitude + "'");
     bool anyNonFrequency = false;
     for (std::size_t s = 0; s < job->steps.size(); ++s) {
         const auto& step = job->steps[s];
@@ -978,8 +1098,8 @@ SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& sc
         if (step.type != StepType::Frequency) anyNonFrequency = true;
         if (step.type == StepType::Frequency && gravityActive)
             note(r, ImportDiagnosticLevel::Warning, "ANALYSIS_GRAVITY_IGNORED", label + ": loads (gravity included) have no effect in a frequency step");
-        if (step.type == StepType::Frequency && (!model.forces.empty() || !model.pressures.empty()) && !active.empty())
-            note(r, ImportDiagnosticLevel::Warning, "ANALYSIS_LOADS_IGNORED", label + ": forces and pressures have no effect in a frequency step");
+        if (step.type == StepType::Frequency && (!model.forces.empty() || !model.pressures.empty() || !model.distributed.empty()) && !active.empty())
+            note(r, ImportDiagnosticLevel::Warning, "ANALYSIS_LOADS_IGNORED", label + ": forces, pressures and distributed loads have no effect in a frequency step");
         if (step.type == StepType::Static && active.empty())
             note(r, ImportDiagnosticLevel::Warning, "ANALYSIS_NO_LOAD", label + " has no active load: its results will be zero (apart from the carried loads)");
         if (step.type == StepType::Frequency && model.supports.empty())
@@ -1183,6 +1303,32 @@ SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& sc
         r.pressureFaces = faceLoads.size();
     }
 
+    // Distributed loads: the force of a set of faces is shared in proportion to the area of each face, so the traction is
+    // uniform over the set. Each face gives its share to its corner nodes. The total is exact; the split among the nodes
+    // is the consistent one for linear faces only (a quadratic mesh still receives the total, on its corner nodes).
+    std::vector<std::vector<std::pair<NodeIndex, std::array<double, 3>>>> distributedNodal(model.distributed.size());
+    for (std::size_t j = 0; j < model.distributed.size(); ++j) {
+        const auto& d = model.distributed[j];
+        std::vector<BoundaryFace> faces;
+        std::string why;
+        if (!resolveSurfaceFaces(mesh, solid, d.group, faces, why)) return failed(r, "distributed: " + why);
+        std::vector<double> areas;
+        double total = 0.0;
+        for (const auto& f : faces) { areas.push_back(faceArea(mesh, f.corners)); total += areas.back(); }
+        if (!(total > 0.0)) return failed(r, "distributed: surface group '" + d.group + "' has no area");
+        std::map<NodeIndex, std::array<double, 3>> share;
+        for (std::size_t i = 0; i < faces.size(); ++i) {
+            const auto& corners = faces[i].corners;
+            const double fraction = areas[i] / total / static_cast<double>(corners.size());
+            for (const NodeIndex n : corners)
+                for (std::size_t k = 0; k < 3; ++k) share[n][k] += d.total[k] * fraction;
+        }
+        distributedNodal[j].assign(share.begin(), share.end());
+    }
+    if (quadratic && !model.distributed.empty())
+        note(r, ImportDiagnosticLevel::Warning, "ANALYSIS_DISTRIBUTED_QUADRATIC",
+             "Distributed loads on a quadratic mesh: the total is exact, but it is shared by the corner nodes only (mid-side nodes get nothing)");
+
     // Write: the mesh through the existing writer, then the model.
     {
         AbaqusWriteOptions options;
@@ -1262,6 +1408,8 @@ SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& sc
             std::vector<std::string> amplitudeNames{""};
             for (const auto& f : model.forces)
                 if (std::find(amplitudeNames.begin(), amplitudeNames.end(), f.amplitude) == amplitudeNames.end()) amplitudeNames.push_back(f.amplitude);
+            for (const auto& d : model.distributed)
+                if (std::find(amplitudeNames.begin(), amplitudeNames.end(), d.amplitude) == amplitudeNames.end()) amplitudeNames.push_back(d.amplitude);
             for (const auto& name : amplitudeNames) {
                 std::ostringstream lines;
                 for (std::size_t i = 0; i < model.forces.size(); ++i) {
@@ -1275,6 +1423,16 @@ SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& sc
                     } else if (isZeroed(f.id)) {
                         for (int d = 0; d < 3; ++d) lines << "MG_LOAD" << i + 1 << ", " << d + 1 << ", 0\n";
                     }
+                }
+                for (std::size_t j = 0; j < model.distributed.size(); ++j) {
+                    const auto& d = model.distributed[j];
+                    if (d.amplitude != name) continue;
+                    for (const auto& [node, value] : distributedNodal[j])
+                        for (int k = 0; k < 3; ++k) {
+                            const double v = value[static_cast<std::size_t>(k)];
+                            if (isWritten(d.id)) { if (v != 0.0) lines << mesh.nodeId(node) << ", " << k + 1 << ", " << v << "\n"; }
+                            else if (isZeroed(d.id)) lines << mesh.nodeId(node) << ", " << k + 1 << ", 0\n";
+                        }
                 }
                 if (lines.str().empty()) continue;
                 out << "*CLOAD" << (name.empty() ? "" : ", AMPLITUDE=" + name) << "\n" << lines.str();
@@ -1337,6 +1495,7 @@ SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& sc
     if (r.fixedNodes) summary << "; " << r.fixedNodes << " constrained nodes";
     if (r.loadedNodes) summary << "; force on " << r.loadedNodes << " nodes";
     if (r.pressureFaces) summary << "; pressure on " << r.pressureFaces << " faces";
+    if (!model.distributed.empty()) summary << "; " << model.distributed.size() << " distributed load(s)";
     if (model.hasGravity) summary << "; gravity";
     if (!model.amplitudes.empty()) summary << "; " << model.amplitudes.size() << " amplitude(s)";
     r.summary = summary.str();

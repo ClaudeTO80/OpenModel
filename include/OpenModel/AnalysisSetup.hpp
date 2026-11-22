@@ -29,6 +29,7 @@
  * fix group:BladeRoot_NODES dof=1,2,3           # Node Set generated from a CAD face group
  * force plane:x=10 F=0,-100,0                   # total force, shared equally by the selected nodes
  * pressure group:Top p=2.5                      # on a dimension-2 surface group; positive = pushing into the body
+ * distributed group:Top F=0,0,-40 [amp=NAME]    # total force of a dimension-2 group, shared by its faces in proportion to area
  * gravity g=0,0,-9810                           # acceleration vector (needs rho)
  * job SETTLE                                    # starts a job (one solver session); steps below belong to it
  * step static loads=F1,P1                       # only the listed loads are active; ids come from the lines above
@@ -123,6 +124,20 @@ struct SurfacePressure {
     std::string amplitude;     ///< Optional amplitude name (empty = constant load).
 };
 
+/**
+ * @brief A total force distributed over a set of boundary faces.
+ *
+ * The faces of `group` (dimension 2) share the force in proportion to their area, so the traction is uniform over the
+ * set (total / area). Each face hands its share to its corner nodes. The force is in global axes; the units are the
+ * model's own, and keeping them consistent is up to whoever builds the model.
+ */
+struct DistributedLoad {
+    std::string id;                               ///< Stable condition identifier.
+    std::string group;                            ///< Physical group of surface elements (dimension 2): the faces.
+    std::array<double, 3> total{{0.0, 0.0, 0.0}}; ///< Whole force of the set.
+    std::string amplitude;                        ///< Optional amplitude name (empty = constant load).
+};
+
 enum class StepType {
     Static,     ///< *STATIC: linear static analysis, the loads are ramped over the step.
     Frequency,  ///< *FREQUENCY: natural modes; loads are ignored.
@@ -150,7 +165,7 @@ struct AnalysisStep {
     double dynamicMaxIncrement = 0.0;
     /** True: every load of the model is active in the step (the default). False: only `loads` are active. */
     bool allLoads = true;
-    std::vector<std::string> loads;   ///< Ids of the active loads (forces, pressures, kGravityLoadId) when !allLoads.
+    std::vector<std::string> loads;   ///< Ids of the active loads (forces, pressures, distributed, kGravityLoadId) when !allLoads.
     bool resetLoads = false;          ///< Set the loads of previous steps that are not active here to zero.
 };
 
@@ -176,6 +191,7 @@ struct AnalysisModel {
     std::vector<FixedSupport> supports;
     std::vector<NodalForce> forces;
     std::vector<SurfacePressure> pressures;
+    std::vector<DistributedLoad> distributed;   ///< `distributed` lines: a total force over a face group.
     std::vector<RigidLink> rigidLinks; ///< Written after the supports; shared by all jobs.
     bool hasGravity = false;
     std::array<double, 3> gravity{{0.0, 0.0, 0.0}};

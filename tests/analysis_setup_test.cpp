@@ -13,6 +13,7 @@
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include <set>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -627,6 +628,117 @@ void testTimeLoadsAndDynamic() {
     }
 }
 
+/** Totals of the numeric rows of the *CLOAD cards of a deck (`node, dof, value`), the nodes they touch and the card count. */
+struct CloadTotals {
+    std::array<double, 3> total{{0.0, 0.0, 0.0}};
+    std::set<long> nodes;
+    int cards = 0;
+};
+
+CloadTotals sumCloads(const std::string& text) {
+    CloadTotals out;
+    std::istringstream in(text);
+    std::string line;
+    bool inCload = false;
+    while (std::getline(in, line)) {
+        if (!line.empty() && line[0] == '*') {
+            inCload = line.rfind("*CLOAD", 0) == 0;
+            if (inCload) ++out.cards;
+            continue;
+        }
+        if (!inCload || line.empty() || !std::isdigit(static_cast<unsigned char>(line[0]))) continue;
+        std::istringstream row(line);
+        std::string node, dof, value;
+        std::getline(row, node, ',');
+        std::getline(row, dof, ',');
+        std::getline(row, value, ',');
+        out.nodes.insert(std::stol(node));
+        out.total[static_cast<std::size_t>(std::stoi(dof) - 1)] += std::stod(value);
+    }
+    return out;
+}
+
+bool near(double a, double b) { return std::fabs(a - b) < 1e-9; }
+
+void testDistributedLoads() {
+    const fs::path dir = tempDir();
+    const std::string base = "material E=210000 nu=0.3\nfix group:Bottom\n";
+
+    // Parser: ids, group, total force and amplitude; the generated id follows the other kinds.
+    const auto parsed = parseOk("amplitude name=A1 t=0,0,1,1\n" + base +
+                                "distributed id=shear group:Top F=10,0,-40 amp=A1\n"
+                                "distributed group:Right F=0,5,0\n"
+                                "step static loads=shear\n");
+    CHECK(parsed.distributed.size() == 2);
+    CHECK(parsed.distributed.size() == 2 && parsed.distributed[0].id == "shear" && parsed.distributed[0].group == "Top");
+    CHECK(parsed.distributed.size() == 2 && near(parsed.distributed[0].total[0], 10.0) && near(parsed.distributed[0].total[2], -40.0));
+    CHECK(parsed.distributed.size() == 2 && parsed.distributed[0].amplitude == "A1");
+    CHECK(parsed.distributed.size() == 2 && parsed.distributed[1].id == "distributed-1" && near(parsed.distributed[1].total[1], 5.0));
+
+    // Round trip through the script, with the ids kept.
+    const auto again = parseAnalysisScript(serializeAnalysisScript(parsed));
+    CHECK(again.success);
+    CHECK(again.model.distributed.size() == 2 && again.model.distributed[0].id == "shear" &&
+          again.model.distributed[0].amplitude == "A1" && near(again.model.distributed[0].total[2], -40.0));
+
+    // Writer: the force of a two-face group is shared by area (equal faces here) and the total is exact.
+    MeshData hex = makeHex();
+    hex.addPhysicalGroup("Both", 2, 5, {102, 103});   // Top (z=1) and Right (x=1), both of area 1
+    const auto both = parseOk(base + "distributed group:Both F=12,-6,-30\nstep static\n");
+    const auto rBoth = writeSolverInput(hex, both, dir / "both.inp");
+    CHECK(rBoth.success);
+    if (!rBoth.success) std::cerr << rBoth.error << "\n";
+    const std::string tBoth = slurp(dir / "both.inp");
+    const auto sumBoth = sumCloads(tBoth);
+    CHECK(sumBoth.cards == 1);                                   // one *CLOAD card, no amplitude
+    CHECK(contains(tBoth, "*CLOAD\n"));
+    CHECK(sumBoth.nodes.size() == 6);                            // Top 15-18 and Right 12, 13 (16, 17 shared)
+    CHECK(near(sumBoth.total[0], 12.0) && near(sumBoth.total[1], -6.0) && near(sumBoth.total[2], -30.0));
+    CHECK(contains(tBoth, "15, 3, -3.75\n"));                    // (1/2 of the face) / 4 corners of -30 = -3.75
+    CHECK(contains(tBoth, "16, 3, -7.5\n"));                     // shared by Top and Right: twice -3.75
+
+    // Amplitude: the card carries the amplitude name; the total is still exact.
+    const auto timed = parseOk("amplitude name=A1 t=0,0,1,1\n" + base + "distributed group:Top F=0,0,-40 amp=A1\nstep static\n");
+    const auto rTimed = writeSolverInput(hex, timed, dir / "timed.inp");
+    CHECK(rTimed.success);
+    const std::string tTimed = slurp(dir / "timed.inp");
+    CHECK(contains(tTimed, "*CLOAD, AMPLITUDE=A1\n"));
+    const auto sumTimed = sumCloads(tTimed);
+    CHECK(near(sumTimed.total[0], 0.0) && near(sumTimed.total[1], 0.0) && near(sumTimed.total[2], -40.0));
+    CHECK(sumTimed.nodes.size() == 4);
+
+    // Triangles: a tetrahedron with two faces of area 0.5 each; the total stays exact.
+    MeshData tet = makeTet();
+    tet.addPhysicalGroup("T12", 2, 5, {11, 12});
+    const auto tetLoad = parseOk("material E=210000 nu=0.3\nfix all dof=1,2,3\ndistributed group:T12 F=0,0,-1\nstep static\n");
+    const auto rTet = writeSolverInput(tet, tetLoad, dir / "tet.inp");
+    CHECK(rTet.success);
+    const auto sumTet = sumCloads(slurp(dir / "tet.inp"));
+    CHECK(near(sumTet.total[0], 0.0) && near(sumTet.total[1], 0.0) && near(sumTet.total[2], -1.0));
+
+    // Frequency steps ignore it, and a step names it like any other load.
+    const auto unknownLoad = parseAnalysisScript(base + "distributed group:Top F=1,0,0\nstep static loads=missing\n");
+    CHECK(!unknownLoad.success && hasCode(unknownLoad.diagnostics, "SCRIPT_UNKNOWN_LOAD"));
+    const auto undefinedAmp = parseAnalysisScript(base + "distributed group:Top F=1,0,0 amp=Z\n");
+    CHECK(!undefinedAmp.success && hasCode(undefinedAmp.diagnostics, "SCRIPT_UNKNOWN_AMPLITUDE"));
+    CHECK(!parseAnalysisScript(base + "distributed all F=1,0,0\n").success);
+    CHECK(!parseAnalysisScript(base + "distributed group:Top\n").success);     // no force
+
+    // Writer errors: a volume group, an unknown group, an undefined amplitude (checked by the writer too).
+    CHECK(contains(writeSolverInput(hex, parseOk(base + "distributed group:Body F=1,0,0\nstep static\n"), dir / "x.inp").error,
+                   "not a surface group"));
+    CHECK(contains(writeSolverInput(hex, parseOk(base + "distributed group:Nope F=1,0,0\nstep static\n"), dir / "x.inp").error,
+                   "unknown surface group"));
+
+    // code_aster does not write distributed loads yet: it refuses them instead of dropping them.
+    CodeAsterOptions options;
+    options.jobName = "dist";
+    CHECK(!writeCodeAsterCase(hex, both, dir, options).success);
+    CHECK(contains(writeCodeAsterCase(hex, both, dir, options).error, "Distributed loads"));
+
+    fs::remove_all(dir);
+}
+
 void testJobsStepsAndLoads() {
     const std::string common = "material E=210000 nu=0.3 rho=7.85e-9\n"
                                "fix group:Bottom\n"
@@ -857,6 +969,7 @@ int main() {
     testTimeLoadsAndDynamic();
     testPartMaterials();
     testJobsStepsAndLoads();
+    testDistributedLoads();
     testRunner();
     if (g_failures) {
         std::cerr << g_failures << " check(s) failed\n";

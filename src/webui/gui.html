@@ -233,6 +233,7 @@ details.node details.node{margin-top:8px;background:transparent}
       <button class="rb" data-act="as-fix" data-need="sel" title="Create a node group and add 'fix' to the script (degrees of freedom: section 7)"><span class="ic">⚓</span>Fix</button>
       <button class="rb" data-act="as-force" data-need="sel" title="Create a node group and add 'force' to the script"><span class="ic">➡</span>Force</button>
       <button class="rb" data-act="as-press" data-need="selface" title="Create a face group and add 'pressure' to the script (only with faces selected)"><span class="ic">⬇</span>Pressure</button>
+      <button class="rb" data-act="as-dist" data-need="selface" title="Create a face group and add 'distributed' to the script: the total force is shared by the selected faces in proportion to their area (only with faces selected)"><span class="ic">▦</span>Distributed</button>
     </div><div class="gname">Groups and loads</div></div>
     <div class="group"><div class="items">
       <button class="rb" data-act="cd-apply" data-need="sel" title="Block the degrees of freedom ticked in the side panel (Mesh constraints) on the nodes of the selection"><span class="ic">🔒</span>Constrain</button>
@@ -612,8 +613,8 @@ details.node details.node{margin-top:8px;background:transparent}
       <input id="asPress" value="1">
       <label for="asAmp">Amplitude (optional name, see Time dependence)</label>
       <input id="asAmp" placeholder="empty = constant load">
-      <div class="grid2"><button id="btnAsForce" onclick="assign('force')">Force on nodes</button><button id="btnAsPress" onclick="assign('press')">Pressure on faces</button></div>
-      <p class="hint">Force acts on the selected nodes, pressure on the selected faces. Each assignment appends the line to the script. A load with an amplitude is multiplied by the factor of that amplitude at the time of the step.</p>
+      <div class="grid2"><button id="btnAsForce" onclick="assign('force')">Force on nodes</button><button id="btnAsPress" onclick="assign('press')">Pressure on faces</button><button id="btnAsDist" onclick="assign('dist')">Distributed on faces</button></div>
+      <p class="hint">Force acts on the selected nodes, pressure on the selected faces, distributed shares the total force over the selected faces in proportion to their area. Each assignment appends the line to the script. A load with an amplitude is multiplied by the factor of that amplitude at the time of the step.</p>
       <ul id="condLoads" class="conds"></ul>
     </details>
     <details class="node">
@@ -1419,7 +1420,7 @@ function syncConstraintSize() {
   const w = viewerApi(), el = $("cdSymbolSize");
   if (w && el && document.activeElement !== el) el.value = w.OpenModelViewer.state.consSize;
 }
-const ANALYSIS_COMMANDS = new Set(["material", "assign", "fix", "force", "pressure", "gravity", "amplitude", "job", "step", "output"]);
+const ANALYSIS_COMMANDS = new Set(["material", "assign", "fix", "force", "pressure", "distributed", "gravity", "amplitude", "job", "step", "output"]);
 /** Gravity is a load every model has by default; it is switched off by commenting its line out of the script. */
 const DEFAULT_GRAVITY = "gravity g=0,0,-9810";
 /** Adds the default gravity line when the script has no gravity line, active or switched off. */
@@ -1512,7 +1513,7 @@ function renameLoadInScript(text, oldId, newId, index, newLine) {
 }
 /** Detail of one load, shown in the sidebar overlay: its values (editable), the part it applies to, and its actions. */
 function showLoadDetail(entry) {
-  const names = {gravity: "Gravity", force: "Force on nodes", pressure: "Pressure on faces"};
+  const names = {gravity: "Gravity", force: "Force on nodes", pressure: "Pressure on faces", distributed: "Distributed on faces"};
   const value = (re) => { const m = re.exec(entry.line); return m ? m[1] : ""; };
   const target = (/\bgroup:(\S+)/i.exec(entry.line) || [])[1] || "";
   const info = lastGroups.find((x) => x.name === target);
@@ -1526,7 +1527,7 @@ function showLoadDetail(entry) {
   const amp = value(/\bamp=(\S+)/i);
   let fields = "";
   rows.push(["Id", entry.id]);
-  if (entry.kind === "force") {
+  if (entry.kind === "force" || entry.kind === "distributed") {
     fields = field("ldF", "Total force Fx,Fy,Fz", value(/\bF=(\S+)/i) || "0,0,-100") + field("ldAmp", "Amplitude (empty = constant)", amp);
   } else if (entry.kind === "pressure") {
     fields = field("ldP", "Pressure (positive = toward the body)", value(/\bp=(\S+)/i) || "1") + field("ldAmp", "Amplitude (empty = constant)", amp);
@@ -1573,7 +1574,7 @@ function applyLoadEdit(entry) {
   const taken = parseScript($("anScript").value).loads.some((l) => l.id === name && l.id !== entry.id);
   if (taken) { show("A load named " + name + " already exists.", "bad"); return; }
   let line = entry.line;
-  if (entry.kind === "force") {
+  if (entry.kind === "force" || entry.kind === "distributed") {
     const F = numList($("ldF").value, 3);
     if (!F) { show("The total force requires three comma-separated numbers Fx,Fy,Fz.", "bad"); return; }
     line = setLineKey(line, "F", F.join(","));
@@ -1963,7 +1964,7 @@ function parseScript(text) {
       if (!job) { job = {name: "job", steps: []}; out.jobs.push(job); }
       const reset = positional.some((t) => t.toLowerCase() === "reset") || ["yes", "true", "1"].includes((keys.reset || "").toLowerCase());
       job.steps.push({kind: (positional[0] || "").toLowerCase(), loads: keys.loads ? keys.loads.split(",") : null, reset});
-    } else if (command === "force" || command === "pressure") {
+    } else if (command === "force" || command === "pressure" || command === "distributed") {
       out.loads.push({kind: command, id: idFor(command, keys.id)});
     } else if (command === "gravity") {
       out.loads.push({kind: command, id: keys.id || "gravity"});
@@ -2130,6 +2131,7 @@ RIBBON_EXTRA["cd-apply"] = () => constraintApply();
 RIBBON_EXTRA["cd-clear"] = () => constraintClear();
 RIBBON_EXTRA["as-force"] = () => assign("force");
 RIBBON_EXTRA["as-press"] = () => assign("press");
+RIBBON_EXTRA["as-dist"] = () => assign("dist");
 const RIBBON_ACTIONS = {
   cad: () => browse("cadPath", "cad", importModel),
   mesh: () => browse("loadPath", "mesh", loadMesh),
@@ -2421,7 +2423,7 @@ function analysisCommand(line) {
 function analysisTokens(line, command) {
   const out = {};
   const tokens = line.trim().split(/\s+/);
-  if (["fix", "force", "pressure"].includes(command)) out._selector = tokens[1] || "";
+  if (["fix", "force", "pressure", "distributed"].includes(command)) out._selector = tokens[1] || "";
   for (let i = 1; i < tokens.length; ++i) {
     const eq = tokens[i].indexOf("=");
     if (eq > 0) out[tokens[i].slice(0, eq).toLowerCase()] = tokens[i].slice(eq + 1);
@@ -2455,11 +2457,11 @@ async function applyAnalysisEdit(replacement, id, originalLines, index) {
   return true;
 }
 async function editAnalysisCondition(command, line, id, lines, index) {
-  if (!["material", "fix", "force", "pressure"].includes(command)) return null;
+  if (!["material", "fix", "force", "pressure", "distributed"].includes(command)) return null;
   const values = analysisTokens(line, command);
   const dialog = $("analysisEditDialog"), fields = $("analysisEditFields");
   fields.replaceChildren();
-  $("analysisEditTitle").textContent = "Edit " + ({material:"material",fix:"constraint",force:"force",pressure:"pressure"}[command]);
+  $("analysisEditTitle").textContent = "Edit " + ({material:"material",fix:"constraint",force:"force",pressure:"pressure",distributed:"distributed"}[command]);
   const positional = values._selector || "";
   if (command === "material") {
     analysisField(fields, "Elastic modulus E", "E", values.e);
@@ -2475,6 +2477,10 @@ async function editAnalysisCondition(command, line, id, lines, index) {
     analysisField(fields, "Selector (all, group:NAME, plane:x=VALUE)", "selector", positional);
     analysisField(fields, "Total force Fx,Fy,Fz", "F", values.f || "0,0,0");
     analysisField(fields, "Tolerance (optional)", "tol", values.tol || "");
+  } else if (command === "distributed") {
+    analysisField(fields, "Surface group", "selector", positional);
+    analysisField(fields, "Total force Fx,Fy,Fz", "F", values.f || "0,0,0");
+    analysisField(fields, "Amplitude (optional)", "amp", values.amp || "");
   } else {
     analysisField(fields, "Surface group", "selector", positional);
     analysisField(fields, "Pressure", "p", values.p || "0");
@@ -2503,6 +2509,9 @@ async function editAnalysisCondition(command, line, id, lines, index) {
       } else if (command === "force") {
         parts.push(get("selector"), "F=" + get("F"));
         if (get("tol")) parts.push("tol=" + get("tol"));
+      } else if (command === "distributed") {
+        parts.push(get("selector"), "F=" + get("F"));
+        if (get("amp")) parts.push("amp=" + get("amp"));
       } else {
         parts.push(get("selector"), "p=" + get("p"));
       }
@@ -2519,7 +2528,7 @@ async function editAnalysisCondition(command, line, id, lines, index) {
     dialog.showModal();
   }).then(value => value === true ? false : value === false ? false : null);
 }
-const CONDITION_LIST = { material: "condMaterial", fix: "condFix", force: "condLoads", pressure: "condLoads", gravity: "condLoads", amplitude: "condAmplitude", job: "condLoads", step: "condLoads", output: "condLoads" };
+const CONDITION_LIST = { material: "condMaterial", fix: "condFix", force: "condLoads", pressure: "condLoads", distributed: "condLoads", gravity: "condLoads", amplitude: "condAmplitude", job: "condLoads", step: "condLoads", output: "condLoads" };
 function renderAnalysisConditions() {
   const lists = ["condMaterial", "condFix", "condLoads", "condAmplitude"].map((id) => $(id)).filter(Boolean);
   if (!lists.length) return;
@@ -2706,6 +2715,14 @@ async function assign(type) {
     const amp = $("asAmp").value.trim();
     if (amp && !/^[A-Za-z0-9_.-]+$/.test(amp)) { show("The amplitude name may contain letters, digits, _ - .", "bad"); return; }
     line = (g) => "force group:" + g + " F=" + f.join(",") + (amp ? " amp=" + amp : "");
+  } else if (type === "dist") {
+    const f = numList($("asForce").value, 3);
+    if (!f) { show("The total force requires three comma-separated numbers Fx,Fy,Fz.", "bad"); return; }
+    if (sel.mode !== "face") { show("A distributed load acts on faces: select faces in the viewer.", "bad"); return; }
+    kind = "face";
+    const damp = $("asAmp").value.trim();
+    if (damp && !/^[A-Za-z0-9_.-]+$/.test(damp)) { show("The amplitude name may contain letters, digits, _ - .", "bad"); return; }
+    line = (g) => "distributed group:" + g + " F=" + f.join(",") + (damp ? " amp=" + damp : "");
   } else {
     const p = Number($("asPress").value);
     if (!Number.isFinite(p) || $("asPress").value.trim() === "") { show("The pressure must be a number.", "bad"); return; }
@@ -2715,7 +2732,7 @@ async function assign(type) {
     if (pampl && !/^[A-Za-z0-9_.-]+$/.test(pampl)) { show("The amplitude name may contain letters, digits, _ - .", "bad"); return; }
     line = (g) => "pressure group:" + g + " p=" + p + (pampl ? " amp=" + pampl : "");
   }
-  const prefix = { fix: "FIX", force: "FORCE", press: "PRESS" }[type];
+  const prefix = { fix: "FIX", force: "FORCE", press: "PRESS", dist: "DIST" }[type];
   const r = await makeGroup(kind, undefined, prefix);
   if (!r || !r.ok || !r.created) return;
   appendScript(line(r.created));
