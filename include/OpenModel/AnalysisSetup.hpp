@@ -198,6 +198,9 @@ struct AnalysisModel {
     std::vector<AnalysisAmplitude> amplitudes;
     /** Print element stresses/strains to the `.dat` (per-element results). Large for big meshes; -1 = automatic (<= 200000 elements). */
     int elementPrint = -1;
+    /** Request the nodal results (`*NODE FILE`: displacements, and stresses and strains in a static step) for the `.frd`.
+     *  Independent of elementPrint. Off: the solver writes no nodal results, and the viewer has nothing to show. */
+    bool nodalPrint = true;
     /** The solver sessions. Empty only in a model built in code before the first job is added. */
     std::vector<AnalysisJob> jobs;
 };

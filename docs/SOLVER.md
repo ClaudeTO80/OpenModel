@@ -21,7 +21,9 @@ amplitude name=A1 t=0,0,1,1,2,0.5                   # time-dependent factor: (ti
 job SETTLE                                        # a job is one solver session; its steps run in order
 step static [loads=F1,gravity] [reset]           # loads=: active loads (ids; default all); reset: zero the loads of the earlier steps
 step frequency modes=6                           # or: step dynamic dt=0.01 period=1 [dtmin=1e-5] [dtmax=0.1]   # transient, implicit; needs rho and supports
+output nodal=on|off                            # nodal results in the .frd (*NODE FILE); on by default
 output element=auto|on|off                          # element S/E in the .dat (auto: up to 200000 elements)
+# The two requests are independent: nodal=off writes no *NODE FILE, element=off writes no *EL PRINT.
 ```
 
 Jobs and steps. A model holds the loads once; a `job NAME` line starts a job (one solver session, one `NAME.inp` deck and one

@@ -660,6 +660,45 @@ CloadTotals sumCloads(const std::string& text) {
 
 bool near(double a, double b) { return std::fabs(a - b) < 1e-9; }
 
+void testOutputRequests() {
+    const fs::path dir = tempDir();
+    const std::string base = "material E=210000 nu=0.3\nfix group:Bottom\nforce group:Top F=0,0,-40\nstep static\n";
+    MeshData hex = makeHex();
+
+    // Parser: the two requests are read independently, and the defaults keep the previous behaviour.
+    const auto defaults = parseOk(base);
+    CHECK(defaults.nodalPrint && defaults.elementPrint == -1);
+    const auto nodalOff = parseOk("output nodal=off\n" + base);
+    CHECK(!nodalOff.nodalPrint && nodalOff.elementPrint == -1);
+    const auto elementOn = parseOk(base + "output element=on\n");
+    CHECK(elementOn.nodalPrint && elementOn.elementPrint == 1);
+    CHECK(!parseAnalysisScript(base + "output nodal=maybe\n").success);
+
+    // Writer: nodal off removes *NODE FILE and keeps *EL PRINT, and says so; element off keeps *NODE FILE.
+    const auto rNodal = writeSolverInput(hex, nodalOff, dir / "nodal-off.inp");
+    CHECK(rNodal.success);
+    const std::string tNodal = slurp(dir / "nodal-off.inp");
+    CHECK(!contains(tNodal, "*NODE FILE"));
+    CHECK(hasCode(rNodal.diagnostics, "ANALYSIS_NO_NODAL_OUTPUT"));
+    CHECK(contains(tNodal, "*EL PRINT, ELSET=MG_EALL\nS, E"));   // element output is independent: auto keeps it on a small mesh
+
+    AnalysisModel elementOff = defaults;
+    elementOff.elementPrint = 0;
+    const auto rEl = writeSolverInput(hex, elementOff, dir / "element-off.inp");
+    CHECK(rEl.success);
+    const std::string tEl = slurp(dir / "element-off.inp");
+    CHECK(contains(tEl, "*NODE FILE\nU, S, E"));
+    CHECK(!contains(tEl, "*EL PRINT"));
+    CHECK(!hasCode(rEl.diagnostics, "ANALYSIS_NO_NODAL_OUTPUT"));
+
+    // Round trip keeps both flags.
+    const auto again = parseAnalysisScript(serializeAnalysisScript(nodalOff));
+    CHECK(again.success && !again.model.nodalPrint && again.model.elementPrint == -1);
+    const auto againOn = parseAnalysisScript(serializeAnalysisScript(elementOn));
+    CHECK(againOn.success && againOn.model.nodalPrint && againOn.model.elementPrint == 1);
+    fs::remove_all(dir);
+}
+
 void testDistributedLoads() {
     const fs::path dir = tempDir();
     const std::string base = "material E=210000 nu=0.3\nfix group:Bottom\n";
@@ -970,6 +1009,7 @@ int main() {
     testPartMaterials();
     testJobsStepsAndLoads();
     testDistributedLoads();
+    testOutputRequests();
     testRunner();
     if (g_failures) {
         std::cerr << g_failures << " check(s) failed\n";

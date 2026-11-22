@@ -341,7 +341,14 @@ struct Parser {
             leftovers();
             if (result.diagnostics.size() == errorsBefore) result.model.amplitudes.push_back(a);
         } else if (command == "output") {
-            std::string element;
+            // Two independent requests: nodal results (.frd) and element results (.dat).
+            std::string nodal, element;
+            if (take("nodal", nodal)) {
+                const std::string v = lowered(nodal);
+                if (v == "on") result.model.nodalPrint = true;
+                else if (v == "off") result.model.nodalPrint = false;
+                else error("SCRIPT_BAD_OUTPUT", "output nodal= takes on or off");
+            }
             if (take("element", element)) {
                 const std::string v = lowered(element);
                 if (v == "on") result.model.elementPrint = 1;
@@ -494,7 +501,8 @@ std::string serializeAnalysisScript(const AnalysisModel& model) {
             out << '\n';
         }
     }
-    out << "output element=" << (model.elementPrint > 0 ? "on" : model.elementPrint == 0 ? "off" : "auto") << '\n';
+    out << "output nodal=" << (model.nodalPrint ? "on" : "off")
+        << " element=" << (model.elementPrint > 0 ? "on" : model.elementPrint == 0 ? "off" : "auto") << '\n';
     return out.str();
 }
 
@@ -1382,6 +1390,7 @@ SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& sc
     // Loads that acted in the earlier steps of this job (their last written value is non-zero).
     std::set<std::string> applied;
     bool printedNote = false;
+    bool printedNodalNote = false;
     for (std::size_t s = 0; s < job->steps.size(); ++s) {
         const auto& step = job->steps[s];
         const auto active = activeLoadIds(model, step);
@@ -1463,7 +1472,12 @@ SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& sc
                 out << "*DLOAD" << (name.empty() ? "" : ", AMPLITUDE=" + name) << "\n" << lines.str();
             }
         }
-        out << "*NODE FILE\nU" << (step.type != StepType::Frequency ? ", S, E" : "") << "\n";
+        if (model.nodalPrint) out << "*NODE FILE\nU" << (step.type != StepType::Frequency ? ", S, E" : "") << "\n";
+        else if (!printedNodalNote) {
+            printedNodalNote = true;
+            note(r, ImportDiagnosticLevel::Warning, "ANALYSIS_NO_NODAL_OUTPUT",
+                 "output nodal=off: the solver writes no nodal results, so the .frd (and the viewer) has nothing to show");
+        }
         const bool print = step.type == StepType::Static && (model.elementPrint == 1 || (model.elementPrint < 0 && volumeIds.size() <= 200000));
         if (step.type == StepType::Static && !print && !printedNote) {
             printedNote = true;
