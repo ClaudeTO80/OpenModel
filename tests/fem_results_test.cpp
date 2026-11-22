@@ -280,6 +280,48 @@ void testFrdRealWorldLines() {
     CHECK(r.fields[2].name == "DOR1  Rx" && r.fields[2].components[1] == "RY" && near(r.fields[2].values[1], -2.0));
 }
 
+/**
+ * CalculiX 2.23 built on Windows prints %E with three-digit exponents ("2.5E+001"),
+ * so the fields overflow their 12 columns and touch each other. The lines are copied
+ * from a real run: nodes 1, 2, 7877, 7878, and a result record with the same layout.
+ */
+void testFrdThreeDigitExponents() {
+    const std::string text =
+        "    1C\n"
+        "    2C                          7878                                     1\n"
+        " -1         12.50000E+0015.00000E+0015.00000E+002\n"
+        " -1         2-2.50000E+0015.00000E+0015.00000E+002\n"
+        " -1      7877-8.53742E+0004.66066E+001-4.80000E+002\n"
+        " -1      7878-8.53742E+0004.66066E+001-4.90000E+002\n"
+        " -3\n"
+        "    3C                          5400                                     1\n"
+        " -1      7861    1    0    1\n"
+        " -3\n"
+        "  100CL  101 1.000000000         803                     0    1           1\n"
+        " -4  DISP        2    1\n"
+        " -5  D1          1    2    1    0\n"
+        " -5  D2          1    2    2    0\n"
+        " -5  D3          1    2    3    0\n"
+        " -1         1-1.00000E+001-2.00000E+0013.00000E+002\n"
+        " -1         2 5.00000E-001-1.00000E+0013.00000E+002\n"
+        " -3\n"
+        " 9999\n";
+    FemResults r;
+    const auto res = parseFrd(text, r);
+    CHECK(res);
+    CHECK(!hasCode(res.diagnostics, "FRD_BAD_NODE"));
+    CHECK(r.modelNodeIds.size() == 4);
+    if (r.modelNodeIds.size() != 4) return;
+    CHECK(r.modelNodeIds[0] == 1 && r.modelNodeIds[3] == 7878);
+    CHECK(near(r.modelCoordinates[0][0], 25.0) && near(r.modelCoordinates[0][1], 50.0) && near(r.modelCoordinates[0][2], 500.0));
+    CHECK(near(r.modelCoordinates[1][0], -25.0) && near(r.modelCoordinates[2][0], -8.53742));
+    CHECK(near(r.modelCoordinates[3][2], -490.0));
+    CHECK(r.fields.size() == 1 && r.fields[0].recordCount() == 2);
+    if (r.fields.size() != 1) return;
+    CHECK(near(r.fields[0].values[0], -10.0) && near(r.fields[0].values[1], -20.0) && near(r.fields[0].values[2], 300.0));
+    CHECK(near(r.fields[0].values[3], 0.5) && near(r.fields[0].values[4], -10.0) && near(r.fields[0].values[5], 300.0));
+}
+
 void testFrdErrors() {
     const MeshData mesh = makeMesh();
     FemResults r;
@@ -1095,14 +1137,49 @@ void testDatBindingAndMerge() {
 
 } // namespace
 
+/**
+ * A coordinate that is zero in the mesh may come back from the solver with a wrong magnitude (see ResultBinding.cpp).
+ * A small difference there is accepted with a warning; a large one still rejects the results.
+ */
+void testZeroCoordinateArtefacts() {
+    const MeshData mesh = makeMesh();
+    std::size_t target = mesh.getNumNodes();
+    for (std::size_t i = 0; i < mesh.getNumNodes() && target == mesh.getNumNodes(); ++i)
+        if (mesh.nodeCoordinates(static_cast<NodeIndex>(i))[1] == 0.0) target = i;
+    CHECK(target < mesh.getNumNodes());
+    if (target == mesh.getNumNodes()) return;
+    const NodeId id = mesh.nodeId(static_cast<NodeIndex>(target));
+
+    auto resultWithY = [&](double y) {
+        FemResults out;
+        CHECK(parseFrd(makeResultFile(mesh), out));
+        for (std::size_t i = 0; i < out.modelNodeIds.size(); ++i)
+            if (out.modelNodeIds[i] == id) out.modelCoordinates[i][1] = y;
+        return out;
+    };
+
+    const FemResults artefact = resultWithY(0.05);   // about 0.5% of the model size, not zero
+    WebViewOptions view;
+    auto b = bindResults(mesh, artefact, BindOptions{}, view);
+    CHECK(b.success && hasCode(b.diagnostics, "BIND_ZERO_COORDINATES") && !hasCode(b.diagnostics, "BIND_COORDINATES"));
+    CHECK(!view.fields.empty());
+
+    const FemResults real = resultWithY(0.5);        // about 5% of the model size: a different mesh
+    WebViewOptions untouched;
+    b = bindResults(mesh, real, BindOptions{}, untouched);
+    CHECK(!b.success && b.error.find("different mesh") != std::string::npos && untouched.fields.empty());
+}
+
 int main() {
     testFrdParsing();
     testFrdNumbersAndContinuation();
     testFrdRealWorldLines();
+    testFrdThreeDigitExponents();
     testFrdErrors();
     testCsv();
     testBinding();
     testBindingPartialData();
+    testZeroCoordinateArtefacts();
     testWebViewIntegration();
     testTensorInvariants();
     testElementResults();

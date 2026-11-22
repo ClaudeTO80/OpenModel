@@ -237,20 +237,33 @@ BindResult bindResults(const MeshData& mesh, const FemResults& results, const Bi
                                           (hi[2] - lo[2]) * (hi[2] - lo[2]));
         scale = std::max(scale, diagonal);
         const double tolerance = options.coordinateTolerance * scale;
-        std::size_t compared = 0, mismatched = 0;
+        // A component that is zero in the mesh may come back from the solver as a value of the wrong magnitude
+        // (for example -2.84217E+000 for -2.8E-14): such a component is accepted when it stays under the same
+        // share of the model size that rejects a different mesh. Any other difference still counts as a mismatch.
+        const double zeroTolerance = 1e-9 * scale;
+        const double artefactTolerance = 0.01 * scale;
+        std::size_t compared = 0, mismatched = 0, zeroArtefacts = 0;
         NodeId firstBad = 0;
         for (std::size_t i = 0; i < results.modelNodeIds.size(); ++i) {
             if (!mesh.hasNodeId(results.modelNodeIds[i])) continue;
             ++compared;
             const auto c = mesh.nodeCoordinates(mesh.nodeIndex(results.modelNodeIds[i]));
             const auto& m = results.modelCoordinates[i];
-            if (std::fabs(c[0] - m[0]) > tolerance || std::fabs(c[1] - m[1]) > tolerance || std::fabs(c[2] - m[2]) > tolerance) {
-                if (mismatched++ == 0) firstBad = results.modelNodeIds[i];
+            bool bad = false, artefact = false;
+            for (int k = 0; k < 3; ++k) {
+                const double d = std::fabs(c[k] - m[k]);
+                if (d <= tolerance) continue;
+                if (std::fabs(c[k]) <= zeroTolerance && d <= artefactTolerance) artefact = true;
+                else bad = true;
             }
+            if (artefact && !bad) ++zeroArtefacts;
+            if (bad && mismatched++ == 0) firstBad = results.modelNodeIds[i];
         }
         if (compared == 0)
             return failure(r, "none of the " + std::to_string(results.modelNodeIds.size()) +
                               " nodes of the result file exists in the mesh: the results belong to a different model");
+        if (zeroArtefacts > 0)
+            warn(r, "BIND_ZERO_COORDINATES", std::to_string(zeroArtefacts) + " shared node(s) have a value of zero in the mesh and a different value in the result file: accepted as solver output artefacts");
         if (mismatched > 0) {
             std::ostringstream text;
             text << mismatched << " of " << compared << " shared nodes have different coordinates in the result file (first: node "

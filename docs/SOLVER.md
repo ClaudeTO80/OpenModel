@@ -15,12 +15,15 @@ assign Housing material=ALU                         # material of one volume par
 fix plane:x=0 [dof=1,2,3] [tol=1e-6]                # default: all translations
 force plane:x=10 F=0,-100,0 [amp=A1]               # TOTAL force, shared equally by the selected nodes
 pressure group:Top p=2.5 [amp=A1]                   # surface group; positive = into the body
+distributed group:Top F=0,0,-40 [amp=A1]           # total force of a surface group, shared by its faces in proportion to area
 gravity g=0,0,-9810                                 # acceleration (needs rho)
 amplitude name=A1 t=0,0,1,1,2,0.5                   # time-dependent factor: (time, factor) pairs, increasing times
 job SETTLE                                        # a job is one solver session; its steps run in order
 step static [loads=F1,gravity] [reset]           # loads=: active loads (ids; default all); reset: zero the loads of the earlier steps
 step frequency modes=6                           # or: step dynamic dt=0.01 period=1 [dtmin=1e-5] [dtmax=0.1]   # transient, implicit; needs rho and supports
+output nodal=on|off                            # nodal results in the .frd (*NODE FILE); on by default
 output element=auto|on|off                          # element S/E in the .dat (auto: up to 200000 elements)
+# The two requests are independent: nodal=off writes no *NODE FILE, element=off writes no *EL PRINT.
 ```
 
 Jobs and steps. A model holds the loads once; a `job NAME` line starts a job (one solver session, one `NAME.inp` deck and one
@@ -59,6 +62,7 @@ Not yet: the script syntax for rigid links, the grouping of selected faces into 
 
 * **The generated `.inp` has not been run through a real CalculiX** (not available here). Tests use `tests/support/fake_ccx.py`, which checks that the input has the expected sections and copies fixture results: they verify the plumbing, not the physics.
 * Forces are shared equally among nodes. For quadratic elements this is not the consistent load (a warning is issued); prefer `pressure`.
+* Distributed loads: the total force of a face group is shared by the faces in proportion to their area (a uniform traction, `total / area`), and each face gives its share to its corner nodes as `*CLOAD`. The total is exact; the split among nodes is the consistent one for linear faces, and a quadratic mesh receives the total on its corner nodes (a warning is issued). CalculiX only: code_aster refuses them. The solver's `*DLOAD` takes only the normal pressure of a face, so the vector traction is written as nodal forces. Units are the model's own.
 * Pressure supports tetrahedra/hexahedra (linear and quadratic); no pyramids/wedges, no shell/beam elements, no contact, no nonlinear materials. Per-part materials (`assign`) are written by CalculiX only; code_aster takes one material.
 * Loads not written yet: body forces per element (`BX/BY/BZ`), centrifugal loads (`CENTRIF`: the manual does not state unambiguously the meaning of its first value), distributed traction (tangential), nodal moments (solid elements have no rotational degrees of freedom), thermal loads (out of scope). Each one needs its syntax checked against the solver manual before it is written.
 * Dynamic steps and amplitudes are not written to the code_aster case: `writeCodeAsterCase` refuses them with a message.
