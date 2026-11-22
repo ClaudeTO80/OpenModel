@@ -81,6 +81,9 @@ canvas.drag { cursor: grabbing; }
 #colorbar .cbCtl span { color: var(--muted); }
 #colorbar .cbCtl input, #colorbar .cbCtl select { min-width: 0; width: 100%; font: inherit; }
 #colorbar .cbNote { color: var(--muted); margin-top: 6px; }
+#colorbar .cbHead { display: flex; align-items: center; gap: 6px; }
+#colorbar .cbHead .cbTitle { flex: 1; min-width: 0; }
+#colorbar .cbOptsBtn { flex: none; font: inherit; font-size: 11px; padding: 1px 6px; }
 /* Results card on the canvas (top right): load case, mode, component shown and the scale of the deformed shape. */
 #resultsPanel { position: absolute; top: 10px; right: 10px; z-index: 3; width: min(260px, calc(100% - 20px)); background: color-mix(in srgb, var(--panel) 90%, transparent); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; font-size: 12px; }
 #resultsPanel .rpTitle { font-weight: 600; margin-bottom: 6px; }
@@ -242,7 +245,10 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     <dl id="rpList"></dl>
   </div>
   <div id="colorbar" hidden>
-    <div class="cbTitle" id="cbTitle"></div>
+    <div class="cbHead">
+      <div class="cbTitle" id="cbTitle"></div>
+      <button type="button" class="cbOptsBtn" id="cbOptsBtn" aria-expanded="true" aria-controls="cbOptions" title="Show or hide the palette, scale and range controls">Hide options</button>
+    </div>
     <div class="cbRow">
       <div class="cbBar" id="cbBar"></div>
       <div class="cbTicks">
@@ -251,13 +257,15 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
         <span id="cbMin" style="bottom:0"></span>
       </div>
     </div>
-    <div class="cbCtl">
-      <span>Max</span><input type="number" id="cbMaxIn" step="any" aria-label="Scale maximum">
-      <span>Min</span><input type="number" id="cbMinIn" step="any" aria-label="Scale minimum">
-      <span>Palette</span><select id="palSel" aria-label="Colour palette"></select>
-      <span>Scale</span><select id="scaleSel" aria-label="Scale type"><option value="lin">Linear</option><option value="log">Logarithmic</option></select>
+    <div id="cbOptions">
+      <div class="cbCtl">
+        <span>Max</span><input type="number" id="cbMaxIn" step="any" aria-label="Scale maximum">
+        <span>Min</span><input type="number" id="cbMinIn" step="any" aria-label="Scale minimum">
+        <span>Palette</span><select id="palSel" aria-label="Colour palette"></select>
+        <span>Scale</span><select id="scaleSel" aria-label="Scale type"><option value="lin">Linear</option><option value="log">Logarithmic</option></select>
+      </div>
+      <div class="cbNote" id="cbNote" hidden>Logarithmic needs min &gt; 0 and max &gt; min: linear scale shown</div>
     </div>
-    <div class="cbNote" id="cbNote" hidden>Logarithmic needs min &gt; 0 and max &gt; min: linear scale shown</div>
   </div>
   <div id="selBox" hidden style="position:absolute;border:1px dashed var(--accent);background:color-mix(in srgb, var(--accent) 15%, transparent);pointer-events:none"></div>
   <canvas id="axes" width="112" height="112" aria-label="Axes of the model coordinate system"></canvas>
@@ -542,6 +550,14 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
   /** CSS gradient of a colour map: 90deg runs left to right, 0deg runs from bottom to top. */
   const gradientCss = (name, angle) => "linear-gradient(" + angle + "deg," + PALETTES[name].join(",") + ")";
   $("bar").style.background = gradientCss(activePalette, 90);
+  /** Makes a colour map the active one for the scalar colouring and the colour bar; false for an unknown name. */
+  function applyPalette(name) {
+    if (!Object.prototype.hasOwnProperty.call(PALETTES, name)) return false;
+    activePalette = name; uploadLut();
+    $("bar").style.background = gradientCss(activePalette, 90);
+    S.dirty = true; updateColorbar();
+    return true;
+  }
   /** Logarithmic colouring applies only to a positive range; otherwise the linear scale is used. */
   function logActive() { return S.logScale && S.range[0] > 0 && S.range[1] > S.range[0]; }
 
@@ -1149,6 +1165,19 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     el.hidden = !meta.results; el.textContent = meta.results ? "Results: " + meta.results.label : "";
   }
   function showMessage(text) { const el = $("msg"); el.textContent = text; el.hidden = !text; }
+  /** Empties the viewer as at start: no model, no selection and no sections or colour bar, with the empty-state message back. */
+  function clearModel() {
+    freeModel();
+    S.model = null; S.tex = {}; S.count = {}; S.vis = null; S.palettes = {};
+    S.clipOn = false; $("clipOn").checked = false;
+    S.pickMode = "off"; $("pickMode").value = "off"; canvas.style.cursor = "";
+    S.sel = { node: new Set(), element: new Set(), face: new Set() };
+    for (const id of ["blocksSec", "compSec", "defSec", "resultsInfo", "scalarBox", "clipBox", "legendBox", "resultsPanel", "pickSec", "consRows"]) $(id).hidden = true;
+    $("blocks").innerHTML = ""; $("legend").innerHTML = ""; $("stats").innerHTML = ""; $("pickCount").textContent = "none";
+    $("fileName").textContent = "No file loaded";
+    $("drop").hidden = false; showMessage("");
+    updateColorbar(); syncViewTools(); S.dirty = true;
+  }
   function loadBuffer(buffer, name) {
     try {
       const t0 = performance.now();
@@ -1191,11 +1220,16 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
   $("smax").addEventListener("input", (e) => { S.range[1] = +e.target.value; S.dirty = true; updateColorbar(); });
   // Colour bar controls: palette, scale type and the ends of the range (the sidebar Min/Max inputs follow).
   for (const name of Object.keys(PALETTES)) $("palSel").add(new Option(name, name));
-  $("palSel").addEventListener("change", (e) => {
-    activePalette = e.target.value; uploadLut();
-    $("bar").style.background = gradientCss(activePalette, 90);
-    S.dirty = true; updateColorbar();
-  });
+  $("palSel").addEventListener("change", (e) => applyPalette(e.target.value));
+  // Hide or show the legend options (palette, scale, range); the choice is kept between sessions.
+  function setLegendOptions(shown) {
+    $("cbOptions").hidden = !shown;
+    $("cbOptsBtn").setAttribute("aria-expanded", String(shown));
+    $("cbOptsBtn").textContent = shown ? "Hide options" : "Show options";
+    try { localStorage.setItem("openmodel.legendOptions", shown ? "shown" : "hidden"); } catch (e) { /* storage unavailable */ }
+  }
+  setLegendOptions((() => { try { return localStorage.getItem("openmodel.legendOptions") !== "hidden"; } catch (e) { return true; } })());
+  $("cbOptsBtn").addEventListener("click", () => setLegendOptions($("cbOptions").hidden));
   $("scaleSel").addEventListener("change", (e) => { S.logScale = e.target.value === "log"; S.dirty = true; updateColorbar(); });
   const setRangeEnd = (k, text) => {
     const v = text === "" ? NaN : Number(text);
@@ -1898,6 +1932,16 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     },
     load: loadBuffer,
     loadUrl,
+    /** Empties the viewer: the model, its selection and its sections go away. */
+    clear: clearModel,
+    /** Names of the colour maps of the Palette list, in its order. */
+    palettes() { return Object.keys(PALETTES); },
+    /** Name of the colour map in use. */
+    palette() { return activePalette; },
+    /** Makes a colour map active; false when the name is unknown. */
+    setPalette: applyPalette,
+    /** Shows (true) or hides (false) the palette, scale and range controls of the colour bar. */
+    setLegendOptions,
     state: S,
     /**
      * The constraints drawn in the viewer: one entry per constrained node that is drawn.

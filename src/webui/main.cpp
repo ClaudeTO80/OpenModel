@@ -89,6 +89,7 @@
 #include "viewer_html.inc"
 #include "FlatJson.hpp"
 #include "Base64.hpp"
+#include "WorkbenchSettings.hpp"
 
 namespace {
 
@@ -1565,9 +1566,24 @@ std::string writeAnalysisInput(const std::string& script, const fs::path& inputP
            analysisDiagnosticsText(parsed.diagnostics) + analysisDiagnosticsText(written.diagnostics);
 }
 
-/** Job argument of the solver handlers: a path ending in .inp is the input file itself, anything else is a folder holding job.inp. */
+/** The settings of the workbench, read from their file on each use so that a change applies at once. */
+OpenModel::Workbench::Settings currentSettings() {
+    std::string error;
+    return OpenModel::Workbench::load(OpenModel::Workbench::settingsFile(), error);
+}
+
+/**
+ * Job argument of the solver handlers: a path ending in .inp is the input file itself, anything else is a folder holding
+ * job.inp. The default job (openmodel_job/job) and relative paths are based on the jobs folder of the Settings, or on the
+ * folder the program runs in when that is not set.
+ */
 fs::path jobInputPath(const std::string& text) {
-    fs::path p = absolutePath(text.empty() ? std::string("openmodel_job/job") : text);
+    const auto settings = currentSettings();
+    std::error_code ec;
+    const fs::path base = settings.jobDir.empty() ? fs::current_path(ec) : absolutePath(settings.jobDir);
+    fs::path p = text.empty() ? fs::path("openmodel_job") / "job" : fs::path(text);
+    if (p.is_relative()) p = base / p;
+    p = absolutePath(p.string());
     if (lowerExtension(p) == ".inp") return p;
     return p / "job.inp";   // anything else is a folder
 }
@@ -1662,7 +1678,105 @@ void analysisDelete(webui_event_t* e) {
     reply(e, true, OpenModel::serializeAnalysisScript(g.analysis));
 }
 
-/** Arguments: script, job path (folder or .inp; empty = ./openmodel_job/job.inp), solver kind ("aster" for code_aster, anything else CalculiX). */
+/**
+ * Drops the model of the session: CAD, meshes, results and analysis. The materials, the tessellation deflections and the
+ * files on disk stay. The image is emptied (hasView becomes false), so the page clears the viewer. Call with the state locked.
+ */
+void closeModel() {
+    g.cad.reset();
+    g.cadFaceGroups.clear();
+    g.cadGroupsNote.clear();
+    g.surface = SurfaceMesh{};
+    g.mesh = MeshData{};
+    g.origin = MeshOrigin::None;
+    g.meshLabel.clear();
+    g.runs = OpenModel::MeshRunRegistry{};
+    g.source.clear();
+    g.view.clear();
+    ++g.viewVersion;
+    g.viewLabel.clear();
+    g.viewNote.clear();
+    g.results = OpenModel::FemResults{};
+    g.analysis = OpenModel::AnalysisModel{};
+    g.hasAnalysis = false;
+    g.resultsName.clear();
+    g.resultsStep = OpenModel::BindOptions::kLastStep;
+    g.resultsNote.clear();
+}
+
+/** Handler of "openmodel_close_model": closes the current model so that a new one can be started. Refused while a solver runs. */
+void closeModelHandler(webui_event_t* e) {
+    StateLock lock;
+    if (!lock.ok()) { replyBusy(e); return; }
+    std::lock_guard<std::mutex> job(g_job.mutex);
+    if (g_job.runner.running()) { reply(e, false, "A solver is running: cancel it before closing the model."); return; }
+    // A finished job that was not yet reported must not attach its results to the next model.
+    g_job.active = false;
+    g_job.resultsHandled = false;
+    g_job.endMessage.clear();
+    g_job.endOk = false;
+    closeModel();
+    reply(e, true, "Model closed. Import a CAD file, open a mesh or generate one to start a new model.");
+}
+
+/** Answer of the settings handlers: {ok, message, settings, path}. */
+std::string settingsReply(bool ok, const std::string& message, const OpenModel::Workbench::Settings& settings) {
+    return std::string("{\"ok\":") + (ok ? "true" : "false") + ",\"message\":\"" + jsonEscape(message) +
+           "\",\"settings\":" + OpenModel::Workbench::toJson(settings) + ",\"path\":\"" +
+           jsonEscape(OpenModel::Workbench::settingsFile().string()) + "\"}";
+}
+
+/** Handler of "openmodel_settings_get": the settings in effect and the file they are kept in. */
+void settingsGet(webui_event_t* e) {
+    std::string error;
+    const auto settings = OpenModel::Workbench::load(OpenModel::Workbench::settingsFile(), error);
+    webui_return_string(e, settingsReply(error.empty(), error, settings).c_str());
+}
+
+/**
+ * Handler of "openmodel_settings_set": takes one JSON object {solverPath, jobDir, legendPalette}. A key that is missing
+ * keeps its current value. The jobs folder is created when it does not exist; an unknown solver path is only noted,
+ * since the solver may be installed later. On error nothing is saved and the answer carries the settings still in effect.
+ */
+void settingsSet(webui_event_t* e) {
+    std::string error;
+    const auto previous = OpenModel::Workbench::load(OpenModel::Workbench::settingsFile(), error);
+    std::map<std::string, std::string> fields;
+    std::string parseError;
+    if (!OpenModel::FlatJson::parseStringObject(getStringArg(e, 0), fields, parseError)) {
+        webui_return_string(e, settingsReply(false, "Settings not saved: " + parseError, previous).c_str());
+        return;
+    }
+    OpenModel::Workbench::Settings next = previous;
+    if (const auto it = fields.find("solverPath"); it != fields.end()) next.solverPath = it->second;
+    if (const auto it = fields.find("jobDir"); it != fields.end()) next.jobDir = it->second;
+    if (const auto it = fields.find("legendPalette"); it != fields.end()) next.legendPalette = it->second;
+    if (next.legendPalette.empty()) next.legendPalette = "Viridis";
+    if (next.legendPalette.size() > 40) {
+        webui_return_string(e, settingsReply(false, "Settings not saved: the palette name is too long.", previous).c_str());
+        return;
+    }
+    std::string note;
+    if (!next.jobDir.empty()) {
+        next.jobDir = absolutePath(next.jobDir).lexically_normal().string();
+        std::error_code ec;
+        fs::create_directories(next.jobDir, ec);
+        if (ec || !fs::is_directory(next.jobDir, ec)) {
+            webui_return_string(e, settingsReply(false, "Settings not saved: the jobs folder cannot be used: " + next.jobDir, previous).c_str());
+            return;
+        }
+    }
+    std::error_code existsEc;
+    if (!next.solverPath.empty() && !fs::exists(next.solverPath, existsEc))
+        note = " The solver file was not found: check the path before running.";
+    if (!OpenModel::Workbench::save(OpenModel::Workbench::settingsFile(), next, error)) {
+        webui_return_string(e, settingsReply(false, "Settings not saved: " + error, previous).c_str());
+        return;
+    }
+    webui_return_string(e, settingsReply(true, "Settings saved." + note, next).c_str());
+}
+
+/** Arguments: script, job path (folder or .inp; empty = openmodel_job/job in the jobs folder of the Settings), solver kind ("aster" for code_aster, anything else CalculiX). */
 void writeInput(webui_event_t* e) {
     StateLock lock;
     if (!lock.ok()) { replyBusy(e); return; }
@@ -1687,11 +1801,12 @@ void runSolver(webui_event_t* e) {
     const std::string stem = input.stem().string();
     std::vector<std::string> command;
     std::string solver = getStringArg(e, 2);
+    if (solver.empty()) solver = currentSettings().solverPath;   // the solver path of the Settings
     if (aster) {
         OpenModel::removeCodeAsterOutputs(input.parent_path(), stem);
         solver = OpenModel::findCodeAsterExecutable(solver);
         if (solver.empty()) {
-            reply(e, false, message + "\n\ncode_aster not found: give the path of run_aster (or as_run) in the Solver field, or set the OPENMODEL_CODE_ASTER variable.");
+            reply(e, false, message + "\n\ncode_aster not found: give the path of run_aster (or as_run) in Settings or in the Solver field, or set the OPENMODEL_CODE_ASTER variable.");
             return;
         }
         command = OpenModel::codeAsterLaunchCommand(solver, input.parent_path() / (stem + ".export"));
@@ -1703,8 +1818,8 @@ void runSolver(webui_event_t* e) {
     const auto error = g_job.runner.start(command, input.parent_path());
     if (!error.empty()) {
         reply(e, false, message + "\n\nStarting the solver failed: " + error +
-                            (aster ? "\nGive the full path of run_aster (or as_run) in the Solver field."
-                                   : "\nGive the full path of the CalculiX executable (ccx) in the Solver field."));
+                            (aster ? "\nGive the full path of run_aster (or as_run) in Settings or in the Solver field."
+                                   : "\nGive the full path of the CalculiX executable (ccx) in Settings or in the Solver field."));
         return;
     }
     g_job.active = true;
@@ -2727,6 +2842,9 @@ int main() {
     if (window == 0) return 1;
     webui_set_size(window, 1500, 950);
     webui_bind(window, "openmodel_defaults", getDefaults);
+    webui_bind(window, "openmodel_close_model", closeModelHandler);
+    webui_bind(window, "openmodel_settings_get", settingsGet);
+    webui_bind(window, "openmodel_settings_set", settingsSet);
     webui_bind(window, "openmodel_about", getAbout);
     webui_bind(window, "openmodel_list_dir", listDirectory);
     webui_bind(window, "openmodel_create_demo", createDemo);

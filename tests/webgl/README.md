@@ -133,3 +133,15 @@ colour bar stay hidden and that the page reports no errors; the full run needs a
 ```bash
 NODE_PATH=... node tests/webgl/viewer_section_smoke.js examples/webgl-fem-viewer/index.html [file.mgwv]
 ```
+
+## Colour bar options and viewer session API (`viewer_legend_smoke.js`)
+Checks that the palette, scale and range controls of the colour bar can be hidden and shown (and that the choice is kept), the viewer's
+`palettes()` / `palette()` / `setPalette()` API, and `clear()`, which empties the viewer so that a new model can be loaded.
+Usage: `node viewer_legend_smoke.js <index.html> <results.mgwv> [screenshot-dir]`, with a file that carries results, for example
+`openmodel demo-web out.mgwv` (scalar colouring).
+
+## Session and Settings in the GUI (`gui_session_smoke.js`)
+Checks the Settings dialog (solver path, jobs folder chosen with the folder chooser, legend palette, refused save), that the saved palette
+reaches the viewer, and New model (declined confirmation keeps the model; accepted confirmation asks the server to close the model and
+empties the viewer and the Analysis script). The WebUI bridge is a stub that records the calls, so it needs no running `openmodel-webui`:
+`node gui_session_smoke.js <gui.html> <viewer.html> <results.mgwv>`.

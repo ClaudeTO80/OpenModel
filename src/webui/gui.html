@@ -166,6 +166,10 @@ details.node details.node{margin-top:8px;background:transparent}
 
   <div class="panel" data-panel="file" role="tabpanel">
     <div class="group"><div class="items">
+      <button class="rb" data-act="new-model" title="Close the current model and start an empty one"><span class="ic">🆕</span>New model</button>
+      <button class="rb" data-act="settings" title="Solver path, jobs folder and legend palette"><span class="ic">⚙</span>Settings…</button>
+    </div><div class="gname">Session</div></div>
+    <div class="group"><div class="items">
       <button class="rb" data-act="cad" title="Choose a CAD file (STEP, IGES, BREP, OBJ, STL…) and triangulate it"><span class="ic">📐</span>Import CAD…</button>
       <button class="rb" data-act="mesh" title="Choose a .omb, .mgmb, .inp or .mail (code_aster) mesh"><span class="ic">📂</span>Open mesh…</button>
       <button class="rb" data-act="res" data-need="mesh" title="Choose a results file (.frd, .dat, .csv, .tab)"><span class="ic">📈</span>Open results…</button>
@@ -645,11 +649,11 @@ details.node details.node{margin-top:8px;background:transparent}
     <label for="anScript">Analysis script (material, constraints, loads, step)</label>
     <textarea id="anScript" rows="9" spellcheck="false" style="width:100%;font-family:monospace;font-size:12px"></textarea>
     <p class="hint">Edit or remove individual materials, constraints, loads and steps. Changes update the script used by the solver directly.</p>
-    <label for="anJob">Job file (folder or .inp; empty = ./openmodel_job/job.inp; for code_aster the folder and the file name matter)</label>
+    <label for="anJob">Job file (folder or .inp; empty = openmodel_job in the jobs folder of Settings; a relative path is relative to that folder; for code_aster the folder and the file name matter)</label>
     <input id="anJob" placeholder="/path/work/job.inp">
     <label for="anSolverKind">Solver</label>
     <select id="anSolverKind"><option value="ccx">CalculiX</option><option value="aster">code_aster</option></select>
-    <label for="anSolver">Executable (empty = 'ccx' on PATH; code_aster: 'run_aster' or 'as_run', or the OPENMODEL_CODE_ASTER variable)</label>
+    <label for="anSolver">Executable (empty = the solver path of Settings, else 'ccx' on PATH; code_aster: 'run_aster' or 'as_run', or the OPENMODEL_CODE_ASTER variable)</label>
     <input id="anSolver" placeholder="/usr/bin/ccx">
     <div class="grid2"><button id="btnWrite" onclick="analysisWrite()">Write input</button><button id="btnRun" class="primary" onclick="analysisRun()">Run solver</button></div>
     <div class="grid2"><button id="btnCancel" onclick="analysisCancel()" disabled>Cancel</button><button onclick="analysisExample()">Example</button></div>
@@ -736,12 +740,26 @@ details.node details.node{margin-top:8px;background:transparent}
   <span id="statusVersion"></span>
 </footer>
 
+<div class="modal" id="settingsModal" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+    <h3 id="settingsTitle">Settings</h3>
+    <label for="setSolver">Solver path (used when the Executable field of Analysis is empty)</label>
+    <div class="row"><input id="setSolver" placeholder="/usr/bin/ccx"><button onclick="browse('setSolver','solver')">Browse…</button></div>
+    <label for="setJobDir">Jobs folder (base of the job files; empty = the folder the server runs in)</label>
+    <div class="row"><input id="setJobDir" placeholder="/path/work"><button onclick="browse('setJobDir','folder')">Browse…</button></div>
+    <label for="setPalette">Legend palette (colour bar of the viewer)</label>
+    <select id="setPalette"></select>
+    <p class="hint" id="setNote"></p>
+    <div class="row" style="justify-content:flex-end"><button onclick="closeSettings()">Cancel</button><button class="primary" onclick="saveSettings()">Save</button></div>
+  </div>
+</div>
+
 <div class="modal" id="modal" hidden>
   <div class="dialog" role="dialog" aria-modal="true" aria-label="Choose file">
     <h3>Choose a file</h3>
     <div class="row"><button onclick="goUp()">↑ Up</button><input id="dirPath" onkeydown="if(event.key==='Enter')window.list(this.value)"><button onclick="list(dirPath.value)">Go</button></div>
     <ul id="entries"></ul>
-    <div class="row" style="justify-content:flex-end"><button onclick="closeModal()">Cancel</button></div>
+    <div class="row" style="justify-content:flex-end"><button id="useFolder" onclick="pick($('dirPath').value)" hidden>Use this folder</button><button onclick="closeModal()">Cancel</button></div>
   </div>
 </div>
 
@@ -862,6 +880,7 @@ function loadView(label) {
 $("viewer").addEventListener("load", () => {
   // The viewer follows the workbench theme (light by default); the Viewer theme button toggles both.
   applyTheme(document.documentElement.dataset.theme || "light");
+  applyLegendPalette();
   // The viewer has its own theme button: mirror its choice on the workbench.
   const vw = $("viewer").contentWindow;
   if (vw && window.MutationObserver) new MutationObserver(() => {
@@ -1082,12 +1101,14 @@ function mesherChanged() {
 
 /* ---- server-side file browser (a web page cannot read local paths itself) ---- */
 let browseTarget = null, browseKind = "cad";
-const FILTERS = {cad: ".step,.stp,.iges,.igs,.brep,.brp,.obj,.stl,.ply,.fbx,.gltf,.glb,.dae,.3ds", mesh: ".omb,.mgmb,.inp,.mail", results: ".frd,.dat,.csv,.tsv,.txt,.tab"};
+// An empty filter lists every file. "folder" uses a filter no file name can match, so only the sub-folders are listed.
+const FILTERS = {cad: ".step,.stp,.iges,.igs,.brep,.brp,.obj,.stl,.ply,.fbx,.gltf,.glb,.dae,.3ds", mesh: ".omb,.mgmb,.inp,.mail", results: ".frd,.dat,.csv,.tsv,.txt,.tab", solver: "", folder: "-"};
 let afterPick = null;
 async function browse(inputId, kind, then) {
   browseTarget = inputId; browseKind = kind; afterPick = then || null;
   const current = $(inputId).value.trim();
-  const start = current ? current.replace(/[\\/][^\\/]*$/, "") : defaults.cwd;
+  const start = kind === "folder" ? (current || defaults.cwd) : (current ? current.replace(/[\\/][^\\/]*$/, "") : defaults.cwd);
+  $("useFolder").hidden = kind !== "folder";
   $("modal").hidden = false;
   await list(start || defaults.cwd);
 }
@@ -2119,6 +2140,63 @@ renderTree();
 // The default gravity is added once the whole script has run (it uses constants declared further down).
 window.addEventListener("load", ensureGravityLine);
 setInterval(syncTree, 700);
+/* ---- session: new model and settings ----
+ * The settings are kept by the server (see openmodel_settings_get), so the solver path and the jobs folder apply to
+ * every run. The palette is a viewer setting: it is applied to the viewer when the viewer loads and when it is saved.
+ */
+let workbenchSettings = {solverPath: "", jobDir: "", legendPalette: "Viridis"};
+// The viewer window, whether or not a model is loaded (viewerApi above returns it only with a model).
+const viewerWindow = () => { const w = $("viewer").contentWindow; return w && w.OpenModelViewer ? w : null; };
+function applyLegendPalette() {
+  const w = viewerWindow();
+  if (w) w.OpenModelViewer.setPalette(workbenchSettings.legendPalette);
+}
+/** Shows the settings where they are used: the placeholders of the Analysis fields and the viewer palette. */
+function applySettingsToPage() {
+  $("anSolver").placeholder = workbenchSettings.solverPath || "ccx on PATH";
+  $("anJob").placeholder = (workbenchSettings.jobDir || defaults.cwd || ".") + "/openmodel_job/job.inp";
+  applyLegendPalette();
+}
+async function loadSettings() {
+  const r = await call("openmodel_settings_get");
+  if (r.ok && r.settings) workbenchSettings = r.settings;
+  else show(r.message, "bad");
+  applySettingsToPage();
+}
+function openSettings() {
+  const names = viewerWindow() ? viewerWindow().OpenModelViewer.palettes() : ["Viridis", "Rosso", "Ocra", "Blu", "Arcobaleno"];
+  $("setPalette").innerHTML = names.map((n) => `<option value="${n}">${n}</option>`).join("");
+  $("setSolver").value = workbenchSettings.solverPath || "";
+  $("setJobDir").value = workbenchSettings.jobDir || "";
+  $("setPalette").value = workbenchSettings.legendPalette;
+  $("setNote").textContent = "";
+  $("settingsModal").hidden = false;
+}
+function closeSettings() { $("settingsModal").hidden = true; }
+async function saveSettings() {
+  const next = {solverPath: $("setSolver").value.trim(), jobDir: $("setJobDir").value.trim(), legendPalette: $("setPalette").value};
+  const r = await call("openmodel_settings_set", JSON.stringify(next));
+  if (!r.ok) { $("setNote").textContent = r.message; return; }
+  workbenchSettings = r.settings;
+  applySettingsToPage();
+  closeSettings();
+  show(r.message, "good");
+}
+/** Closes the model on the server and empties the viewer and the model trees. Asks first: the work is not kept. */
+async function newModel() {
+  if (busy || solverRunning) return;
+  if (!confirm("Close the current model and start an empty one? Unsaved work on it is lost.")) return;
+  const r = await act("openmodel_close_model");
+  if (!r || !r.ok) return;
+  const w = viewerWindow();
+  if (w) w.OpenModelViewer.clear();
+  viewAvailable = false; viewEdges = "none"; selectedCadFaceIds = [];
+  $("cadFaceInfo").textContent = "CAD faces: none selected.";
+  $("anScript").value = ""; $("resPath").value = ""; $("resStep").value = "";
+  await Promise.all([refreshCadComponents(), refreshMeshRuns(), refreshConstraints(), refreshGroups(), refreshCADFaceGroups()]);
+  syncRibbon();
+}
+
 var RIBBON_EXTRA = {};
 RIBBON_EXTRA["pick-node"] = () => setPickMode("node");
 RIBBON_EXTRA["pick-element"] = () => setPickMode("element");
@@ -2133,6 +2211,8 @@ RIBBON_EXTRA["as-force"] = () => assign("force");
 RIBBON_EXTRA["as-press"] = () => assign("press");
 RIBBON_EXTRA["as-dist"] = () => assign("dist");
 const RIBBON_ACTIONS = {
+  "new-model": newModel,
+  settings: openSettings,
   cad: () => browse("cadPath", "cad", importModel),
   mesh: () => browse("loadPath", "mesh", loadMesh),
   res: () => browse("resPath", "results", loadResults),
@@ -2844,6 +2924,7 @@ setInterval(syncRibbon, 700);
     if (first) $("mesher").value = first.id; else { noMesher = true; $("btnMesh").disabled = true; }
     mesherChanged();
   } else show(d.message, "bad");
+  await loadSettings();
     })();
 </script>
 </body>
