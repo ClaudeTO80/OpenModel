@@ -8,6 +8,10 @@ Loads an `.mgwv` file in `examples/webgl-fem-viewer` and checks, on real pixels,
 the section plane and block visibility. Enable it in CTest with `-DOPENMODEL_TEST_WEBGL_VIEWER=ON`
 (`openmodel-cli demo-web` generates the input).
 
+## Colour bar test (`viewer_colorbar_smoke.js`)
+Checks the results colour bar of the viewer: its place on the left, the palette and scale selectors, the editable Min and Max and the ticks.
+Usage: `node viewer_colorbar_smoke.js <index.html> <file.mgwv> [screenshot-dir]`.
+
 ## GUI end-to-end test (`gui_e2e.js`)
 Drives the real `openmodel-webui` on the real WebUI runtime: import a STEP file, select a rendered surface triangle and verify
 that the viewer reports its original OCC `sourceFaceId`; create a `BladeRoot` CAD face group, verify its sidecar persistence
