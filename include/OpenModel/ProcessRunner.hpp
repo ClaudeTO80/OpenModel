@@ -13,7 +13,8 @@
  * @brief Run an external solver in the background, collecting its output line by line.
  *
  * POSIX implementation (fork/exec in its own process group, merged stdout+stderr through a pipe, a reader
- * thread). On Windows start() reports an error: that path is not implemented.
+ * thread). Windows implementation (CreateProcess with the same pipe and reader thread; cancel terminates the
+ * process after the grace period, since a console program has no SIGTERM).
  */
 
 namespace OpenModel {
