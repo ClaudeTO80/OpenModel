@@ -2,6 +2,7 @@
  * @file analysis_setup_test.cpp
  * @brief Tests of the analysis script parser, node selectors, CalculiX input writer and the process runner.
  */
+#include <cctype>
 #include <OpenModel/AnalysisSetup.hpp>
 #include <OpenModel/CodeAster.hpp>
 #include <OpenModel/ProcessRunner.hpp>
@@ -356,6 +357,13 @@ void testWriterStatic() {
     CHECK(contains(t, "MG_EALL, GRAV, 10, 0, 0, -1"));
     CHECK(contains(t, "*NODE FILE\nU, S, E"));
     CHECK(contains(t, "*EL PRINT, ELSET=MG_EALL\nS, E"));
+    {
+        // MG_EALL lists element ids; a set name there is rejected by the importers.
+        const std::string head = "*ELSET, ELSET=MG_EALL\n";
+        const auto at = t.find(head);
+        CHECK(at != std::string::npos && at + head.size() < t.size() &&
+              std::isdigit(static_cast<unsigned char>(t[at + head.size()])) != 0);
+    }
     CHECK(t.find("*END STEP") != std::string::npos);
     // Order: the keyword data of the step comes after *STEP.
     CHECK(t.find("*STEP") < t.find("*STATIC") && t.find("*STATIC") < t.find("*NODE FILE"));

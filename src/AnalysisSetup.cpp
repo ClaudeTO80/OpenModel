@@ -1051,6 +1051,19 @@ std::string idList(const MeshData& mesh, const std::vector<NodeIndex>& nodes) {
     return out.str();
 }
 
+/** Element ids, sixteen per line, in the layout of idList. */
+std::string elementIdList(const std::vector<ElementId>& ids) {
+    std::ostringstream out;
+    std::size_t count = 0;
+    for (const ElementId id : ids) {
+        if (count) out << ", ";
+        out << id;
+        if (++count == 16) { out << "\n"; count = 0; }
+    }
+    if (count) out << "\n";
+    return out.str();
+}
+
 void note(SolverInputResult& r, ImportDiagnosticLevel level, std::string code, std::string message) {
     r.diagnostics.push_back({level, std::move(code), std::move(message), 0});
 }
@@ -1353,8 +1366,8 @@ SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& sc
         for (std::size_t i = 0; i < all.size(); ++i) all[i] = static_cast<NodeIndex>(i);
         out << idList(mesh, all);
     }
-    out << "*ELSET, ELSET=MG_EALL\n";
-    for (std::size_t i = 0; i < volumeSets.size(); ++i) out << volumeSets[i] << (i + 1 < volumeSets.size() ? ",\n" : "\n");
+    // The set lists element ids: a set name in a data line is not an id, and the importers reject it.
+    out << "*ELSET, ELSET=MG_EALL\n" << elementIdList(volumeIds);
     for (const AnalysisMaterial* mat : allMaterials) {
         out << "*MATERIAL, NAME=" << materialName(*mat) << "\n*ELASTIC\n" << mat->youngModulus << ", " << mat->poisson << "\n";
         if (mat->density > 0.0) out << "*DENSITY\n" << mat->density << "\n";
