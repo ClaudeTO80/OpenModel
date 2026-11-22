@@ -171,6 +171,62 @@ Num fixedInt(const std::string& line, std::size_t pos, std::size_t width, long l
     return Num::Ok;
 }
 
+/**
+ * Splits a run of reals written with one digit before the point and an exponent
+ * of two or three digits ("2.5E+001-5.0E+002"), as the C runtime prints %E on
+ * Windows. Fields may touch, so each boundary is found from the shape of the
+ * number, not from a fixed width. The text must already be trimmed.
+ * Returns false if the text does not match this layout.
+ */
+bool splitConcatenatedReals(const std::string& text, std::vector<double>& out) {
+    const std::size_t n = text.size();
+    auto digitAt = [&](std::size_t p) { return p < n && std::isdigit(static_cast<unsigned char>(text[p])) != 0; };
+    auto signAt = [&](std::size_t p) { return p < n && (text[p] == '+' || text[p] == '-'); };
+    // A new token may start at p (after blanks) if it is a signed or unsigned "d." mantissa, or the run ends.
+    auto tokenStartsAt = [&](std::size_t p) {
+        while (p < n && text[p] == ' ') ++p;
+        if (p == n) return true;
+        const std::size_t q = signAt(p) ? p + 1 : p;
+        return digitAt(q) && q + 1 < n && text[q + 1] == '.';
+    };
+
+    std::vector<double> values;
+    std::size_t i = 0;
+    while (true) {
+        while (i < n && text[i] == ' ') ++i;
+        if (i == n) break;
+
+        const std::size_t start = i;
+        if (signAt(i)) ++i;
+        if (!digitAt(i) || i + 1 >= n || text[i + 1] != '.') return false;
+        i += 2;
+        while (digitAt(i)) ++i;
+
+        if (i >= n || (text[i] != 'E' && text[i] != 'e')) return false;
+        ++i;
+        if (!signAt(i)) return false;
+        ++i;
+
+        // Prefer three exponent digits; use two only when three would leave no valid next token.
+        std::size_t chosen = 0;
+        for (std::size_t width : {std::size_t{3}, std::size_t{2}}) {
+            bool digits = true;
+            for (std::size_t k = 0; k < width; ++k) digits = digits && digitAt(i + k);
+            if (digits && tokenStartsAt(i + width)) { chosen = width; break; }
+        }
+        if (chosen == 0) return false;
+        i += chosen;
+
+        char* end = nullptr;
+        const std::string token = text.substr(start, i - start);
+        const double v = std::strtod(token.c_str(), &end);
+        if (end == token.c_str() || *end != '\0') return false;
+        values.push_back(std::isfinite(v) ? v : kNaN);
+    }
+    out = std::move(values);
+    return true;
+}
+
 /* ----------------------------------------------------------------------------- FRD */
 
 class FrdParser {
@@ -248,7 +304,17 @@ private:
             long long id = 0;
             double c[3] = {0, 0, 0};
             bool ok = fixedInt(line, 3, nodeWidth, id) == Num::Ok && id > 0;
-            for (int k = 0; ok && k < 3; ++k) ok = fixedReal(line, 3 + nodeWidth + 12 * static_cast<std::size_t>(k), 12, c[k]) == Num::Ok;
+            if (ok) {
+                // Try the token reader first: a 12-column slice can be a valid number even when the field is wider
+                // (three-digit exponents), so the fixed layout alone may silently misread the coordinates.
+                std::vector<double> tokens;
+                if (splitConcatenatedReals(trimmed(line.substr(3 + nodeWidth)), tokens) && tokens.size() == 3) {
+                    std::copy(tokens.begin(), tokens.end(), c);
+                } else {
+                    for (int k = 0; ok && k < 3; ++k)
+                        ok = fixedReal(line, 3 + nodeWidth + 12 * static_cast<std::size_t>(k), 12, c[k]) == Num::Ok;
+                }
+            }
             if (!ok) {
                 m_result.addError(ImportStatus::InvalidInput, "FRD_BAD_NODE", "Malformed node record", m_line);
                 return false;
@@ -368,16 +434,27 @@ private:
         };
 
         auto takeValues = [&](const std::string& line) -> bool {
-            for (std::size_t k = 0; k < 6 && record.size() < stored; ++k) {
-                double v = 0;
-                const Num r = fixedReal(line, firstValue + 12 * k, 12, v);
-                if (r == Num::Blank) break;
-                if (r == Num::Bad) {
-                    m_result.addError(ImportStatus::InvalidInput, "FRD_BAD_VALUE", "Malformed number in result record", m_line);
-                    return false;
+            std::vector<double> values;
+            // Token reader first, for the same reason as in readNodes: three-digit exponents overflow the slots.
+            const std::size_t from = std::min(line.size(), firstValue);
+            std::vector<double> tokens;
+            if (splitConcatenatedReals(trimmed(line.substr(from)), tokens)) {
+                if (tokens.size() > 6) tokens.resize(6);
+                values = std::move(tokens);
+            } else {
+                for (std::size_t k = 0; k < 6 && record.size() + values.size() < stored; ++k) {
+                    double v = 0;
+                    const Num r = fixedReal(line, firstValue + 12 * k, 12, v);
+                    if (r == Num::Blank) break;
+                    if (r == Num::Bad) {
+                        m_result.addError(ImportStatus::InvalidInput, "FRD_BAD_VALUE", "Malformed number in result record", m_line);
+                        return false;
+                    }
+                    values.push_back(v);
                 }
-                record.push_back(v);
             }
+            if (record.size() + values.size() > stored) values.resize(stored - record.size());
+            record.insert(record.end(), values.begin(), values.end());
             return true;
         };
 
