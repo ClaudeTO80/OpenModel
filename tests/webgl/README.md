@@ -145,3 +145,8 @@ Checks the Settings dialog (solver path, jobs folder chosen with the folder choo
 reaches the viewer, and New model (declined confirmation keeps the model; accepted confirmation asks the server to close the model and
 empties the viewer and the Analysis script). The WebUI bridge is a stub that records the calls, so it needs no running `openmodel-webui`:
 `node gui_session_smoke.js <gui.html> <viewer.html> <results.mgwv>`.
+
+## Results bar on the right (`viewer_results_bar_smoke.js`)
+Checks the results bar of the viewer: the fields and modes it lists, the click on a field (scalar colouring) and on a mode, folding and
+its persistence, the transparent colour bar and `clear()`. Usage: `node viewer_results_bar_smoke.js <index.html> <results.mgwv> [dir]`.
+Checks on modes run only when the file has them: export with `openmodel export-web beam.inp out.mgwv --results beam_modal.frd --modes 5`.

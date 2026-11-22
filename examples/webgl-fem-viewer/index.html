@@ -71,7 +71,7 @@ canvas.drag { cursor: grabbing; }
 .vtGroup button[aria-pressed="true"] { background: var(--accent); color: #fff; }
 .vtGroup button:disabled { opacity: .45; cursor: default; }
 .vtGroup input[type=range] { width: 120px; }
-#colorbar { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); z-index: 3; width: 232px; max-width: calc(100% - 20px); background: color-mix(in srgb, var(--panel) 90%, transparent); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; font-size: 12px; font-variant-numeric: tabular-nums; }
+#colorbar { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); z-index: 3; width: 232px; max-width: calc(100% - 20px); background: transparent; text-shadow: 0 0 3px var(--panel), 0 0 3px var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; font-size: 12px; font-variant-numeric: tabular-nums; }
 #colorbar .cbTitle { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #colorbar .cbRow { display: flex; gap: 8px; margin: 6px 0 8px; }
 #colorbar .cbBar { width: 14px; height: 200px; border-radius: 3px; border: 1px solid var(--line); flex: none; }
@@ -90,6 +90,16 @@ canvas.drag { cursor: grabbing; }
 #resultsPanel dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 3px 10px; margin: 0; font-variant-numeric: tabular-nums; }
 #resultsPanel dt { color: var(--muted); }
 #resultsPanel dd { margin: 0; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#resultsBar { position: absolute; right: 10px; bottom: 10px; z-index: 3; width: 200px; max-width: calc(100% - 20px); max-height: calc(100% - 190px); overflow-y: auto; background: color-mix(in srgb, var(--panel) 90%, transparent); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; font-size: 12px; }
+#resultsBar[hidden] { display: none; }
+#resultsBar .rbHead { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+#resultsBar .rbTitle { font-weight: 600; }
+#resultsBar .rbToggle { font: inherit; font-size: 11px; padding: 1px 6px; }
+#resultsBar .rbSub { color: var(--muted); margin: 6px 0 2px; }
+#resultsBar ul { list-style: none; margin: 0; padding: 0; }
+#resultsBar li button { width: 100%; text-align: left; font: inherit; color: var(--text); background: none; border: 1px solid transparent; border-radius: 4px; padding: 2px 4px; cursor: pointer; }
+#resultsBar li button[aria-pressed="true"] { border-color: var(--accent); font-weight: 600; }
+#resultsBar.collapsed #rbBody { display: none; }
 #axes { position: absolute; left: 12px; bottom: 46px; width: 112px; height: 112px; pointer-events: none; }
 #axes[hidden] { display: none; }
 #hud { position: absolute; left: 12px; bottom: 10px; color: var(--muted); background: color-mix(in srgb, var(--panel) 80%, transparent); border: 1px solid var(--line); border-radius: 6px; padding: 5px 9px; pointer-events: none; }
@@ -267,6 +277,13 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
       <div class="cbNote" id="cbNote" hidden>Logarithmic needs min &gt; 0 and max &gt; min: linear scale shown</div>
     </div>
   </div>
+  <section id="resultsBar" hidden aria-label="Results in the model">
+    <div class="rbHead"><span class="rbTitle">Results</span><button type="button" class="rbToggle" id="rbToggle" aria-expanded="true" aria-controls="rbBody">Hide</button></div>
+    <div id="rbBody">
+      <div id="rbFieldsGroup"><div class="rbSub">Fields</div><ul id="rbFields"></ul></div>
+      <div id="rbModesGroup"><div class="rbSub">Modes</div><ul id="rbModes"></ul></div>
+    </div>
+  </section>
   <div id="selBox" hidden style="position:absolute;border:1px dashed var(--accent);background:color-mix(in srgb, var(--accent) 15%, transparent);pointer-events:none"></div>
   <canvas id="axes" width="112" height="112" aria-label="Axes of the model coordinate system"></canvas>
   <div id="hud">Left: rotate (or select, if enabled) · Right or Shift: pan · Wheel: zoom · Double-click: fit</div>
@@ -1073,7 +1090,20 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     }));
   }
   /** Results card: the load case, the mode, the component coloured, and the scale of the deformed shape with its value. */
+  /** Results bar on the right: the fields and the modes of the model; the one in use is pressed. Hidden without results. */
+  function updateResultsBar() {
+    const model = S.model;
+    const fields = model ? model.fields : [], modes = model ? model.modes : [];
+    $("resultsBar").hidden = !model || (!fields.length && !modes.length);
+    $("rbFieldsGroup").hidden = !fields.length;
+    $("rbModesGroup").hidden = !modes.length;
+    $("rbFields").innerHTML = fields.map((f, i) =>
+      `<li><button type="button" data-rb-field="${i}" aria-pressed="${S.mode === "scalar" && S.fieldIndex === i}">${esc(f.name)}${f.element ? " [element]" : ""}</button></li>`).join("");
+    $("rbModes").innerHTML = modes.map((m, i) =>
+      `<li><button type="button" data-rb-mode="${i}" aria-pressed="${i === S.modeIndex}">${esc(modeText(m))}</button></li>`).join("");
+  }
   function updateResultsPanel() {
+    updateResultsBar();
     const model = S.model, meta = model && model.meta;
     const show = !!model && !!meta.results;
     $("resultsPanel").hidden = !show;
@@ -1108,6 +1138,7 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     box.hidden = false;
   }
   function refreshUi() {
+    updateResultsBar();
     $("scalarBox").hidden = S.mode !== "scalar";
     $("clipBox").hidden = !S.clipOn;
     fillBlocks(); fillComponents(); fillLegend();
@@ -1173,6 +1204,7 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     S.pickMode = "off"; $("pickMode").value = "off"; canvas.style.cursor = "";
     S.sel = { node: new Set(), element: new Set(), face: new Set() };
     for (const id of ["blocksSec", "compSec", "defSec", "resultsInfo", "scalarBox", "clipBox", "legendBox", "resultsPanel", "pickSec", "consRows"]) $(id).hidden = true;
+    updateResultsBar();
     $("blocks").innerHTML = ""; $("legend").innerHTML = ""; $("stats").innerHTML = ""; $("pickCount").textContent = "none";
     $("fileName").textContent = "No file loaded";
     $("drop").hidden = false; showMessage("");
@@ -1215,7 +1247,27 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
   $("fitBtn").addEventListener("click", fit);
   document.querySelectorAll("[data-view]").forEach((b) => b.addEventListener("click", () => setView(b.dataset.view)));
   $("colorMode").addEventListener("change", (e) => { S.mode = e.target.value; refreshUi(); });
-  $("fieldSel").addEventListener("change", (e) => setField(+e.target.value));
+  $("fieldSel").addEventListener("change", (e) => { setField(+e.target.value); updateResultsBar(); });
+  // Results bar: a field switches to the scalar colouring of that field; a mode is selected as in the Mode list.
+  $("resultsBar").addEventListener("click", (e) => {
+    const field = e.target.closest("[data-rb-field]"), mode = e.target.closest("[data-rb-mode]");
+    if (field) {
+      const i = +field.dataset.rbField;
+      $("fieldSel").value = i; setField(i);
+      S.mode = "scalar"; $("colorMode").value = "scalar"; refreshUi(); S.dirty = true;
+    } else if (mode) {
+      setMode(+mode.dataset.rbMode);
+    }
+  });
+  // The results bar can be folded to its title; the choice is kept between sessions.
+  function setResultsBarOpen(open) {
+    $("resultsBar").classList.toggle("collapsed", !open);
+    $("rbToggle").setAttribute("aria-expanded", String(open));
+    $("rbToggle").textContent = open ? "Hide" : "Show";
+    try { localStorage.setItem("openmodel.resultsBar", open ? "shown" : "hidden"); } catch (e) { /* storage unavailable */ }
+  }
+  setResultsBarOpen((() => { try { return localStorage.getItem("openmodel.resultsBar") !== "hidden"; } catch (e) { return true; } })());
+  $("rbToggle").addEventListener("click", () => setResultsBarOpen($("resultsBar").classList.contains("collapsed")));
   $("smin").addEventListener("input", (e) => { S.range[0] = +e.target.value; S.dirty = true; updateColorbar(); });
   $("smax").addEventListener("input", (e) => { S.range[1] = +e.target.value; S.dirty = true; updateColorbar(); });
   // Colour bar controls: palette, scale type and the ends of the range (the sidebar Min/Max inputs follow).
@@ -1942,6 +1994,8 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     setPalette: applyPalette,
     /** Shows (true) or hides (false) the palette, scale and range controls of the colour bar. */
     setLegendOptions,
+    /** Folds (false) or unfolds (true) the results bar on the right. */
+    setResultsBarOpen,
     state: S,
     /**
      * The constraints drawn in the viewer: one entry per constrained node that is drawn.

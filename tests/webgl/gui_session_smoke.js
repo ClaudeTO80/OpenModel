@@ -85,6 +85,18 @@ const bridge = () => {
     check((await page.getAttribute('#anJob', 'placeholder')) === '/work/jobs/openmodel_job/job.inp', 'the jobs folder of the settings is the job placeholder');
     check((await page.evaluate(() => document.getElementById('viewer').contentWindow.OpenModelViewer.palette())) === 'Rosso', 'the viewer starts with the saved palette');
 
+    // 1b. The left panel folds away and comes back; the choice is kept between sessions.
+    check(await page.isVisible('aside'), 'the left panel is shown at start');
+    await page.click('#sideToggle');
+    check(!(await page.isVisible('aside')), 'the toggle folds the left panel away');
+    check((await page.getAttribute('#sideToggle', 'aria-expanded')) === 'false', 'the toggle reports the folded state');
+    await page.reload();
+    await page.waitForFunction(() => document.getElementById('viewer').contentWindow && document.getElementById('viewer').contentWindow.OpenModelViewer);
+    await page.waitForTimeout(400);
+    check(!(await page.isVisible('aside')), 'the folded choice is kept after reload');
+    await page.click('#sideToggle');
+    check(await page.isVisible('aside'), 'the left panel comes back');
+
     // 2. Settings dialog: palettes come from the viewer; saving sends the three values and applies them.
     await page.click('#ribbon [data-act="settings"]');
     check(await page.isVisible('#settingsModal'), 'Settings opens its dialog');

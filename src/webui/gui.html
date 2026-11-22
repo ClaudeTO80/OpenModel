@@ -15,6 +15,9 @@
 html,body{height:100%;margin:0}
 body{background:var(--bg);color:var(--text);font:13px/1.45 system-ui,"Segoe UI",sans-serif;display:grid;grid-template-rows:auto minmax(0,1fr) auto;overflow:hidden}
 #shell{display:grid;grid-template-columns:minmax(300px,360px) minmax(0,1fr);min-height:0}
+#shell.sideCollapsed{grid-template-columns:minmax(0,1fr)}
+#shell.sideCollapsed aside{display:none}
+.sideBtn{margin-left:auto;align-self:center;font:inherit;font-size:12px;padding:3px 8px;margin-right:8px;white-space:nowrap}
 aside{overflow-y:auto;padding:12px;border-right:1px solid var(--line);display:grid;gap:10px;align-content:start}
 h1{margin:0;font-size:17px}
 .sub{color:var(--muted);margin:2px 0 4px}
@@ -162,6 +165,7 @@ details.node details.node{margin-top:8px;background:transparent}
     <button class="tab" role="tab" data-tab="view">View</button>
     <button class="tab" role="tab" data-tab="check">Check</button>
     <button class="tab" role="tab" data-tab="help">Help</button>
+    <button type="button" class="sideBtn" id="sideToggle" aria-expanded="true" aria-controls="shell" title="Show or hide the left panel">◀ Panel</button>
   </nav>
 
   <div class="panel" data-panel="file" role="tabpanel">
@@ -2912,6 +2916,20 @@ setInterval(syncRibbon, 700);
   if (!document.querySelector(`#ribbon .tab[data-tab="${tab}"]`)) tab = "file";
   selectTab(tab);
 })();
+
+/* ---- left panel: can be folded away to give the whole window to the viewer ---- */
+function setSidebar(shown) {
+  $("shell").classList.toggle("sideCollapsed", !shown);
+  $("sideToggle").setAttribute("aria-expanded", String(shown));
+  $("sideToggle").textContent = shown ? "◀ Panel" : "▶ Panel";
+  try { localStorage.setItem("openmodel.sidebar", shown ? "shown" : "hidden"); } catch (e) { /* storage unavailable */ }
+}
+$("sideToggle").addEventListener("click", () => setSidebar($("shell").classList.contains("sideCollapsed")));
+{
+  let saved = "shown";
+  try { saved = localStorage.getItem("openmodel.sidebar") || "shown"; } catch (e) { /* storage unavailable */ }
+  setSidebar(saved !== "hidden");
+}
 
 (async () => {
   loadMaterialDb();
