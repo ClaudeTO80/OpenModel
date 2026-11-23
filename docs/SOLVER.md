@@ -18,7 +18,10 @@ pressure group:Top p=2.5 [amp=A1]                   # surface group; positive = 
 distributed group:Top F=0,0,-40 [amp=A1]           # total force of a surface group, shared by its faces in proportion to area
 gravity g=0,0,-9810                                 # acceleration (needs rho)
 amplitude name=A1 t=0,0,1,1,2,0.5                   # time-dependent factor: (time, factor) pairs, increasing times
+table name=T1 t=0,0,1,1,2,0.5                       # named table of (time, factor) pairs; defined before use
+amplitude name=A2 t=T1                               # amplitude given by table T1 (a copy of its points)
 job SETTLE                                        # a job is one solver session; its steps run in order
+job IMPACT amp=A1:T2                              # this job uses table T2 for amplitude A1 (the loads are unchanged)
 step static [loads=F1,gravity] [reset]           # loads=: active loads (ids; default all); reset: zero the loads of the earlier steps
 step frequency modes=6                           # or: step dynamic dt=0.01 period=1 [dtmin=1e-5] [dtmax=0.1]   # transient, implicit; needs rho and supports
 output nodal=on|off                            # nodal results in the .frd (*NODE FILE); on by default
@@ -29,6 +32,8 @@ output element=auto|on|off                          # element S/E in the .dat (a
 Jobs and steps. A model holds the loads once; a `job NAME` line starts a job (one solver session, one `NAME.inp` deck and one
 `NAME.frd` result set), and the `step` lines after it belong to that job. Without `job` the steps form the job `job`. A step
 lists its active loads with `loads=` (ids: `id=` on the load line, or the generated `force-N`, `pressure-N`; gravity is `gravity`).
+
+Tables. A `table name=T t=...` line holds a (time, factor) curve that is reused by name. An `amplitude` takes its points either as a list (`t=0,0,1,1,...`) or from a table (`t=T`). A job line can give another table to an amplitude with `amp=A:T`, comma-separated for several amplitudes: each job writes its own `*AMPLITUDE` points, the loads and the model are unchanged. Tables and amplitudes must be defined before they are used. Only the resolved points reach the deck. A table can only hold numbers: it is a list, not a function, so a curve such as `A*sin(t)` is sampled into a table before it is written. The table editor planned for the GUI will build these lines.
 A load that is not active in a step keeps its last value in the solver, unless the step says `reset`: then the loads of the
 earlier steps of the same job that are not active there are set to zero. Supports (`fix`) hold in every step.
 The CalculiX writer writes every step of a job in one deck. `openmodel solve` runs one solver session per job, in script

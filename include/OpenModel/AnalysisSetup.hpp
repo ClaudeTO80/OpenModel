@@ -110,7 +110,19 @@ struct HoleFit {
  */
 struct AnalysisAmplitude {
     std::string name;                                ///< Identifier used by the loads (amp=NAME).
-    std::vector<std::array<double, 2>> points;       ///< (time, factor), strictly increasing in time.
+    std::vector<std::array<double, 2>> points;       ///< (time, factor), strictly increasing in time (copied from the table when `table` is set).
+    std::string table;                               ///< Name of the table this amplitude was given by (t=TABLE); empty when given by a list.
+};
+
+/**
+ * @brief Points of one amplitude for one job. Tables are kept in AnalysisModel::tables (name and points, written as
+ * `table name=T t=...`); an amplitude takes its points from one with `amplitude name=A t=T`, and a job can give
+ * another table to an amplitude with `job NAME amp=A:T2`. Only the resolved points reach the solver deck.
+ */
+struct AmplitudeOverride {
+    std::string amplitude;                           ///< Amplitude name in the model (the loads keep using it).
+    std::string table;                               ///< Table name the points come from.
+    std::vector<std::array<double, 2>> points;       ///< Resolved points, strictly increasing in time.
 };
 
 struct NodalForce {
@@ -179,6 +191,8 @@ struct AnalysisStep {
 struct AnalysisJob {
     std::string id;                     ///< Stable name; it names the solver input and the output of the job.
     std::vector<AnalysisStep> steps;    ///< At least one step.
+    /** Amplitudes this job takes from another table (`job NAME amp=A:T`); the others keep their model points. */
+    std::vector<AmplitudeOverride> amplitudeOverrides;
 };
 
 /** @brief Material of one volume part of the mesh (a mesh element block), set by an `assign` line. */
@@ -199,6 +213,8 @@ struct AnalysisModel {
     bool hasGravity = false;
     std::array<double, 3> gravity{{0.0, 0.0, 0.0}};
     std::vector<AnalysisAmplitude> amplitudes;
+    /** Named tables of (time, factor) pairs; an amplitude or a job refers to them by name (name and points only). */
+    std::vector<AnalysisAmplitude> tables;
     /** Print element stresses/strains to the `.dat` (per-element results). Large for big meshes; -1 = automatic (<= 200000 elements). */
     int elementPrint = -1;
     /** Request the nodal results (`*NODE FILE`: displacements, and stresses and strains in a static step) for the `.frd`.
