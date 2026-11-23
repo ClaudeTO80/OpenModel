@@ -477,6 +477,23 @@ void updateView() {
     if (source == &g.mesh && g.hasAnalysis) {
         std::vector<OpenModel::ImportDiagnostic> supportDiagnostics;
         viewOptions.extraConstraints = OpenModel::supportConstraints(*source, g.analysis, supportDiagnostics);
+        // The rigid links (RBE2) are drawn from their reference point to their coupled nodes. A link whose group does not
+        // resolve is left out here; the solver input reports it.
+        for (const auto& link : g.analysis.rigidLinks) {
+            OpenModel::NodeSelector sel;
+            sel.kind = OpenModel::SelectorKind::Group;
+            sel.name = link.group;
+            std::string selectError;
+            const auto slaves = link.group.empty() ? link.slaves : OpenModel::selectNodes(*source, sel, selectError);
+            if (slaves.empty()) continue;
+            WebRigidLink drawn;
+            drawn.reference = link.reference;
+            for (const NodeIndex n : slaves) {
+                const auto c = source->nodeCoordinates(n);
+                drawn.nodes.push_back({c[0], c[1], c[2]});
+            }
+            viewOptions.rigidLinks.push_back(std::move(drawn));
+        }
     }
     const auto result = WebViewWriter::build(*source, viewOptions, g.view);
     if (!result.success) {

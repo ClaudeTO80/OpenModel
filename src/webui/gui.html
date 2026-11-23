@@ -2849,7 +2849,11 @@ async function rbeApply() {
     appendScript("rbe2 group:" + g.created + " ref=" + h.point.join(","));
     notes.push(g.created + ": reference at the " + (h.how === "hole" ? "centre of the hole" : "centroid of the nodes"));
   }
-  if (notes.length) show(notes.length + " rigid link" + (notes.length === 1 ? "" : "s") + " (RBE2) added to the script.\n" + notes.join("\n"), "good");
+  if (!notes.length) return;
+  // The server keeps the parsed model: sync it so that the viewer draws the new links now.
+  const synced = await act("openmodel_analysis_load", $("anScript").value);
+  if (synced && synced.ok) $("anScript").value = synced.message;
+  show(notes.length + " rigid link" + (notes.length === 1 ? "" : "s") + " (RBE2) added to the script.\n" + notes.join("\n"), "good");
 }
 function stepMode(delta) {
   const w = viewerApi(); if (!w) return;

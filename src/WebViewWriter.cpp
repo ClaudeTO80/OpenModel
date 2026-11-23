@@ -587,6 +587,18 @@ WebViewResult WebViewWriter::build(const MeshData& mesh, const WebViewOptions& o
 
     // 7. JSON descriptor.
     std::string json = "{\"format\":\"MGWV\",\"version\":" + std::to_string(kVersion);
+    // Rigid links, with the coordinates moved to the origin of the file as the positions are (see step 2).
+    std::string rigid;
+    for (const auto& link : options.rigidLinks) {
+        if (!rigid.empty()) rigid += ",";
+        rigid += "{\"reference\":[" + num(link.reference[0] - origin[0]) + "," + num(link.reference[1] - origin[1]) + "," +
+                 num(link.reference[2] - origin[2]) + "],\"nodes\":[";
+        for (std::size_t i = 0; i < link.nodes.size(); ++i) {
+            if (i) rigid += ",";
+            rigid += num(link.nodes[i][0] - origin[0]) + "," + num(link.nodes[i][1] - origin[1]) + "," + num(link.nodes[i][2] - origin[2]);
+        }
+        rigid += "]}";
+    }
     json += ",\"origin\":[" + num(origin[0]) + "," + num(origin[1]) + "," + num(origin[2]) + "]";
     json += ",\"bbox\":{\"min\":[" + num(lo[0]) + "," + num(lo[1]) + "," + num(lo[2]) + "],\"max\":[" +
             num(hi[0]) + "," + num(hi[1]) + "," + num(hi[2]) + "]}";
@@ -595,6 +607,7 @@ WebViewResult WebViewWriter::build(const MeshData& mesh, const WebViewOptions& o
             ",\"boundaryTriangles\":" + std::to_string(boundaryTriangles) + ",\"edges\":" + std::to_string(edges.size()) +
             ",\"boundaryEdges\":" + std::to_string(boundaryEdges) +
             ",\"constrainedNodes\":" + std::to_string(constrainedNodes) + ",\"constraintVertices\":" + std::to_string(constraintWords.size() / 2) + "}";
+    json += ",\"rigidLinks\":[" + rigid + "]";
     json += ",\"blocks\":[";
     for (std::size_t b = 0; b < blocks.size(); ++b) {
         if (b) json += ",";

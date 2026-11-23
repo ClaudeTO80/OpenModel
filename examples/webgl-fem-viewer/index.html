@@ -491,6 +491,28 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     }
   }`;
 
+  // Rigid links (RBE2): segments from the reference point to each coupled node (uDot = 0), and a red dot on the
+  // reference point (uDot = 1). Positions are the model's, in the frame of the mesh; the section clip applies as to the mesh.
+  const VS_RIG = GLSL_COMMON + `
+  uniform mat4 uMV, uP; uniform float uPointSize;
+  in vec3 aPos; out vec3 vModel;
+  void main() {
+    vModel = aPos;
+    gl_Position = uP * uMV * vec4(aPos, 1.0);
+    gl_PointSize = uPointSize;
+  }`;
+  const FS_RIG = GLSL_COMMON + `
+  uniform vec4 uClip; uniform int uClipOn; uniform int uDot;
+  in vec3 vModel; out vec4 o;
+  void main() {
+    if (uClipOn == 1 && dot(uClip.xyz, vModel) > uClip.w) discard;
+    if (uDot == 1) {
+      vec2 d = gl_PointCoord - 0.5;
+      if (dot(d, d) > 0.25) discard;
+    }
+    o = vec4(0.86, 0.12, 0.12, 1.0);
+  }`;
+
   function program(vs, fs) {
     const make = (type, src) => {
       const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
@@ -508,6 +530,33 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
   }
   const triProg = program(VS_TRI, FS_TRI), edgeProg = program(VS_EDGE, FS_EDGE);
   const pickTriProg = program(VS_PICK_TRI, FS_PICK), nodeProg = program(VS_NODE, FS_PICK), consProg = program(VS_CONS, FS_CONS);
+  const rigProg = program(VS_RIG, FS_RIG);
+  rigProg.a = gl.getAttribLocation(rigProg.p, "aPos");
+  /** Buffers of the rigid links of a model (meta.rigidLinks): one VAO for the segments, one for the reference dots. */
+  function buildRigid(meta) {
+    const lines = [], points = [];
+    for (const link of (meta && meta.rigidLinks) || []) {
+      const r = link.reference;
+      points.push(r[0], r[1], r[2]);
+      for (let i = 0; i + 2 < link.nodes.length; i += 3) lines.push(r[0], r[1], r[2], link.nodes[i], link.nodes[i + 1], link.nodes[i + 2]);
+    }
+    const partOf = (data) => {
+      if (!data.length) return null;
+      const buf = gl.createBuffer(), va = gl.createVertexArray();
+      gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(data), gl.STATIC_DRAW);
+      gl.bindVertexArray(va);
+      gl.enableVertexAttribArray(rigProg.a);
+      gl.vertexAttribPointer(rigProg.a, 3, gl.FLOAT, false, 0, 0);
+      gl.bindVertexArray(null);
+      return { vao: va, buf, n: data.length / 3 };
+    };
+    return { lines: partOf(lines), points: partOf(points) };
+  }
+  function freeRigid(rig) {
+    if (!rig) return;
+    for (const part of [rig.lines, rig.points]) if (part) { gl.deleteBuffer(part.buf); gl.deleteVertexArray(part.vao); }
+  }
   const vao = gl.createVertexArray();
 
   /* ------------------------------------------------------------- textures */
@@ -707,6 +756,8 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     S.faceInfo = null; S.nodeVertex = null; S.holeCache = new Map();
     S.count = { tris: n.triangles, skinTris: n.boundaryTriangles, edges: n.edges, skinEdges: n.boundaryEdges,
                 cons: model.consVertex ? model.consVertex.length : 0 };
+    freeRigid(S.rig);
+    S.rig = buildRigid(model.meta);
   }
   function setField(i) {
     const f = S.model.fields[i];
@@ -792,6 +843,13 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
   function bounds() {
     const b = S.model.meta.bbox, o = S.model.meta.origin;
     const lo = b.min.map((v, i) => v - o[i]), hi = b.max.map((v, i) => v - o[i]);
+    // The rigid links (RBE2) are framed too, so that their reference points can be seen after a fit. The stored
+    // bounding box (the Dimensions) stays the mesh's.
+    const grow = (p) => { for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], p[k]); hi[k] = Math.max(hi[k], p[k]); } };
+    for (const link of S.model.meta.rigidLinks || []) {
+      grow(link.reference);
+      for (let i = 0; i + 2 < link.nodes.length; i += 3) grow([link.nodes[i], link.nodes[i + 1], link.nodes[i + 2]]);
+    }
     return { lo, hi, center: lo.map((v, i) => (v + hi[i]) / 2), diag: Math.hypot(...hi.map((v, i) => v - lo[i])) };
   }
   const VIEWS = {
@@ -943,6 +1001,16 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
       gl.uniform1i(consProg.u.uKind, 0); gl.drawArrays(gl.TRIANGLES, 0, nc * 216);
       gl.uniform1i(consProg.u.uKind, 1); gl.drawArrays(gl.LINES, 0, nc * 96);
       gl.uniform1i(consProg.u.uKind, 2); gl.drawArrays(gl.POINTS, 0, nc);
+    }
+    // Rigid links: drawn with the constraints (the "fixed dofs" switch).
+    if (S.consOn && S.rig && (S.rig.lines || S.rig.points)) {
+      gl.useProgram(rigProg.p);
+      gl.uniformMatrix4fv(rigProg.u.uMV, false, MV); gl.uniformMatrix4fv(rigProg.u.uP, false, P);
+      gl.uniform4fv(rigProg.u.uClip, clip); gl.uniform1i(rigProg.u.uClipOn, S.clipOn ? 1 : 0);
+      gl.uniform1f(rigProg.u.uPointSize, 9 * dpr);
+      if (S.rig.lines) { gl.uniform1i(rigProg.u.uDot, 0); gl.bindVertexArray(S.rig.lines.vao); gl.drawArrays(gl.LINES, 0, S.rig.lines.n); }
+      if (S.rig.points) { gl.uniform1i(rigProg.u.uDot, 1); gl.bindVertexArray(S.rig.points.vao); gl.drawArrays(gl.POINTS, 0, S.rig.points.n); }
+      gl.bindVertexArray(null);
     }
     if (S.pickMode === "node" && S.sel.node.size > 0) {
       gl.useProgram(nodeProg.p);
@@ -1199,6 +1267,7 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
   /** Empties the viewer as at start: no model, no selection and no sections or colour bar, with the empty-state message back. */
   function clearModel() {
     freeModel();
+    freeRigid(S.rig); S.rig = null;
     S.model = null; S.tex = {}; S.count = {}; S.vis = null; S.palettes = {};
     S.clipOn = false; $("clipOn").checked = false;
     S.pickMode = "off"; $("pickMode").value = "off"; canvas.style.cursor = "";
@@ -2002,6 +2071,14 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
      * @returns {{vertex:number, node:number, dofs:string[], prescribed:boolean}[]} `node` is the external node id (-1 when the
      *          file has no picking chunks); `dofs` lists the constrained degrees of freedom among ux, uy, uz, rx, ry, rz.
      */
+    /**
+     * The rigid links drawn in the viewer.
+     * @returns {{links:number, segments:number}} `links` reference points, `segments` links from a reference point to a node.
+     */
+    rigidLinks() {
+      const r = S.rig;
+      return { links: r && r.points ? r.points.n : 0, segments: r && r.lines ? r.lines.n / 2 : 0 };
+    },
     constraints() {
       const m = S.model;
       if (!m || !m.consVertex) return [];
