@@ -630,10 +630,14 @@ details.node details.node{margin-top:8px;background:transparent}
       <summary>Time dependence</summary>
       <label for="asAmpName">Amplitude name</label>
       <input id="asAmpName" placeholder="A1">
-      <label for="asAmpPoints">Time, factor pairs (first time 0, increasing times)</label>
-      <input id="asAmpPoints" placeholder="0,0,1,1,2,0.5">
+      <label for="asAmpPoints">Time, factor pairs (increasing times), or the name of a table</label>
+      <input id="asAmpPoints" placeholder="0,0,1,1,2,0.5 or T1">
       <button class="full" onclick="addAmplitude()">Add amplitude to script</button>
       <ul id="condAmplitude" class="conds"></ul>
+      <h4 style="margin:12px 0 4px">Tables</h4>
+      <p class="hint">A table is a named list of (time, factor) pairs. Amplitudes can take their points from it by name, and a job can use another table with <code>amp=A:T</code>. Tables are defined before use.</p>
+      <ul id="condTables" class="conds"></ul>
+      <button class="full" onclick="openTableDialog(null)">New table</button>
     </details>
     <details class="node">
       <summary>Step</summary>
@@ -685,6 +689,20 @@ details.node details.node{margin-top:8px;background:transparent}
       <h3 id="analysisEditTitle">Edit condition</h3>
       <div id="analysisEditFields" class="stack"></div>
       <div class="grid2" style="margin-top:12px"><button type="button" id="analysisEditCancel">Cancel</button><button type="submit" class="primary">Apply</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="tableDialog" style="max-width:520px;width:calc(100% - 32px);border:1px solid var(--border,#888);border-radius:8px;background:var(--panel,#fff);color:var(--text,inherit)">
+    <form id="tableForm">
+      <h3 id="tableTitle">New table</h3>
+      <label for="tableName">Table name</label>
+      <input id="tableName" required placeholder="T1" autocomplete="off">
+      <div class="grid2" style="grid-template-columns:1fr 1fr 32px;align-items:center;margin-top:8px"><span class="hint">Time</span><span class="hint">Factor</span><span></span></div>
+      <div id="tableRows" class="stack"></div>
+      <button type="button" id="tableAddRow" class="full" style="margin-top:6px">Add row</button>
+      <canvas id="tablePreview" width="460" height="180" role="img" aria-label="Preview of the table" style="width:100%;height:auto;margin-top:10px;border:1px solid var(--border,#bbb);border-radius:4px"></canvas>
+      <p id="tableStatus" class="hint" role="status"></p>
+      <div class="grid2" style="margin-top:12px"><button type="button" id="tableCancel">Cancel</button><button type="submit" id="tableApply" class="primary">Apply</button></div>
     </form>
   </dialog>
 
@@ -1451,7 +1469,7 @@ function syncConstraintSize() {
   const w = viewerApi(), el = $("cdSymbolSize");
   if (w && el && document.activeElement !== el) el.value = w.OpenModelViewer.state.consSize;
 }
-const ANALYSIS_COMMANDS = new Set(["material", "assign", "fix", "force", "pressure", "distributed", "rbe2", "gravity", "amplitude", "job", "step", "output"]);
+const ANALYSIS_COMMANDS = new Set(["material", "assign", "fix", "force", "pressure", "distributed", "rbe2", "gravity", "amplitude", "table", "job", "step", "output"]);
 /** Gravity is a load every model has by default; it is switched off by commenting its line out of the script. */
 const DEFAULT_GRAVITY = "gravity g=0,0,-9810";
 /** Adds the default gravity line when the script has no gravity line, active or switched off. */
@@ -2619,9 +2637,9 @@ async function editAnalysisCondition(command, line, id, lines, index) {
     dialog.showModal();
   }).then(value => value === true ? false : value === false ? false : null);
 }
-const CONDITION_LIST = { material: "condMaterial", fix: "condFix", force: "condLoads", pressure: "condLoads", distributed: "condLoads", gravity: "condLoads", amplitude: "condAmplitude", job: "condLoads", step: "condLoads", output: "condLoads" };
+const CONDITION_LIST = { material: "condMaterial", fix: "condFix", force: "condLoads", pressure: "condLoads", distributed: "condLoads", gravity: "condLoads", amplitude: "condAmplitude", table: "condTables", job: "condLoads", step: "condLoads", output: "condLoads" };
 function renderAnalysisConditions() {
-  const lists = ["condMaterial", "condFix", "condLoads", "condAmplitude"].map((id) => $(id)).filter(Boolean);
+  const lists = ["condMaterial", "condFix", "condLoads", "condAmplitude", "condTables"].map((id) => $(id)).filter(Boolean);
   if (!lists.length) return;
   lists.forEach((l) => l.replaceChildren());
   const lines = $("anScript").value.split(/\r?\n/);
@@ -2640,6 +2658,7 @@ function renderAnalysisConditions() {
     const edit = document.createElement("button");
     edit.type = "button"; edit.textContent = "Edit";
     edit.addEventListener("click", async () => {
+      if (command === "table") { openTableDialog(index); return; }
       const structured = await editAnalysisCondition(command, line.trim(), idMatch && idMatch[1], lines, index);
       if (structured !== null) return;
       {
@@ -2659,6 +2678,11 @@ function renderAnalysisConditions() {
       // in the box, so deleting by id there failed without a message.
       const current = $("anScript").value.split(/\r?\n/);
       if (current[index] !== line) { show("The script changed: the list is out of date.", "bad"); renderAnalysisConditions(); return; }
+      if (command === "table") {
+        const name = analysisTokens(line, "table").name;
+        const users = tableUsers(name, $("anScript").value);
+        if (users.length) { show("Table " + name + " is used on line " + users.join(", ") + ": remove those lines first.", "bad"); return; }
+      }
       current.splice(index, 1);
       $("anScript").value = current.join("\n");
       const synced = await act("openmodel_analysis_load", $("anScript").value);
@@ -2753,21 +2777,224 @@ function setMaterial() {
   if (index >= 0) applyAnalysisEdit(line, idMatch && idMatch[1], lines, index);
   else appendScript(line);
 }
-/** Adds an amplitude (time, factor pairs) to the script; the name must not be used yet. */
+/** Name rule for tables, same as the parser: starts with a letter or _ (a leading digit reads as a number). */
+const TABLE_NAME = /^[A-Za-z_][A-Za-z0-9_.-]{0,63}$/;
+/**
+ * @brief Builds the script line of a table from its name and (time, factor) text rows. Pure: no DOM, no backend.
+ * @param name table name, checked against TABLE_NAME
+ * @param rows array of [timeText, factorText]
+ * @return {ok, line} with the table line, or {ok:false, error} with the first problem found
+ */
+function tableLineFromRows(name, rows) {
+  if (!TABLE_NAME.test(name)) return { ok: false, error: "The table name must start with a letter or _ and use only letters, digits, _ . - (max 64)." };
+  if (rows.length < 2) return { ok: false, error: "A table needs at least two (time, factor) rows." };
+  const values = [];
+  let previous = -Infinity;
+  for (let i = 0; i < rows.length; ++i) {
+    const tx = String(rows[i][0]).trim(), fx = String(rows[i][1]).trim();
+    const t = Number(tx), f = Number(fx);
+    if (tx === "" || fx === "" || !Number.isFinite(t) || !Number.isFinite(f)) return { ok: false, error: "Row " + (i + 1) + ": time and factor must be numbers." };
+    if (!(t > previous)) return { ok: false, error: "Row " + (i + 1) + ": the times must be strictly increasing." };
+    previous = t;
+    values.push(tx, fx);
+  }
+  return { ok: true, line: "table name=" + name + " t=" + values.join(",") };
+}
+/**
+ * @brief Lists the table lines of a script.
+ * @return array of {index, name, points} where points is an array of [time, factor] numbers
+ */
+function tableLines(script) {
+  const out = [];
+  script.split(/\r?\n/).forEach((line, index) => {
+    if (analysisCommand(line) !== "table") return;
+    const values = analysisTokens(line, "table");
+    const nums = (values.t || "").split(",").map(Number);
+    const points = [];
+    for (let i = 0; i + 1 < nums.length; i += 2) points.push([nums[i], nums[i + 1]]);
+    out.push({ index, name: values.name || "", points });
+  });
+  return out;
+}
+/**
+ * @brief Finds the script lines that use a table: amplitudes (t=NAME) and job overrides (amp=A:NAME).
+ * @return 1-based line numbers of the users, empty when the table is free
+ */
+function tableUsers(name, script) {
+  const users = [];
+  script.split(/\r?\n/).forEach((line, index) => {
+    const command = analysisCommand(line);
+    if (command === "amplitude") {
+      const m = /(?:^|\s)t=(\S+)/.exec(line);
+      if (m && m[1] === name) users.push(index + 1);
+    } else if (command === "job") {
+      const m = /(?:^|\s)amp=(\S+)/.exec(line);
+      if (m && m[1].split(",").some((pair) => pair.split(":")[1] === name)) users.push(index + 1);
+    }
+  });
+  return users;
+}
+/** Adds an amplitude to the script: its points are a list of (time, factor) pairs or the name of a table. */
 function addAmplitude() {
   const name = $("asAmpName").value.trim(), pts = $("asAmpPoints").value.trim();
   if (!/^[A-Za-z0-9_.-]+$/.test(name)) { show("The amplitude name may contain letters, digits, _ - .", "bad"); return; }
-  const values = pts.split(",").map((x) => x.trim());
-  if (values.length < 4 || values.length % 2 !== 0 || values.some((x) => x === "" || !Number.isFinite(Number(x)))) {
-    show("An amplitude needs at least two time, factor pairs of numbers, e.g. 0,0,1,1.", "bad"); return;
-  }
-  const times = values.filter((_, i) => i % 2 === 0).map(Number);
-  if (times.some((t, i) => i > 0 && !(t > times[i - 1]))) { show("The times of an amplitude must be strictly increasing.", "bad"); return; }
   const taken = new RegExp("(?:^|\\s)name=" + name + "(?:\\s|$)");
   if ($("anScript").value.split(/\r?\n/).some((l) => analysisCommand(l) === "amplitude" && taken.test(l))) {
     show("An amplitude named '" + name + "' already exists: remove it first.", "bad"); return;
   }
+  if (/^[A-Za-z_]/.test(pts)) {
+    // A table reference: the table must be defined before the amplitude that uses it.
+    if (!TABLE_NAME.test(pts)) { show("Table names start with a letter or _ and use only letters, digits, _ . -.", "bad"); return; }
+    if (!tableLines($("anScript").value).some((t) => t.name === pts)) { show("No table named '" + pts + "' is defined above: create it first.", "bad"); return; }
+    appendScript("amplitude name=" + name + " t=" + pts);
+    return;
+  }
+  const values = pts.split(",").map((x) => x.trim());
+  if (values.length < 4 || values.length % 2 !== 0 || values.some((x) => x === "" || !Number.isFinite(Number(x)))) {
+    show("An amplitude needs at least two time, factor pairs of numbers, e.g. 0,0,1,1, or the name of a table.", "bad"); return;
+  }
+  const times = values.filter((_, i) => i % 2 === 0).map(Number);
+  if (times.some((t, i) => i > 0 && !(t > times[i - 1]))) { show("The times of an amplitude must be strictly increasing.", "bad"); return; }
   appendScript("amplitude name=" + name + " t=" + values.join(","));
+}
+/** Index of the table being edited in the script, or null for a new table. */
+let tableEditIndex = null;
+let tableEditOldName = "";
+let tableDialogWired = false;
+/** Adds a (time, factor) row to the table dialog; the inputs refresh the status and the preview. */
+/**
+ * @brief Splits pasted text into (time, factor) rows. Values are separated by blanks, tabs, line breaks, commas or
+ * semicolons, and come in pairs: time, factor, time, factor, ... (a line with two values is one row).
+ * The decimal separator is the dot, so a comma is always a separator.
+ * @return {ok, rows} with rows as [timeText, factorText] pairs, or {ok:false, error}
+ */
+function parseTableText(text) {
+  const tokens = String(text).trim().split(/[\s,;]+/).filter((x) => x !== "");
+  if (tokens.length % 2 !== 0) return { ok: false, error: "The pasted values come in pairs, but " + tokens.length + " were found: one value is missing or extra." };
+  if (tokens.length < 4) return { ok: false, error: "Paste at least two time, factor pairs." };
+  const rows = [];
+  for (let i = 0; i < tokens.length; i += 2) rows.push([tokens[i], tokens[i + 1]]);
+  return { ok: true, rows };
+}
+/** Replaces all rows of the table dialog with the pairs of a multi-value paste; a single value keeps the normal paste. */
+function pasteTableRows(event) {
+  const text = (event.clipboardData || window.clipboardData).getData("text");
+  if (!/[\s,;]/.test(String(text).trim())) return;
+  event.preventDefault();
+  const parsed = parseTableText(text);
+  if (!parsed.ok) { show(parsed.error, "bad"); return; }
+  $("tableRows").replaceChildren();
+  parsed.rows.forEach((r) => addTableRow(r[0], r[1]));
+  refreshTableDialog();
+}
+function addTableRow(time, factor) {
+  const row = document.createElement("div");
+  row.className = "grid2";
+  row.style.cssText = "grid-template-columns:1fr 1fr 32px;align-items:center";
+  const t = document.createElement("input"); t.type = "text"; t.inputMode = "decimal"; t.value = time; t.setAttribute("aria-label", "Time");
+  const f = document.createElement("input"); f.type = "text"; f.inputMode = "decimal"; f.value = factor; f.setAttribute("aria-label", "Factor");
+  const drop = document.createElement("button"); drop.type = "button"; drop.textContent = "×"; drop.title = "Remove row"; drop.setAttribute("aria-label", "Remove row");
+  [t, f].forEach((input) => {
+    input.addEventListener("input", refreshTableDialog);
+    input.addEventListener("paste", pasteTableRows);
+  });
+  drop.addEventListener("click", () => {
+    if ($("tableRows").children.length <= 2) { show("A table needs at least two rows.", "bad"); return; }
+    row.remove(); refreshTableDialog();
+  });
+  row.append(t, f, drop);
+  $("tableRows").append(row);
+}
+/** Reads the rows of the table dialog as [timeText, factorText] pairs. */
+function tableDialogRows() {
+  return Array.from($("tableRows").children).map((row) => [row.children[0].value, row.children[1].value]);
+}
+/** Recomputes the status line, the Apply button and the preview from the dialog contents. */
+function refreshTableDialog() {
+  const name = $("tableName").value.trim();
+  const rows = tableDialogRows();
+  const built = tableLineFromRows(name, rows);
+  let error = built.ok ? "" : built.error;
+  if (!error) {
+    const clash = tableLines($("anScript").value).find((t) => t.name === name && t.index !== tableEditIndex);
+    if (clash) error = "A table named '" + name + "' already exists: choose another name.";
+  }
+  if (!error && tableEditIndex !== null && name !== tableEditOldName) {
+    const users = tableUsers(tableEditOldName, $("anScript").value);
+    if (users.length) error = "Table " + tableEditOldName + " is used on line " + users.join(", ") + ": it cannot be renamed.";
+  }
+  $("tableStatus").textContent = error || "Ready to apply.";
+  $("tableApply").disabled = !!error;
+  const points = rows.map((r) => [Number(String(r[0]).trim()), Number(String(r[1]).trim())]).filter((p) => Number.isFinite(p[0]) && Number.isFinite(p[1]));
+  drawTablePreview(points);
+}
+/** Draws the (time, factor) points as a polyline with axes; the zero factor line is drawn when it is in range. */
+function drawTablePreview(points) {
+  const c = $("tablePreview"), g = c.getContext("2d");
+  const W = c.width, H = c.height, pad = 28;
+  const ink = getComputedStyle(c).color || "#333";
+  g.clearRect(0, 0, W, H);
+  g.strokeStyle = ink; g.fillStyle = ink; g.font = "12px sans-serif";
+  g.globalAlpha = 0.35; g.lineWidth = 1;
+  g.beginPath(); g.moveTo(pad, pad); g.lineTo(pad, H - pad); g.lineTo(W - pad, H - pad); g.stroke();
+  g.globalAlpha = 1;
+  if (points.length < 2) { g.fillText("Enter at least two rows to see the curve.", pad, H / 2); return; }
+  const tMin = Math.min(...points.map((p) => p[0])), tMax = Math.max(...points.map((p) => p[0]));
+  let fMin = Math.min(0, ...points.map((p) => p[1])), fMax = Math.max(0, ...points.map((p) => p[1]));
+  if (fMax === fMin) { fMax += 1; fMin -= 1; }
+  const x = (t) => pad + (tMax === tMin ? 0 : (t - tMin) / (tMax - tMin)) * (W - 2 * pad);
+  const y = (f) => H - pad - ((f - fMin) / (fMax - fMin)) * (H - 2 * pad);
+  g.globalAlpha = 0.35; g.setLineDash([4, 3]);
+  g.beginPath(); g.moveTo(pad, y(0)); g.lineTo(W - pad, y(0)); g.stroke();
+  g.setLineDash([]); g.globalAlpha = 1; g.lineWidth = 2;
+  g.beginPath(); points.forEach((p, i) => (i ? g.lineTo(x(p[0]), y(p[1])) : g.moveTo(x(p[0]), y(p[1])))); g.stroke();
+  g.fillText(String(tMin), pad, H - 8); g.fillText(String(tMax), W - pad - 30, H - 8);
+  g.fillText(String(fMax), 2, pad + 4); g.fillText(String(fMin), 2, H - pad);
+}
+/**
+ * @brief Opens the table dialog: a new table (index null) or the table on line index of the script.
+ * @param index script line of the table to edit, or null
+ */
+function openTableDialog(index) {
+  const lines = $("anScript").value.split(/\r?\n/);
+  tableEditIndex = null; tableEditOldName = "";
+  $("tableName").value = ""; $("tableName").disabled = false;
+  $("tableRows").replaceChildren();
+  let rows = [["0", "0"], ["1", "1"]];
+  if (index !== null) {
+    const table = tableLines($("anScript").value).find((t) => t.index === index);
+    if (!table) { show("The table is no longer in the script: the list is out of date.", "bad"); renderAnalysisConditions(); return; }
+    tableEditIndex = index; tableEditOldName = table.name;
+    $("tableName").value = table.name;
+    rows = table.points.map((p) => [String(p[0]), String(p[1])]);
+    $("tableTitle").textContent = "Edit table " + table.name;
+  } else {
+    $("tableTitle").textContent = "New table";
+  }
+  rows.forEach((r) => addTableRow(r[0], r[1]));
+  if (!tableDialogWired) {
+    tableDialogWired = true;
+    $("tableName").addEventListener("input", refreshTableDialog);
+    $("tableAddRow").addEventListener("click", () => { addTableRow("", ""); refreshTableDialog(); });
+    $("tableCancel").addEventListener("click", () => $("tableDialog").close());
+    $("tableForm").addEventListener("submit", (event) => { event.preventDefault(); applyTableDialog(); });
+  }
+  refreshTableDialog();
+  $("tableDialog").showModal();
+}
+/** Writes the table of the dialog into the script: replaces its line when editing, appends it when new. */
+async function applyTableDialog() {
+  const name = $("tableName").value.trim();
+  const built = tableLineFromRows(name, tableDialogRows());
+  if (!built.ok) { show(built.error, "bad"); return; }
+  const lines = $("anScript").value.split(/\r?\n/);
+  if (tableEditIndex === null) {
+    appendScript(built.line);
+  } else {
+    if (!await applyAnalysisEdit(built.line, null, lines, tableEditIndex)) return;
+  }
+  $("tableDialog").close();
+  show("Table " + name + " " + (tableEditIndex === null ? "added to the script." : "updated."), "good");
 }
 function stepKindChanged() {
   const kind = $("asStepKind").value;

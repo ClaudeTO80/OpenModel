@@ -539,6 +539,76 @@ void testPrescribedDisplacementTracker() {
 } // namespace
 
 
+/** Named tables of (time, factor) pairs: an amplitude takes one (t=TABLE), and a job can give another (job NAME amp=A:T). */
+void testTables() {
+    const std::string base = "material E=210000 nu=0.3 rho=7.85e-9\n";
+    auto fails = [](const std::string& text) { return !parseAnalysisScript(text).success; };
+
+    const std::string script = base +
+                               "table name=T1 t=0,0,1,1,2,0.5\n"
+                               "table name=T2 t=0,0,2,1\n"
+                               "amplitude name=A1 t=T1\n"
+                               "amplitude name=A2 t=0,1,1,0\n"
+                               "fix group:Bottom\n"
+                               "force group:Top F=0,0,-10 amp=A1\n"
+                               "pressure group:Right p=2 amp=A2\n"
+                               "job SETTLE\n"
+                               "step dynamic dt=0.01 period=1\n"
+                               "job IMPACT amp=A1:T2\n"
+                               "step dynamic dt=0.01 period=1\n";
+    const auto r = parseAnalysisScript(script);
+    CHECK(r.success);
+    if (!r.success) return;
+    CHECK(r.model.tables.size() == 2 && r.model.tables[0].points.size() == 3);
+    CHECK(r.model.amplitudes.size() == 2 && r.model.amplitudes[0].table == "T1");
+    CHECK(r.model.amplitudes[0].points.size() == 3 && r.model.amplitudes[0].points[2][0] == 2.0);  // copied from T1
+    CHECK(r.model.amplitudes[1].table.empty() && r.model.amplitudes[1].points.size() == 2);       // given as a list
+    CHECK(r.model.jobs.size() == 2 && r.model.jobs[0].amplitudeOverrides.empty());
+    CHECK(r.model.jobs[1].amplitudeOverrides.size() == 1 && r.model.jobs[1].amplitudeOverrides[0].amplitude == "A1");
+    CHECK(r.model.jobs[1].amplitudeOverrides[0].table == "T2" && r.model.jobs[1].amplitudeOverrides[0].points.size() == 2);
+    // The model's own amplitude is not changed by the override of one job.
+    CHECK(r.model.amplitudes[0].points.size() == 3);
+
+    // Round trip: the tables, the table references and the overrides are written back.
+    const std::string text = serializeAnalysisScript(r.model);
+    CHECK(contains(text, "table name=T1 t=0,0,1,1,2,0.5"));
+    CHECK(contains(text, "amplitude name=A1 t=T1"));
+    CHECK(contains(text, "job IMPACT amp=A1:T2"));
+    const auto back = parseAnalysisScript(text);
+    CHECK(back.success && back.model.tables.size() == 2 && back.model.amplitudes[0].table == "T1");
+    CHECK(back.success && back.model.jobs[1].amplitudeOverrides.size() == 1 && back.model.jobs[1].amplitudeOverrides[0].table == "T2");
+
+    // The deck: each job writes the points it uses; the amplitude keeps its name for the loads.
+    {
+        const fs::path dir = tempDir();
+        MeshData hex = makeHex();
+        const auto settle = writeSolverInput(hex, r.model, dir / "settle.inp", "SETTLE");
+        const auto impact = writeSolverInput(hex, r.model, dir / "impact.inp", "IMPACT");
+        CHECK(settle.success && impact.success);
+        const std::string s = slurp(dir / "settle.inp");
+        const std::string i = slurp(dir / "impact.inp");
+        CHECK(contains(s, "*AMPLITUDE, NAME=A1\n0, 0, 1, 1, 2, 0.5\n"));
+        CHECK(contains(i, "*AMPLITUDE, NAME=A1\n0, 0, 2, 1\n"));   // T2 in this job
+        CHECK(contains(i, "*AMPLITUDE, NAME=A2\n0, 1, 1, 0\n"));   // not overridden: the model's points
+        CHECK(contains(i, "*CLOAD, AMPLITUDE=A1") && contains(i, "*DLOAD, AMPLITUDE=A2"));  // loads unchanged
+    }
+
+    // Refusals.
+    CHECK(fails(base + "amplitude name=A t=NOPE\n"));                                      // unknown table
+    CHECK(fails(base + "table name=T t=T2\n"));                                            // a table takes numbers
+    CHECK(fails(base + "table name=T t=0,0,1\n"));                                         // odd count
+    CHECK(fails(base + "table name=T t=0,0,0,1\n"));                                       // times not increasing
+    CHECK(fails(base + "table name=T t=0,0,1,1\ntable name=T t=0,0,2,1\n"));              // duplicate table
+    CHECK(fails(base + "table name=T t=0,0,1,1\namplitude name=T t=0,0,1,1\n") == false); // table and amplitude may share a name
+    CHECK(fails(base + "table name=T t=0,0,1,1\namplitude name=A t=T\namplitude name=A t=0,0,1,1\n"));  // duplicate amplitude
+    CHECK(fails(base + "amplitude name=A t=T\ntable name=T t=0,0,1,1\n"));                 // table must be defined before use
+    CHECK(fails(base + "table name=T t=0,0,1,1\namplitude name=A t=T\njob J amp=NOPE:T\n"));  // unknown amplitude
+    CHECK(fails(base + "table name=T t=0,0,1,1\namplitude name=A t=T\njob J amp=A:NOPE\n"));  // unknown table
+    CHECK(fails(base + "table name=T t=0,0,1,1\namplitude name=A t=T\njob J amp=A\n"));       // missing :TABLE
+    CHECK(fails(base + "table name=T t=0,0,1,1\namplitude name=A t=T\njob J amp=A:T,A:T\n")); // twice in one job
+    CHECK(fails(base + "job J amp=A:T\ntable name=T t=0,0,1,1\namplitude name=A t=T\n"));    // amplitude not yet defined
+}
+
 /** Time-dependent loads and the dynamic step: parser, serializer, deck text and the refusals of the code_aster writer. */
 void testTimeLoadsAndDynamic() {
     // Amplitudes and the amp= option on forces and pressures.
@@ -1014,6 +1084,7 @@ int main() {
     testTetFaces();
     testWriterFrequencyAndValidation();
     testTimeLoadsAndDynamic();
+    testTables();
     testPartMaterials();
     testJobsStepsAndLoads();
     testDistributedLoads();

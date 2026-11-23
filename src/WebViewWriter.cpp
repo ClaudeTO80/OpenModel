@@ -228,6 +228,19 @@ WebViewResult WebViewWriter::build(const MeshData& mesh, const WebViewOptions& o
         for (const auto& d : options.displacement)
             if (!std::isfinite(d[0]) || !std::isfinite(d[1]) || !std::isfinite(d[2])) return fail("displacement contains a non-finite value");
     }
+    if (!options.frames.empty()) {
+        if (!options.modes.empty() || !options.displacement.empty())
+            return fail("frames are mutually exclusive with modes and displacement");
+        for (std::size_t f = 0; f < options.frames.size(); ++f) {
+            const auto& frame = options.frames[f];
+            if (!std::isfinite(frame.time)) return fail("frame '" + frame.label + "' has a non-finite time");
+            if (f > 0 && !(frame.time > options.frames[f - 1].time)) return fail("frame times must be strictly increasing");
+            if (frame.displacement.size() != nodeCount) return fail("frame '" + frame.label + "' must have one displacement per node");
+            for (const auto& d : frame.displacement)
+                if (!std::isfinite(d[0]) || !std::isfinite(d[1]) || !std::isfinite(d[2]))
+                    return fail("frame '" + frame.label + "' contains a non-finite displacement");
+        }
+    }
 
     const auto& blocks = mesh.getElementBlocks();
     const auto& groups = mesh.getPhysicalGroups();
@@ -572,17 +585,26 @@ WebViewResult WebViewWriter::build(const MeshData& mesh, const WebViewOptions& o
         return c;
     };
     const bool hasModes = !options.modes.empty();
-    const bool hasDisplacement = !options.displacement.empty() || hasModes;
+    const bool hasFrames = !options.frames.empty();
+    const bool hasDisplacement = !options.displacement.empty() || hasModes || hasFrames;
     Chunk cDisp{0, 0};
     double maxDisplacement = 0.0;
     struct ModeInfo { std::string label; double frequency, max; Chunk chunk; };
     std::vector<ModeInfo> modes;
+    struct FrameInfo { std::string label; double time, max; Chunk chunk; };
+    std::vector<FrameInfo> frames;
     if (!options.displacement.empty()) cDisp = packDisplacement(options.displacement, maxDisplacement);
     for (const auto& mode : options.modes) {
         double modeMax = 0.0;
         const Chunk c = packDisplacement(mode.displacement, modeMax);
         maxDisplacement = std::max(maxDisplacement, modeMax);
         modes.push_back({mode.label, mode.frequency, modeMax, c});
+    }
+    for (const auto& frame : options.frames) {
+        double frameMax = 0.0;
+        const Chunk c = packDisplacement(frame.displacement, frameMax);
+        maxDisplacement = std::max(maxDisplacement, frameMax);
+        frames.push_back({frame.label, frame.time, frameMax, c});
     }
 
     // 7. JSON descriptor.
@@ -662,6 +684,17 @@ WebViewResult WebViewWriter::build(const MeshData& mesh, const WebViewOptions& o
                     ",\"max\":" + num(modes[m].max) + ",\"offset\":" + std::to_string(modes[m].chunk.offset) + "}";
         }
         json += "]";
+    }
+    if (hasFrames) {
+        json += ",\"frames\":[";
+        for (std::size_t f = 0; f < frames.size(); ++f) {
+            if (f) json += ",";
+            json += "{\"label\":\"" + jsonEscape(frames[f].label) + "\",\"time\":" + num(frames[f].time) +
+                    ",\"max\":" + num(frames[f].max) + ",\"offset\":" + std::to_string(frames[f].chunk.offset) + "}";
+        }
+        json += "]";
+        const std::size_t shown = options.defaultFrame < frames.size() ? options.defaultFrame : frames.size() - 1;
+        json += ",\"frame\":" + std::to_string(shown);
     }
     if (!options.resultsLabel.empty()) json += ",\"results\":{\"label\":\"" + jsonEscape(options.resultsLabel) + "\"}";
     json += "}";

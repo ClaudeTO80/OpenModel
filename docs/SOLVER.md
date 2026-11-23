@@ -18,7 +18,10 @@ pressure group:Top p=2.5 [amp=A1]                   # surface group; positive = 
 distributed group:Top F=0,0,-40 [amp=A1]           # total force of a surface group, shared by its faces in proportion to area
 gravity g=0,0,-9810                                 # acceleration (needs rho)
 amplitude name=A1 t=0,0,1,1,2,0.5                   # time-dependent factor: (time, factor) pairs, increasing times
+table name=T1 t=0,0,1,1,2,0.5                       # named table of (time, factor) pairs; defined before use
+amplitude name=A2 t=T1                               # amplitude given by table T1 (a copy of its points)
 job SETTLE                                        # a job is one solver session; its steps run in order
+job IMPACT amp=A1:T2                              # this job uses table T2 for amplitude A1 (the loads are unchanged)
 step static [loads=F1,gravity] [reset]           # loads=: active loads (ids; default all); reset: zero the loads of the earlier steps
 step frequency modes=6                           # or: step dynamic dt=0.01 period=1 [dtmin=1e-5] [dtmax=0.1]   # transient, implicit; needs rho and supports
 output nodal=on|off                            # nodal results in the .frd (*NODE FILE); on by default
@@ -29,6 +32,8 @@ output element=auto|on|off                          # element S/E in the .dat (a
 Jobs and steps. A model holds the loads once; a `job NAME` line starts a job (one solver session, one `NAME.inp` deck and one
 `NAME.frd` result set), and the `step` lines after it belong to that job. Without `job` the steps form the job `job`. A step
 lists its active loads with `loads=` (ids: `id=` on the load line, or the generated `force-N`, `pressure-N`; gravity is `gravity`).
+
+Tables. A `table name=T t=...` line holds a (time, factor) curve that is reused by name. An `amplitude` takes its points either as a list (`t=0,0,1,1,...`) or from a table (`t=T`). A job line can give another table to an amplitude with `amp=A:T`, comma-separated for several amplitudes: each job writes its own `*AMPLITUDE` points, the loads and the model are unchanged. Tables and amplitudes must be defined before they are used. Only the resolved points reach the deck. A table can only hold numbers: it is a list, not a function, so a curve such as `A*sin(t)` is sampled into a table before it is written. In the GUI (*Loads and steps* → *Time dependence* → *Tables*) a table can be created, edited and removed: the dialog checks the name and the rows (at least two numeric rows, strictly increasing times, no duplicate name) and shows a preview, a table used by an amplitude or a job cannot be removed or renamed, and an amplitude can take a table by name. A job override (`amp=A:T`) is text only in the GUI for now. Test: `tests/webgl/gui_tables_smoke.js`.
 A load that is not active in a step keeps its last value in the solver, unless the step says `reset`: then the loads of the
 earlier steps of the same job that are not active there are set to zero. Supports (`fix`) hold in every step.
 The CalculiX writer writes every step of a job in one deck. `openmodel solve` runs one solver session per job, in script
@@ -66,7 +71,7 @@ Not yet: the script syntax for rigid links, the grouping of selected faces into 
 * Pressure supports tetrahedra/hexahedra (linear and quadratic); no pyramids/wedges, no shell/beam elements, no contact, no nonlinear materials. Per-part materials (`assign`) are written by CalculiX only; code_aster takes one material.
 * Loads not written yet: body forces per element (`BX/BY/BZ`), centrifugal loads (`CENTRIF`: the manual does not state unambiguously the meaning of its first value), distributed traction (tangential), nodal moments (solid elements have no rotational degrees of freedom), thermal loads (out of scope). Each one needs its syntax checked against the solver manual before it is written.
 * Dynamic steps and amplitudes are not written to the code_aster case: `writeCodeAsterCase` refuses them with a message.
-* The results reader loads every increment of a dynamic run as its own step; the viewer shows the last one by default (`--time T` or `t=T` for another time). Animation over the time history is not implemented.
+* The results reader loads every increment of a dynamic run as its own step. The web view binds the displacement of those steps as time-history frames (at most 100, sampled evenly, first and last kept): the viewer's "Increment" slider steps through them and "Play" runs them at five per second, while the scalar fields stay those of the selected step. The default frame is the selected step (the last one unless `--time T` or `t=T` chooses another). Files with a single increment, and the modal results, have no frames. A static run with several load increments has frames too, since CalculiX labels them as times. The frames are not written to the code_aster case.
 * ProcessRunner is POSIX only; on Windows it returns an error (untested/unimplemented).
 * Child process receives no sandbox: it runs with the user's rights.
 

@@ -47,6 +47,13 @@ struct WebMode {
     std::vector<std::array<double, 3>> displacement; ///< One entry per node index; size must equal the node count.
 };
 
+/** @brief One instant of a transient (time-history) result: the displacement of every node at that time. */
+struct WebFrame {
+    std::string label;                              ///< For example "time 0.25".
+    double time = 0.0;                              ///< Time in the unit of the solver; strictly increasing over the frames.
+    std::vector<std::array<double, 3>> displacement; ///< One entry per node index; size must equal the node count.
+};
+
 /** @brief Options controlling WebViewWriter output. */
 /** @brief A rigid link as drawn in the viewer: its reference point and the coordinates of the nodes it couples. */
 struct WebRigidLink {
@@ -72,6 +79,17 @@ struct WebViewOptions {
      * mode and animate it. `displacement` must then be empty.
      */
     std::vector<WebMode> modes;
+    /**
+     * Optional time history of a transient analysis. When not empty the viewer lets the user step through the
+     * frames and draws the deformed shape of the selected one; the last frame is the default. Like `modes` it
+     * replaces `displacement`, which must then be empty, and it cannot be combined with `modes`.
+     */
+    std::vector<WebFrame> frames;
+    /**
+     * Index of the frame shown when the file is opened. The default (and any index past the last frame) selects the
+     * last frame. ResultBinding sets it to the frame of the selected step.
+     */
+    std::size_t defaultFrame = static_cast<std::size_t>(-1);
     /**
      * Optional display colour (sRGB, 0..1) per physical group name, for example the colour a component has in
      * the CAD file. Groups without an entry get the viewer's palette. Not stored in MGMB: only in the MGWV image.

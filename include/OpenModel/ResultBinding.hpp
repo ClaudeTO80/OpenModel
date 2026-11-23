@@ -58,6 +58,18 @@ struct BindOptions {
      */
     std::size_t maxModes = kAutoModes;
     /**
+     * Time history of a transient analysis. When the results hold two or more time steps (StepKind::Time) with a
+     * displacement, and no vibration modes are bound, the displacement of those steps is bound as viewer frames
+     * (WebViewOptions::frames) so the viewer can step through them. Scalar fields still come from `step`. Files
+     * without such steps are unaffected.
+     */
+    bool timeHistory = true;
+    /**
+     * Largest number of frames kept. Longer histories are sampled evenly; the first and the last time step are always
+     * kept. Each frame stores 12 bytes per node, so the limit keeps the MGWV size bounded. Values below 2 bind no frames.
+     */
+    std::size_t maxFrames = 100;
+    /**
      * Name of the field used as nodal displacement (case-insensitive). Empty selects automatically the first
      * field named DISP, DISPLACEMENT or U with at least three components; "none" disables the displacement.
      */
@@ -90,6 +102,8 @@ struct BindResult {
     std::size_t nodesWithoutData = 0;           ///< Largest number of mesh nodes lacking a value in one field.
     bool hasDisplacement = false;
     std::string displacementName;
+    std::size_t framesBound = 0;                ///< Entries appended to WebViewOptions::frames (0 = no time history).
+    std::vector<double> frameTimes;             ///< Time of each bound frame.
 };
 
 /**
