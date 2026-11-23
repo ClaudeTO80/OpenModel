@@ -31,7 +31,7 @@
  * pressure group:Top p=2.5                      # on a dimension-2 surface group; positive = pushing into the body
  * distributed group:Top F=0,0,-40 [amp=NAME]    # total force of a dimension-2 group, shared by its faces in proportion to area
  * gravity g=0,0,-9810                           # acceleration vector (needs rho)
- * job SETTLE                                    # starts a job (one solver session); steps below belong to it
+ * job SETTLE [solver=ID]                      # starts a job (one solver session); steps below belong to it
  * step static loads=F1,P1                       # only the listed loads are active; ids come from the lines above
  * step static loads=F2 reset                    # F1 and P1 of the previous steps are set to zero here
  * step frequency modes=6                        # or: step dynamic dt=0.01 period=1
@@ -193,6 +193,8 @@ struct AnalysisJob {
     std::vector<AnalysisStep> steps;    ///< At least one step.
     /** Amplitudes this job takes from another table (`job NAME amp=A:T`); the others keep their model points. */
     std::vector<AmplitudeOverride> amplitudeOverrides;
+    /** Id of the solver of this job (`job NAME solver=ID`, see Solvers.hpp); empty = the default of the analysis type. */
+    std::string solver;
 };
 
 /** @brief Material of one volume part of the mesh (a mesh element block), set by an `assign` line. */

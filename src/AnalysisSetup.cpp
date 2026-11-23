@@ -287,8 +287,12 @@ struct Parser {
                     overrides.push_back(AmplitudeOverride{amplitudeName, tableName, table->points});
                 }
             }
+            // solver=ID names the solver of this job (see Solvers.hpp); the id is checked against the settings when the job runs.
+            std::string solverId;
+            take("solver", solverId);
+            if (!solverId.empty() && !validConditionId(solverId)) { error("SCRIPT_BAD_JOB", "job solver= takes a solver id (letters, digits, _ - .), got '" + solverId + "'"); return; }
             leftovers();
-            if (result.diagnostics.size() == errorsBefore) result.model.jobs.push_back(AnalysisJob{positional[0], {}, overrides});
+            if (result.diagnostics.size() == errorsBefore) result.model.jobs.push_back(AnalysisJob{positional[0], {}, overrides, solverId});
         } else if (command == "step") {
             AnalysisStep step;
             if (positional.empty()) { error("SCRIPT_STEP", "step needs 'static', 'frequency' or 'dynamic'"); return; }
@@ -549,6 +553,7 @@ std::string serializeAnalysisScript(const AnalysisModel& model) {
         out << "job " << job.id;
         for (std::size_t i = 0; i < job.amplitudeOverrides.size(); ++i)
             out << (i ? "," : " amp=") << job.amplitudeOverrides[i].amplitude << ':' << job.amplitudeOverrides[i].table;
+        if (!job.solver.empty()) out << " solver=" << job.solver;
         out << '\n';
         for (const auto& step : job.steps) {
             out << "step " << (step.type == StepType::Static ? "static" : step.type == StepType::Frequency ? "frequency" : "dynamic");
