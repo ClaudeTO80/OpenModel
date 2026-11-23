@@ -345,6 +345,13 @@ void applySupports(MeshData& mesh, const AnalysisModel& model, std::vector<Impor
 bool fitHoleCircle(const MeshData& mesh, const std::vector<NodeIndex>& edge, HoleFit& fit);
 
 /**
+ * @brief Splits a selection into clusters, one per hole: items (faces) that share a token (a node reference) belong to
+ * the same cluster, transitively. Returns the clusters as lists of item indices, in order of first appearance; every
+ * item is in exactly one cluster. Items without tokens form clusters of their own.
+ */
+std::vector<std::vector<std::size_t>> sharedTokenClusters(const std::vector<std::vector<std::string>>& itemTokens);
+
+/**
  * @brief One RigidLink per hole: each hole edge is fitted with fitHoleCircle() and coupled to `reference`.
  *
  * The reference point is the one the user picks outside the part. Warnings (not errors): a reference farther than 5 % of

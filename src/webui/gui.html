@@ -242,7 +242,7 @@ details.node details.node{margin-top:8px;background:transparent}
       <button class="rb" data-act="as-force" data-need="sel" title="Create a node group and add 'force' to the script"><span class="ic">➡</span>Force</button>
       <button class="rb" data-act="as-press" data-need="selface" title="Create a face group and add 'pressure' to the script (only with faces selected)"><span class="ic">⬇</span>Pressure</button>
       <button class="rb" data-act="as-dist" data-need="selface" title="Create a face group and add 'distributed' to the script: the total force is shared by the selected faces in proportion to their area (only with faces selected)"><span class="ic">▦</span>Distributed</button>
-      <button class="rb" data-act="as-rbe2" data-need="sel" title="Create a node group from the selection and add 'rbe2' to the script: the coupled nodes follow a reference node placed at the centre of the selected hole (or at the centroid of the selected nodes)"><span class="ic">◎</span>RBE2</button>
+      <button class="rb" data-act="as-rbe2" data-need="sel" title="Create a node group and add 'rbe2' to the script for each selected hole: the coupled nodes follow a reference node at the centre of the hole (faces of several holes: one rigid link per hole)"><span class="ic">◎</span>RBE2</button>
     </div><div class="gname">Groups and loads</div></div>
     <div class="group"><div class="items">
       <button class="rb" data-act="cd-apply" data-need="sel" title="Block the degrees of freedom ticked in the side panel (Mesh constraints) on the nodes of the selection"><span class="ic">🔒</span>Constrain</button>
@@ -2215,7 +2215,7 @@ RIBBON_EXTRA["cd-clear"] = () => constraintClear();
 RIBBON_EXTRA["as-force"] = () => assign("force");
 RIBBON_EXTRA["as-press"] = () => assign("press");
 RIBBON_EXTRA["as-dist"] = () => assign("dist");
-RIBBON_EXTRA["as-rbe2"] = () => assign("rbe2");
+RIBBON_EXTRA["as-rbe2"] = () => rbeApply();
 const RIBBON_ACTIONS = {
   "new-model": newModel,
   settings: openSettings,
@@ -2791,7 +2791,7 @@ const numList = (t, n) => { const p = t.split(",").map((x) => x.trim()); return 
 async function assign(type) {
   const sel = currentSelection();
   if (!sel) { show("Select nodes, elements or faces in the viewer first.", "bad"); return; }
-  let line, kind = "node", rbeRef = null;
+  let line, kind = "node";
   if (type === "fix") {
     line = (g) => buildFixedSupportLine("group:" + g);
     if (!line("VALIDATION_ONLY")) return;
@@ -2809,15 +2809,6 @@ async function assign(type) {
     const damp = $("asAmp").value.trim();
     if (damp && !/^[A-Za-z0-9_.-]+$/.test(damp)) { show("The amplitude name may contain letters, digits, _ - .", "bad"); return; }
     line = (g) => "distributed group:" + g + " F=" + f.join(",") + (damp ? " amp=" + damp : "");
-  } else if (type === "rbe2") {
-    // The reference node sits at the centre of the selected hole, or at the centroid of the selected nodes.
-    const r = await act("openmodel_rbe2_reference", sel.mode, selectionText(sel));
-    if (!r || !r.ok) return;
-    const [how, text] = String(r.message).split(";");
-    const point = text.split(",").map(Number);
-    if (point.length !== 3 || !point.every(Number.isFinite)) { show("The reference point could not be computed.", "bad"); return; }
-    rbeRef = how;
-    line = (g) => "rbe2 group:" + g + " ref=" + point.join(",");
   } else {
     const p = Number($("asPress").value);
     if (!Number.isFinite(p) || $("asPress").value.trim() === "") { show("The pressure must be a number.", "bad"); return; }
@@ -2827,12 +2818,38 @@ async function assign(type) {
     if (pampl && !/^[A-Za-z0-9_.-]+$/.test(pampl)) { show("The amplitude name may contain letters, digits, _ - .", "bad"); return; }
     line = (g) => "pressure group:" + g + " p=" + p + (pampl ? " amp=" + pampl : "");
   }
-  const prefix = { fix: "FIX", force: "FORCE", press: "PRESS", dist: "DIST", rbe2: "RBE2" }[type];
+  const prefix = { fix: "FIX", force: "FORCE", press: "PRESS", dist: "DIST" }[type];
   const r = await makeGroup(kind, undefined, prefix);
   if (!r || !r.ok || !r.created) return;
   appendScript(line(r.created));
-  const where = rbeRef === "hole" ? "\nReference node: centre of the selected hole." : rbeRef === "centroid" ? "\nReference node: centroid of the selected nodes (they do not form a circle)." : "";
-  show(r.message + "\nLine added to the script: " + line(r.created) + where, "good");
+  show(r.message + "\nLine added to the script: " + line(r.created), "good");
+}
+/**
+ * RBE2 from the selection, one rigid link per hole: the selected faces are split into the holes they belong to (faces that
+ * share nodes), each hole gets a node group and an rbe2 line whose reference node is the centre of the hole (or the
+ * centroid of the nodes when they do not form a circle). Backend: openmodel_rbe2_reference, one line per hole.
+ */
+async function rbeApply() {
+  const sel = currentSelection();
+  if (!sel) { show("Select nodes or faces in the viewer first.", "bad"); return; }
+  const plan = await act("openmodel_rbe2_reference", sel.mode, selectionText(sel));
+  if (!plan || !plan.ok) return;
+  const holes = String(plan.message).split("\n").filter(Boolean).map((l) => {
+    const [how, text, payload] = l.split("|");
+    return {how, point: text.split(",").map(Number), payload};
+  });
+  if (holes.some((h) => h.point.length !== 3 || !h.point.every(Number.isFinite))) { show("The reference points could not be computed.", "bad"); return; }
+  const notes = [];
+  for (const h of holes) {
+    const g = await act("openmodel_create_group", "", "node", sel.mode, h.payload, "RBE2");
+    if (!g || !g.ok || !g.created) {
+      show("Stopped after " + notes.length + " of " + holes.length + " rigid links.\n" + (g && g.message ? g.message : ""), "bad");
+      break;
+    }
+    appendScript("rbe2 group:" + g.created + " ref=" + h.point.join(","));
+    notes.push(g.created + ": reference at the " + (h.how === "hole" ? "centre of the hole" : "centroid of the nodes"));
+  }
+  if (notes.length) show(notes.length + " rigid link" + (notes.length === 1 ? "" : "s") + " (RBE2) added to the script.\n" + notes.join("\n"), "good");
 }
 function stepMode(delta) {
   const w = viewerApi(); if (!w) return;

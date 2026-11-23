@@ -2396,37 +2396,67 @@ void materialDeleteHandler(webui_event_t* e) {
 }
 
 /**
- * Arguments: selection mode, selection payload. Replies "hole;x,y,z" when the selected nodes lie on a circle (the
- * reference point is its centre, see fitHoleCircle) or "centroid;x,y,z" otherwise (the centroid of the selected nodes).
- * The page creates the node group and appends the rbe2 line to the script with this point.
+ * Arguments: selection mode, selection payload. Splits the selection into one cluster per hole (faces that share nodes,
+ * see sharedTokenClusters; a node selection is one cluster). Replies one line per cluster, "kind|x,y,z|payload":
+ * kind "hole" when the cluster nodes lie on a circle (the reference point is its centre, see fitHoleCircle), "centroid"
+ * otherwise (the centroid of the nodes); payload is the selection of the cluster, in the same format as the input.
+ * The page creates one node group per line and appends one rbe2 line to the script.
  */
 void rbe2ReferenceHandler(webui_event_t* e) {
     StateLock lock;
     if (!lock.ok()) { replyBusy(e); return; }
     if (g.mesh.getNumNodes() == 0) { reply(e, false, "Load or generate a volume mesh first."); return; }
+    const std::string mode = getStringArg(e, 0);
+    const std::string payload = getStringArg(e, 1);
     OpenModel::ViewerSelection selection;
     std::string error;
-    if (!parseSelection(getStringArg(e, 0), getStringArg(e, 1), selection, error)) { reply(e, false, error); return; }
-    std::vector<NodeIndex> nodes = OpenModel::selectedNodes(g.mesh, selection, error);
-    std::sort(nodes.begin(), nodes.end());
-    nodes.erase(std::unique(nodes.begin(), nodes.end()), nodes.end());
-    if (nodes.empty()) { reply(e, false, error.empty() ? "The selection contains no node." : error); return; }
+    if (!parseSelection(mode, payload, selection, error)) { reply(e, false, error); return; }
 
-    std::string kind = "centroid";
-    std::array<double, 3> point{};
-    OpenModel::HoleFit fit;
-    if (nodes.size() >= 3 && OpenModel::fitHoleCircle(g.mesh, nodes, fit) && fit.maxDeviation <= 0.05) {
-        kind = "hole";
-        point = fit.centre;
-    } else {
-        for (const NodeIndex n : nodes) {
-            const auto c = g.mesh.nodeCoordinates(n);
-            for (std::size_t k = 0; k < 3; ++k) point[k] += c[k];
+    // Items of the payload: faces "element:n1,n2,..." (separated by ';') or the whole payload for nodes and elements.
+    std::vector<std::string> items{payload};
+    std::vector<std::vector<std::string>> clusters{{payload}};
+    if (mode == "face") {
+        items = splitText(payload, ';');
+        std::vector<std::vector<std::string>> tokens;
+        for (const std::string& item : items) {
+            const auto colon = item.find(':');
+            tokens.push_back(splitText(colon == std::string::npos ? item : item.substr(colon + 1), ','));
         }
-        for (std::size_t k = 0; k < 3; ++k) point[k] /= static_cast<double>(nodes.size());
+        clusters.clear();
+        for (const auto& cluster : OpenModel::sharedTokenClusters(tokens)) {
+            std::vector<std::string> part;
+            for (const std::size_t i : cluster) part.push_back(items[i]);
+            clusters.push_back(part);
+        }
     }
+
     std::ostringstream out;
-    out << std::setprecision(17) << kind << ';' << point[0] << ',' << point[1] << ',' << point[2];
+    for (const auto& part : clusters) {
+        std::string cluster;
+        for (const std::string& item : part) cluster += (cluster.empty() ? "" : ";") + item;
+        OpenModel::ViewerSelection clusterSelection;
+        if (!parseSelection(mode, cluster, clusterSelection, error)) { reply(e, false, error); return; }
+        std::vector<NodeIndex> nodes = OpenModel::selectedNodes(g.mesh, clusterSelection, error);
+        std::sort(nodes.begin(), nodes.end());
+        nodes.erase(std::unique(nodes.begin(), nodes.end()), nodes.end());
+        if (nodes.empty()) { reply(e, false, error.empty() ? "The selection contains no node." : error); return; }
+
+        std::string kind = "centroid";
+        std::array<double, 3> point{};
+        OpenModel::HoleFit fit;
+        if (nodes.size() >= 3 && OpenModel::fitHoleCircle(g.mesh, nodes, fit) && fit.maxDeviation <= 0.05) {
+            kind = "hole";
+            point = fit.centre;
+        } else {
+            for (const NodeIndex n : nodes) {
+                const auto c = g.mesh.nodeCoordinates(n);
+                for (std::size_t k = 0; k < 3; ++k) point[k] += c[k];
+            }
+            for (std::size_t k = 0; k < 3; ++k) point[k] /= static_cast<double>(nodes.size());
+        }
+        if (out.tellp() > 0) out << '\n';
+        out << kind << '|' << std::setprecision(17) << point[0] << ',' << point[1] << ',' << point[2] << '|' << cluster;
+    }
     reply(e, true, out.str());
 }
 

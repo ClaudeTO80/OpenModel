@@ -279,6 +279,20 @@ int main() {
         CHECK(!writeSolverInput(mesh, model, dir / "missing.inp").success);
     }
 
+    // 12. Faces of several holes: faces sharing a node are one hole, a chain of shared nodes is one hole too.
+    {
+        const auto none = sharedTokenClusters({});
+        CHECK(none.empty());
+        // Items 0 and 2 share node "7", item 2 and 3 share "9": {0,2,3}. Items 1 and 4 share "5": {1,4}.
+        const auto clusters = sharedTokenClusters({{"7", "8"}, {"5", "6"}, {"7", "9"}, {"9", "10"}, {"5", "11"}});
+        CHECK(clusters.size() == 2);
+        CHECK(clusters.size() == 2 && clusters[0] == std::vector<std::size_t>({0, 2, 3}));
+        CHECK(clusters.size() == 2 && clusters[1] == std::vector<std::size_t>({1, 4}));
+        // An item without tokens is a cluster of its own.
+        const auto lone = sharedTokenClusters({{"1"}, {}, {"1"}});
+        CHECK(lone.size() == 2 && lone[0] == std::vector<std::size_t>({0, 2}) && lone[1] == std::vector<std::size_t>({1}));
+    }
+
     if (g_failures == 0) std::cout << "rigid_link_test: all checks passed\n";
     return g_failures == 0 ? 0 : 1;
 }

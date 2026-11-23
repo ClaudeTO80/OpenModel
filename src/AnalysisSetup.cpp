@@ -819,6 +819,33 @@ bool fitHoleCircle(const MeshData& mesh, const std::vector<NodeIndex>& edge, Hol
     return true;
 }
 
+std::vector<std::vector<std::size_t>> sharedTokenClusters(const std::vector<std::vector<std::string>>& itemTokens) {
+    // Union-find over the items: an item joins the first item that uses each of its tokens.
+    std::vector<std::size_t> parent(itemTokens.size());
+    for (std::size_t i = 0; i < parent.size(); ++i) parent[i] = i;
+    auto root = [&parent](std::size_t i) {
+        while (parent[i] != i) { parent[i] = parent[parent[i]]; i = parent[i]; }
+        return i;
+    };
+    std::map<std::string, std::size_t> firstUser;
+    for (std::size_t i = 0; i < itemTokens.size(); ++i) {
+        for (const std::string& token : itemTokens[i]) {
+            const auto [it, inserted] = firstUser.emplace(token, i);
+            if (!inserted) parent[root(i)] = root(it->second);
+        }
+    }
+    // Clusters in order of their first item.
+    std::vector<std::vector<std::size_t>> clusters;
+    std::map<std::size_t, std::size_t> clusterOf;   // root -> cluster index
+    for (std::size_t i = 0; i < itemTokens.size(); ++i) {
+        const std::size_t r = root(i);
+        const auto [it, inserted] = clusterOf.emplace(r, clusters.size());
+        if (inserted) clusters.emplace_back();
+        clusters[it->second].push_back(i);
+    }
+    return clusters;
+}
+
 std::vector<RigidLink> holeRigidLinks(const MeshData& mesh, const std::vector<std::vector<NodeIndex>>& holes,
                                       const std::array<double, 3>& reference, std::vector<ImportDiagnostic>& diagnostics,
                                       std::string& error) {
