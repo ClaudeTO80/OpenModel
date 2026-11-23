@@ -147,8 +147,23 @@ const SCRIPT = [
     await page.getByRole("button", { name: "New table" }).click();
     await page.waitForSelector("#tableDialog[open]");
     await page.locator("#tableName").fill("T4");
+    // Paste from a text file with mixed delimiters (blank, semicolon, comma, tab, line break).
+    const pasteInto = (text) => page.locator("#tableRows > div").nth(0).locator("input").nth(0).evaluate((el, value) => {
+      const dt = new DataTransfer(); dt.setData("text", value);
+      el.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+    }, text);
+    await pasteInto("0;0\n1 1,2\t3");
+    await page.waitForTimeout(100);
+    check((await page.locator("#tableRows > div").count()) === 3, "a multi-value paste with mixed delimiters makes three rows");
+    check((await page.locator("#tableStatus").innerText()) === "Ready to apply.", "the pasted table is ready to apply");
+    await pasteInto("0 0 1");
+    await page.waitForTimeout(100);
+    check((await page.locator("#result").innerText()).includes("one value is missing"), "an odd number of pasted values is refused");
+    await pasteInto("0;0\n1 1,2\t3");
+    await page.waitForTimeout(100);
     await page.locator("#tableApply").click();
     await page.waitForTimeout(300);
+    check((await page.locator("#anScript").inputValue()).includes("table name=T4 t=0,0,1,1,2,3"), "the pasted rows are written as the table line");
     await page.locator("#condTables li").filter({ hasText: "table name=T4" }).getByRole("button", { name: "Remove" }).click();
     await page.waitForTimeout(300);
     check(!(await page.locator("#anScript").inputValue()).includes("table name=T4"), "an unused table is removed");

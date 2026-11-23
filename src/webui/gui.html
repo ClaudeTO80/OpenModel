@@ -2862,6 +2862,31 @@ let tableEditIndex = null;
 let tableEditOldName = "";
 let tableDialogWired = false;
 /** Adds a (time, factor) row to the table dialog; the inputs refresh the status and the preview. */
+/**
+ * @brief Splits pasted text into (time, factor) rows. Values are separated by blanks, tabs, line breaks, commas or
+ * semicolons, and come in pairs: time, factor, time, factor, ... (a line with two values is one row).
+ * The decimal separator is the dot, so a comma is always a separator.
+ * @return {ok, rows} with rows as [timeText, factorText] pairs, or {ok:false, error}
+ */
+function parseTableText(text) {
+  const tokens = String(text).trim().split(/[\s,;]+/).filter((x) => x !== "");
+  if (tokens.length % 2 !== 0) return { ok: false, error: "The pasted values come in pairs, but " + tokens.length + " were found: one value is missing or extra." };
+  if (tokens.length < 4) return { ok: false, error: "Paste at least two time, factor pairs." };
+  const rows = [];
+  for (let i = 0; i < tokens.length; i += 2) rows.push([tokens[i], tokens[i + 1]]);
+  return { ok: true, rows };
+}
+/** Replaces all rows of the table dialog with the pairs of a multi-value paste; a single value keeps the normal paste. */
+function pasteTableRows(event) {
+  const text = (event.clipboardData || window.clipboardData).getData("text");
+  if (!/[\s,;]/.test(String(text).trim())) return;
+  event.preventDefault();
+  const parsed = parseTableText(text);
+  if (!parsed.ok) { show(parsed.error, "bad"); return; }
+  $("tableRows").replaceChildren();
+  parsed.rows.forEach((r) => addTableRow(r[0], r[1]));
+  refreshTableDialog();
+}
 function addTableRow(time, factor) {
   const row = document.createElement("div");
   row.className = "grid2";
@@ -2869,7 +2894,10 @@ function addTableRow(time, factor) {
   const t = document.createElement("input"); t.type = "text"; t.inputMode = "decimal"; t.value = time; t.setAttribute("aria-label", "Time");
   const f = document.createElement("input"); f.type = "text"; f.inputMode = "decimal"; f.value = factor; f.setAttribute("aria-label", "Factor");
   const drop = document.createElement("button"); drop.type = "button"; drop.textContent = "×"; drop.title = "Remove row"; drop.setAttribute("aria-label", "Remove row");
-  [t, f].forEach((input) => input.addEventListener("input", refreshTableDialog));
+  [t, f].forEach((input) => {
+    input.addEventListener("input", refreshTableDialog);
+    input.addEventListener("paste", pasteTableRows);
+  });
   drop.addEventListener("click", () => {
     if ($("tableRows").children.length <= 2) { show("A table needs at least two rows.", "bad"); return; }
     row.remove(); refreshTableDialog();
