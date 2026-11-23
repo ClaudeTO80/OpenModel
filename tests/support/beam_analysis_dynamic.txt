@@ -1,0 +1,6 @@
+# Cantilever under a time-dependent tip load (transient): needs rho for the inertia terms.
+material E=210000 nu=0.3 rho=7.85e-9
+fix plane:x=0
+amplitude name=A1 t=0,0,1,1,2,0.5
+force plane:x=10 F=0,-100,0 amp=A1
+step dynamic dt=0.01 period=2

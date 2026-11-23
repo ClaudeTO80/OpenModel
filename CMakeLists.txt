@@ -314,6 +314,16 @@ if(OPENMODEL_BUILD_TESTS AND OPENMODEL_BUILD_CLI AND Python3_FOUND)
     add_test(NAME solver_cli_modal
         COMMAND ${_solve_env} $<TARGET_FILE:openmodel-cli> solve "${_beam_dir}/beam.inp" "${_support}/beam_analysis_modal.txt"
                 "${_beam_dir}/solve_modal" --solver "${_fake_ccx}" --web "${_beam_dir}/solve_modal/out.mgwv")
+    # Transient run: the stand-in writes the beam's two increments, which the MGWV must hold as time-history frames.
+    add_test(NAME solver_cli_dynamic
+        COMMAND ${_solve_env} $<TARGET_FILE:openmodel-cli> solve "${_beam_dir}/beam.inp" "${_support}/beam_analysis_dynamic.txt"
+                "${_beam_dir}/solve_dynamic" --solver "${_fake_ccx}" --web "${_beam_dir}/solve_dynamic/out.mgwv")
+    set_tests_properties(solver_cli_dynamic PROPERTIES FIXTURES_REQUIRED beam_fixture LABELS "core;solver")
+    if(Python3_FOUND)
+        add_test(NAME solver_cli_dynamic_frames
+            COMMAND "${Python3_EXECUTABLE}" "${_support}/check_mgwv_frames.py" "${_beam_dir}/solve_dynamic/out.mgwv" 2 1)
+        set_tests_properties(solver_cli_dynamic_frames PROPERTIES DEPENDS solver_cli_dynamic LABELS "core;solver")
+    endif()
     add_test(NAME solver_cli_failure
         COMMAND ${_solve_env} FAKE_CCX_FAIL=1 $<TARGET_FILE:openmodel-cli> solve "${_beam_dir}/beam.inp" "${_support}/beam_analysis.txt"
                 "${_beam_dir}/solve_fail" --solver "${_fake_ccx}")
@@ -376,6 +386,13 @@ if(OPENMODEL_BUILD_TESTS AND OPENMODEL_TEST_WEBGL_VIEWER AND OPENMODEL_BUILD_CLI
                     "${CMAKE_CURRENT_SOURCE_DIR}/examples/webgl-fem-viewer/index.html"
                     "${CMAKE_CURRENT_BINARY_DIR}/beam_fixture/beam.mgwv" "${_viewer_data}")
         set_tests_properties(webgl_results_smoke PROPERTIES
+            FIXTURES_REQUIRED "viewer_data;beam_fixture" LABELS "webgl;results" TIMEOUT 180)
+        # Time-history controls: the beam's two load increments as frames (exported with the default binding).
+        add_test(NAME webgl_frames_smoke
+            COMMAND "${OPENMODEL_NODE_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/webgl/viewer_frames_smoke.js"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/examples/webgl-fem-viewer/index.html"
+                    "${CMAKE_CURRENT_BINARY_DIR}/beam_fixture/beam.mgwv" "${_viewer_data}")
+        set_tests_properties(webgl_frames_smoke PROPERTIES
             FIXTURES_REQUIRED "viewer_data;beam_fixture" LABELS "webgl;results" TIMEOUT 180)
         add_test(NAME webgl_pick_data
             COMMAND openmodel-cli export-web "${CMAKE_CURRENT_BINARY_DIR}/beam_fixture/beam.inp"

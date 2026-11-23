@@ -189,6 +189,11 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
       <div class="row"><span>Frequency</span><span id="modeFreq" style="flex:1;text-align:right"></span></div>
       <label class="row"><span>Animate</span><input type="checkbox" id="modeAnim"> <span style="flex:1;color:var(--text)">oscillation</span></label>
     </div>
+    <div id="frameBox" hidden>
+      <label class="row"><span>Increment</span><input type="range" id="frameSel" min="0" max="0" value="0" step="1"></label>
+      <div class="row"><span>Time</span><span id="frameVal" style="flex:1;text-align:right"></span></div>
+      <label class="row"><span>Play</span><input type="checkbox" id="framePlay"> <span style="flex:1;color:var(--text)">through the increments</span></label>
+    </div>
   </section>
 
   <section id="pickSec" hidden>
@@ -639,6 +644,7 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     fieldIndex: 0, range: [0, 1], dirty: true, logScale: false,
     defOn: true, defFactor: 1, defSuggested: 1,
     modeIndex: 0, animate: false, phase: 0, lastTick: 0,
+    frameIndex: 0, framePlay: false, frameAcc: 0,
     pickMode: "off", pickAngle: 1, pickGrowth: "same-normal", pickHoles: true, pickHoleArc: 330, pickBox: false, sel: { node: new Set(), element: new Set(), face: new Set() },
     rot: [1, 0, 0, 0, 1, 0, 0, 0, 1], target: [0, 0, 0], dist: 3, radius: 1,
   };
@@ -687,7 +693,14 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
       })),
       // Optional vibration modes: 3 float32 per vertex each.
       modes: (meta.modes || []).map((m) => ({ label: m.label, frequency: m.frequency, max: m.max, disp: slice(Float32Array, m.offset, meta.counts.vertices * 3) })),
+      // Optional time history: 3 float32 per vertex per time step; `frame` is the step shown first (the last by default).
+      frames: (meta.frames || []).map((f) => ({ label: f.label, time: f.time, max: f.max, disp: slice(Float32Array, f.offset, meta.counts.vertices * 3) })),
+      frameIndex: 0,
     };
+    if (model.frames.length) {
+      model.frameIndex = Math.min(Number.isInteger(meta.frame) ? meta.frame : model.frames.length - 1, model.frames.length - 1);
+      model.disp = model.frames[model.frameIndex].disp;
+    }
     if (model.modes.length) {
       model.disp = model.modes[0].disp;
       // Dynamic field: displacement magnitude of the selected mode (recomputed when the mode changes).
@@ -1025,10 +1038,14 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     gl.bindVertexArray(null);
   }
   function loop(now) {
+    const dt = S.lastTick ? Math.max(0, Math.min(0.1, (now - S.lastTick) / 1000)) : 0;
     if (S.animate) {
-      const dt = S.lastTick ? Math.max(0, Math.min(0.1, (now - S.lastTick) / 1000)) : 0;
       S.phase = (S.phase + 2 * Math.PI * 0.5 * dt) % (2 * Math.PI);   // one oscillation every 2 s
       S.dirty = true;
+    }
+    if (S.framePlay && S.model && S.model.frames.length > 1) {
+      S.frameAcc += 5 * dt;   // five time steps per second, wrapping to the first one
+      if (S.frameAcc >= 1) { S.frameAcc -= 1; setFrame((S.frameIndex + 1) % S.model.frames.length); }
     }
     S.lastTick = now;
     if (S.dirty) render();
@@ -1181,6 +1198,7 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
       const m = model.modes[S.modeIndex];
       rows.push(["Mode", modeText(m)], ["Frequency", String(Number(m.frequency.toPrecision(6)))]);
     }
+    if (model.frames.length) rows.push(["Time", model.frames[S.frameIndex].label]);
     const field = model.fields[S.fieldIndex];
     if (S.mode === "scalar" && field) rows.push(["Component", field.name + (field.element ? " (per element)" : " (nodal)")]);
     if (model.disp && meta.deformation) {
@@ -1222,6 +1240,7 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     const meta = model.meta, def = meta.deformation, has = !!model.disp && !!def;
     $("defSec").hidden = !has;
     setupModes(model);   // also resets the selector and the animation left over from a previously loaded file
+    setupFrames(model);
     if (!has) return;
     S.defOn = true; $("defOn").checked = true;
     S.defSuggested = def.max > 0 ? 0.1 * bounds().diag / def.max : 1;
@@ -1239,6 +1258,33 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     if (!has) return;
     $("modeSel").innerHTML = model.modes.map((m, i) => `<option value="${i}">${esc(modeText(m))}</option>`).join("");
     $("modeFreq").textContent = String(Number(model.modes[0].frequency.toPrecision(6)));
+  }
+  /** Text of the increment readout: its label and its position in the time history. */
+  const frameText = (model, i) => model.frames[i].label + "  (" + (i + 1) + " / " + model.frames.length + ")";
+  /** Time history controls: the slider runs over the frames; the frame in the model is the one shown. */
+  function setupFrames(model) {
+    const has = model.frames.length > 0;
+    $("frameBox").hidden = !has;
+    S.framePlay = false; S.frameAcc = 0; $("framePlay").checked = false;
+    if (!has) return;
+    $("frameSel").max = String(model.frames.length - 1);
+    $("frameSel").value = String(model.frameIndex);
+    $("frameVal").textContent = frameText(model, model.frameIndex);
+    S.frameIndex = model.frameIndex;
+  }
+  /** Shows frame i of the time history: its displacement drives the deformed shape (the texture is replaced). */
+  function setFrame(i) {
+    const model = S.model;
+    if (!model || !model.frames[i]) return;
+    const frame = model.frames[i];
+    S.frameIndex = i;
+    model.disp = frame.disp;
+    gl.deleteTexture(S.tex.disp);
+    S.tex.disp = dataTexture("f3", frame.disp, 3);
+    $("frameSel").value = String(i);
+    $("frameVal").textContent = frameText(model, i);
+    updateResultsPanel();
+    S.dirty = true;
   }
   function setMode(i) {
     const model = S.model;
@@ -1372,6 +1418,8 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
   });
   $("modeSel").addEventListener("change", (e) => setMode(+e.target.value));
   $("modeAnim").addEventListener("change", (e) => { S.animate = e.target.checked; S.lastTick = 0; S.dirty = true; });
+  $("frameSel").addEventListener("input", (e) => setFrame(+e.target.value));
+  $("framePlay").addEventListener("change", (e) => { S.framePlay = e.target.checked; S.frameAcc = 0; S.lastTick = 0; });
   $("clipOn").addEventListener("change", (e) => { S.clipOn = e.target.checked; refreshUi(); });
   $("clipAxis").addEventListener("change", (e) => { S.clipAxis = +e.target.value; S.dirty = true; });
   $("clipPos").addEventListener("input", (e) => { S.clipPos = e.target.value / 1000; S.dirty = true; });
@@ -2107,6 +2155,8 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
       if ("modeIndex" in options) setMode(options.modeIndex);
       if ("animate" in options) { S.animate = !!options.animate; $("modeAnim").checked = S.animate; S.lastTick = 0; }
       if ("phase" in options) S.phase = options.phase;
+      if ("frame" in options) setFrame(options.frame);
+      if ("framePlay" in options) { S.framePlay = !!options.framePlay; $("framePlay").checked = S.framePlay; S.frameAcc = 0; S.lastTick = 0; }
       if ("deform" in options) {
         if ("on" in options.deform) { S.defOn = !!options.deform.on; $("defOn").checked = S.defOn; }
         if ("factor" in options.deform) { S.defFactor = options.deform.factor; $("defFactor").value = trim(S.defFactor); }
