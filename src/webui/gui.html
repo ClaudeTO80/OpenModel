@@ -15,6 +15,9 @@
 html,body{height:100%;margin:0}
 body{background:var(--bg);color:var(--text);font:13px/1.45 system-ui,"Segoe UI",sans-serif;display:grid;grid-template-rows:auto minmax(0,1fr) auto;overflow:hidden}
 #shell{display:grid;grid-template-columns:minmax(300px,360px) minmax(0,1fr);min-height:0}
+#shell.sideCollapsed{grid-template-columns:minmax(0,1fr)}
+#shell.sideCollapsed aside{display:none}
+.sideBtn{margin-left:auto;align-self:center;font:inherit;font-size:12px;padding:3px 8px;margin-right:8px;white-space:nowrap}
 aside{overflow-y:auto;padding:12px;border-right:1px solid var(--line);display:grid;gap:10px;align-content:start}
 h1{margin:0;font-size:17px}
 .sub{color:var(--muted);margin:2px 0 4px}
@@ -162,9 +165,14 @@ details.node details.node{margin-top:8px;background:transparent}
     <button class="tab" role="tab" data-tab="view">View</button>
     <button class="tab" role="tab" data-tab="check">Check</button>
     <button class="tab" role="tab" data-tab="help">Help</button>
+    <button type="button" class="sideBtn" id="sideToggle" aria-expanded="true" aria-controls="shell" title="Show or hide the left panel">◀ Panel</button>
   </nav>
 
   <div class="panel" data-panel="file" role="tabpanel">
+    <div class="group"><div class="items">
+      <button class="rb" data-act="new-model" title="Close the current model and start an empty one"><span class="ic">🆕</span>New model</button>
+      <button class="rb" data-act="settings" title="Solver path, jobs folder and legend palette"><span class="ic">⚙</span>Settings…</button>
+    </div><div class="gname">Session</div></div>
     <div class="group"><div class="items">
       <button class="rb" data-act="cad" title="Choose a CAD file (STEP, IGES, BREP, OBJ, STL…) and triangulate it"><span class="ic">📐</span>Import CAD…</button>
       <button class="rb" data-act="mesh" title="Choose a .omb, .mgmb, .inp or .mail (code_aster) mesh"><span class="ic">📂</span>Open mesh…</button>
@@ -234,6 +242,7 @@ details.node details.node{margin-top:8px;background:transparent}
       <button class="rb" data-act="as-force" data-need="sel" title="Create a node group and add 'force' to the script"><span class="ic">➡</span>Force</button>
       <button class="rb" data-act="as-press" data-need="selface" title="Create a face group and add 'pressure' to the script (only with faces selected)"><span class="ic">⬇</span>Pressure</button>
       <button class="rb" data-act="as-dist" data-need="selface" title="Create a face group and add 'distributed' to the script: the total force is shared by the selected faces in proportion to their area (only with faces selected)"><span class="ic">▦</span>Distributed</button>
+      <button class="rb" data-act="as-rbe2" data-need="sel" title="Create a node group and add 'rbe2' to the script for each selected hole: the coupled nodes follow a reference node at the centre of the hole (faces of several holes: one rigid link per hole)"><span class="ic">◎</span>RBE2</button>
     </div><div class="gname">Groups and loads</div></div>
     <div class="group"><div class="items">
       <button class="rb" data-act="cd-apply" data-need="sel" title="Block the degrees of freedom ticked in the side panel (Mesh constraints) on the nodes of the selection"><span class="ic">🔒</span>Constrain</button>
@@ -645,11 +654,11 @@ details.node details.node{margin-top:8px;background:transparent}
     <label for="anScript">Analysis script (material, constraints, loads, step)</label>
     <textarea id="anScript" rows="9" spellcheck="false" style="width:100%;font-family:monospace;font-size:12px"></textarea>
     <p class="hint">Edit or remove individual materials, constraints, loads and steps. Changes update the script used by the solver directly.</p>
-    <label for="anJob">Job file (folder or .inp; empty = ./openmodel_job/job.inp; for code_aster the folder and the file name matter)</label>
+    <label for="anJob">Job file (folder or .inp; empty = openmodel_job in the jobs folder of Settings; a relative path is relative to that folder; for code_aster the folder and the file name matter)</label>
     <input id="anJob" placeholder="/path/work/job.inp">
     <label for="anSolverKind">Solver</label>
     <select id="anSolverKind"><option value="ccx">CalculiX</option><option value="aster">code_aster</option></select>
-    <label for="anSolver">Executable (empty = 'ccx' on PATH; code_aster: 'run_aster' or 'as_run', or the OPENMODEL_CODE_ASTER variable)</label>
+    <label for="anSolver">Executable (empty = the solver path of Settings, else 'ccx' on PATH; code_aster: 'run_aster' or 'as_run', or the OPENMODEL_CODE_ASTER variable)</label>
     <input id="anSolver" placeholder="/usr/bin/ccx">
     <div class="grid2"><button id="btnWrite" onclick="analysisWrite()">Write input</button><button id="btnRun" class="primary" onclick="analysisRun()">Run solver</button></div>
     <div class="grid2"><button id="btnCancel" onclick="analysisCancel()" disabled>Cancel</button><button onclick="analysisExample()">Example</button></div>
@@ -736,12 +745,26 @@ details.node details.node{margin-top:8px;background:transparent}
   <span id="statusVersion"></span>
 </footer>
 
+<div class="modal" id="settingsModal" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+    <h3 id="settingsTitle">Settings</h3>
+    <label for="setSolver">Solver path (used when the Executable field of Analysis is empty)</label>
+    <div class="row"><input id="setSolver" placeholder="/usr/bin/ccx"><button onclick="browse('setSolver','solver')">Browse…</button></div>
+    <label for="setJobDir">Jobs folder (base of the job files; empty = the folder the server runs in)</label>
+    <div class="row"><input id="setJobDir" placeholder="/path/work"><button onclick="browse('setJobDir','folder')">Browse…</button></div>
+    <label for="setPalette">Legend palette (colour bar of the viewer)</label>
+    <select id="setPalette"></select>
+    <p class="hint" id="setNote"></p>
+    <div class="row" style="justify-content:flex-end"><button onclick="closeSettings()">Cancel</button><button class="primary" onclick="saveSettings()">Save</button></div>
+  </div>
+</div>
+
 <div class="modal" id="modal" hidden>
   <div class="dialog" role="dialog" aria-modal="true" aria-label="Choose file">
     <h3>Choose a file</h3>
     <div class="row"><button onclick="goUp()">↑ Up</button><input id="dirPath" onkeydown="if(event.key==='Enter')window.list(this.value)"><button onclick="list(dirPath.value)">Go</button></div>
     <ul id="entries"></ul>
-    <div class="row" style="justify-content:flex-end"><button onclick="closeModal()">Cancel</button></div>
+    <div class="row" style="justify-content:flex-end"><button id="useFolder" onclick="pick($('dirPath').value)" hidden>Use this folder</button><button onclick="closeModal()">Cancel</button></div>
   </div>
 </div>
 
@@ -862,6 +885,7 @@ function loadView(label) {
 $("viewer").addEventListener("load", () => {
   // The viewer follows the workbench theme (light by default); the Viewer theme button toggles both.
   applyTheme(document.documentElement.dataset.theme || "light");
+  applyLegendPalette();
   // The viewer has its own theme button: mirror its choice on the workbench.
   const vw = $("viewer").contentWindow;
   if (vw && window.MutationObserver) new MutationObserver(() => {
@@ -1082,12 +1106,14 @@ function mesherChanged() {
 
 /* ---- server-side file browser (a web page cannot read local paths itself) ---- */
 let browseTarget = null, browseKind = "cad";
-const FILTERS = {cad: ".step,.stp,.iges,.igs,.brep,.brp,.obj,.stl,.ply,.fbx,.gltf,.glb,.dae,.3ds", mesh: ".omb,.mgmb,.inp,.mail", results: ".frd,.dat,.csv,.tsv,.txt,.tab"};
+// An empty filter lists every file. "folder" uses a filter no file name can match, so only the sub-folders are listed.
+const FILTERS = {cad: ".step,.stp,.iges,.igs,.brep,.brp,.obj,.stl,.ply,.fbx,.gltf,.glb,.dae,.3ds", mesh: ".omb,.mgmb,.inp,.mail", results: ".frd,.dat,.csv,.tsv,.txt,.tab", solver: "", folder: "-"};
 let afterPick = null;
 async function browse(inputId, kind, then) {
   browseTarget = inputId; browseKind = kind; afterPick = then || null;
   const current = $(inputId).value.trim();
-  const start = current ? current.replace(/[\\/][^\\/]*$/, "") : defaults.cwd;
+  const start = kind === "folder" ? (current || defaults.cwd) : (current ? current.replace(/[\\/][^\\/]*$/, "") : defaults.cwd);
+  $("useFolder").hidden = kind !== "folder";
   $("modal").hidden = false;
   await list(start || defaults.cwd);
 }
@@ -1420,7 +1446,7 @@ function syncConstraintSize() {
   const w = viewerApi(), el = $("cdSymbolSize");
   if (w && el && document.activeElement !== el) el.value = w.OpenModelViewer.state.consSize;
 }
-const ANALYSIS_COMMANDS = new Set(["material", "assign", "fix", "force", "pressure", "distributed", "gravity", "amplitude", "job", "step", "output"]);
+const ANALYSIS_COMMANDS = new Set(["material", "assign", "fix", "force", "pressure", "distributed", "rbe2", "gravity", "amplitude", "job", "step", "output"]);
 /** Gravity is a load every model has by default; it is switched off by commenting its line out of the script. */
 const DEFAULT_GRAVITY = "gravity g=0,0,-9810";
 /** Adds the default gravity line when the script has no gravity line, active or switched off. */
@@ -2119,6 +2145,63 @@ renderTree();
 // The default gravity is added once the whole script has run (it uses constants declared further down).
 window.addEventListener("load", ensureGravityLine);
 setInterval(syncTree, 700);
+/* ---- session: new model and settings ----
+ * The settings are kept by the server (see openmodel_settings_get), so the solver path and the jobs folder apply to
+ * every run. The palette is a viewer setting: it is applied to the viewer when the viewer loads and when it is saved.
+ */
+let workbenchSettings = {solverPath: "", jobDir: "", legendPalette: "Viridis"};
+// The viewer window, whether or not a model is loaded (viewerApi above returns it only with a model).
+const viewerWindow = () => { const w = $("viewer").contentWindow; return w && w.OpenModelViewer ? w : null; };
+function applyLegendPalette() {
+  const w = viewerWindow();
+  if (w) w.OpenModelViewer.setPalette(workbenchSettings.legendPalette);
+}
+/** Shows the settings where they are used: the placeholders of the Analysis fields and the viewer palette. */
+function applySettingsToPage() {
+  $("anSolver").placeholder = workbenchSettings.solverPath || "ccx on PATH";
+  $("anJob").placeholder = (workbenchSettings.jobDir || defaults.cwd || ".") + "/openmodel_job/job.inp";
+  applyLegendPalette();
+}
+async function loadSettings() {
+  const r = await call("openmodel_settings_get");
+  if (r.ok && r.settings) workbenchSettings = r.settings;
+  else show(r.message, "bad");
+  applySettingsToPage();
+}
+function openSettings() {
+  const names = viewerWindow() ? viewerWindow().OpenModelViewer.palettes() : ["Viridis", "Rosso", "Ocra", "Blu", "Arcobaleno"];
+  $("setPalette").innerHTML = names.map((n) => `<option value="${n}">${n}</option>`).join("");
+  $("setSolver").value = workbenchSettings.solverPath || "";
+  $("setJobDir").value = workbenchSettings.jobDir || "";
+  $("setPalette").value = workbenchSettings.legendPalette;
+  $("setNote").textContent = "";
+  $("settingsModal").hidden = false;
+}
+function closeSettings() { $("settingsModal").hidden = true; }
+async function saveSettings() {
+  const next = {solverPath: $("setSolver").value.trim(), jobDir: $("setJobDir").value.trim(), legendPalette: $("setPalette").value};
+  const r = await call("openmodel_settings_set", JSON.stringify(next));
+  if (!r.ok) { $("setNote").textContent = r.message; return; }
+  workbenchSettings = r.settings;
+  applySettingsToPage();
+  closeSettings();
+  show(r.message, "good");
+}
+/** Closes the model on the server and empties the viewer and the model trees. Asks first: the work is not kept. */
+async function newModel() {
+  if (busy || solverRunning) return;
+  if (!confirm("Close the current model and start an empty one? Unsaved work on it is lost.")) return;
+  const r = await act("openmodel_close_model");
+  if (!r || !r.ok) return;
+  const w = viewerWindow();
+  if (w) w.OpenModelViewer.clear();
+  viewAvailable = false; viewEdges = "none"; selectedCadFaceIds = [];
+  $("cadFaceInfo").textContent = "CAD faces: none selected.";
+  $("anScript").value = ""; $("resPath").value = ""; $("resStep").value = "";
+  await Promise.all([refreshCadComponents(), refreshMeshRuns(), refreshConstraints(), refreshGroups(), refreshCADFaceGroups()]);
+  syncRibbon();
+}
+
 var RIBBON_EXTRA = {};
 RIBBON_EXTRA["pick-node"] = () => setPickMode("node");
 RIBBON_EXTRA["pick-element"] = () => setPickMode("element");
@@ -2132,7 +2215,10 @@ RIBBON_EXTRA["cd-clear"] = () => constraintClear();
 RIBBON_EXTRA["as-force"] = () => assign("force");
 RIBBON_EXTRA["as-press"] = () => assign("press");
 RIBBON_EXTRA["as-dist"] = () => assign("dist");
+RIBBON_EXTRA["as-rbe2"] = () => rbeApply();
 const RIBBON_ACTIONS = {
+  "new-model": newModel,
+  settings: openSettings,
   cad: () => browse("cadPath", "cad", importModel),
   mesh: () => browse("loadPath", "mesh", loadMesh),
   res: () => browse("resPath", "results", loadResults),
@@ -2738,6 +2824,37 @@ async function assign(type) {
   appendScript(line(r.created));
   show(r.message + "\nLine added to the script: " + line(r.created), "good");
 }
+/**
+ * RBE2 from the selection, one rigid link per hole: the selected faces are split into the holes they belong to (faces that
+ * share nodes), each hole gets a node group and an rbe2 line whose reference node is the centre of the hole (or the
+ * centroid of the nodes when they do not form a circle). Backend: openmodel_rbe2_reference, one line per hole.
+ */
+async function rbeApply() {
+  const sel = currentSelection();
+  if (!sel) { show("Select nodes or faces in the viewer first.", "bad"); return; }
+  const plan = await act("openmodel_rbe2_reference", sel.mode, selectionText(sel));
+  if (!plan || !plan.ok) return;
+  const holes = String(plan.message).split("\n").filter(Boolean).map((l) => {
+    const [how, text, payload] = l.split("|");
+    return {how, point: text.split(",").map(Number), payload};
+  });
+  if (holes.some((h) => h.point.length !== 3 || !h.point.every(Number.isFinite))) { show("The reference points could not be computed.", "bad"); return; }
+  const notes = [];
+  for (const h of holes) {
+    const g = await act("openmodel_create_group", "", "node", sel.mode, h.payload, "RBE2");
+    if (!g || !g.ok || !g.created) {
+      show("Stopped after " + notes.length + " of " + holes.length + " rigid links.\n" + (g && g.message ? g.message : ""), "bad");
+      break;
+    }
+    appendScript("rbe2 group:" + g.created + " ref=" + h.point.join(","));
+    notes.push(g.created + ": reference at the " + (h.how === "hole" ? "centre of the hole" : "centroid of the nodes"));
+  }
+  if (!notes.length) return;
+  // The server keeps the parsed model: sync it so that the viewer draws the new links now.
+  const synced = await act("openmodel_analysis_load", $("anScript").value);
+  if (synced && synced.ok) $("anScript").value = synced.message;
+  show(notes.length + " rigid link" + (notes.length === 1 ? "" : "s") + " (RBE2) added to the script.\n" + notes.join("\n"), "good");
+}
 function stepMode(delta) {
   const w = viewerApi(); if (!w) return;
   const S = w.OpenModelViewer.state, n = S.model.modes.length;
@@ -2833,6 +2950,20 @@ setInterval(syncRibbon, 700);
   selectTab(tab);
 })();
 
+/* ---- left panel: can be folded away to give the whole window to the viewer ---- */
+function setSidebar(shown) {
+  $("shell").classList.toggle("sideCollapsed", !shown);
+  $("sideToggle").setAttribute("aria-expanded", String(shown));
+  $("sideToggle").textContent = shown ? "◀ Panel" : "▶ Panel";
+  try { localStorage.setItem("openmodel.sidebar", shown ? "shown" : "hidden"); } catch (e) { /* storage unavailable */ }
+}
+$("sideToggle").addEventListener("click", () => setSidebar($("shell").classList.contains("sideCollapsed")));
+{
+  let saved = "shown";
+  try { saved = localStorage.getItem("openmodel.sidebar") || "shown"; } catch (e) { /* storage unavailable */ }
+  setSidebar(saved !== "hidden");
+}
+
 (async () => {
   loadMaterialDb();
   const d = await call("openmodel_defaults");
@@ -2844,6 +2975,7 @@ setInterval(syncRibbon, 700);
     if (first) $("mesher").value = first.id; else { noMesher = true; $("btnMesh").disabled = true; }
     mesherChanged();
   } else show(d.message, "bad");
+  await loadSettings();
     })();
 </script>
 </body>

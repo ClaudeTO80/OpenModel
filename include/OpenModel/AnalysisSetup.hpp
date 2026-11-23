@@ -88,6 +88,9 @@ struct RigidLink {
     std::string id;                    ///< Stable condition identifier (generated for holes: "rbe2-N").
     std::array<double, 3> reference{{0.0, 0.0, 0.0}}; ///< Position of the reference node, model length units.
     std::vector<NodeIndex> slaves;     ///< Mesh nodes coupled to the reference node.
+    /// Node group the slaves come from (script `rbe2 group:NAME ref=...`). When set, the slaves are resolved from the
+    /// group when the deck is written, and the script form is written; a link without a group keeps its slaves only in memory.
+    std::string group;
 };
 
 /**
@@ -340,6 +343,13 @@ void applySupports(MeshData& mesh, const AnalysisModel& model, std::vector<Impor
  * an approximation and `maxDeviation` shows how far the nodes are from a circle.
  */
 bool fitHoleCircle(const MeshData& mesh, const std::vector<NodeIndex>& edge, HoleFit& fit);
+
+/**
+ * @brief Splits a selection into clusters, one per hole: items (faces) that share a token (a node reference) belong to
+ * the same cluster, transitively. Returns the clusters as lists of item indices, in order of first appearance; every
+ * item is in exactly one cluster. Items without tokens form clusters of their own.
+ */
+std::vector<std::vector<std::size_t>> sharedTokenClusters(const std::vector<std::vector<std::string>>& itemTokens);
 
 /**
  * @brief One RigidLink per hole: each hole edge is fitted with fitHoleCircle() and coupled to `reference`.

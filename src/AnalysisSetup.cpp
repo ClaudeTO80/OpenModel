@@ -236,6 +236,20 @@ struct Parser {
             d.id = conditionId("distributed", keys);
             leftovers();
             if (result.diagnostics.size() == errorsBefore) result.model.distributed.push_back(d);
+        } else if (command == "rbe2") {
+            RigidLink link;
+            NodeSelector sel;
+            if (positional.size() != 1 || !selector(positional[0], sel) || sel.kind != SelectorKind::Group) {
+                error("SCRIPT_SELECTOR", "rbe2 needs a node group: rbe2 group:NAME ref=x,y,z");
+                return;
+            }
+            link.group = sel.name;
+            std::string ref;
+            if (!take("ref", ref)) error("SCRIPT_RBE2", "rbe2 needs the reference point: ref=x,y,z");
+            else if (!parseVector3(ref, link.reference)) error("SCRIPT_BAD_VECTOR", "'" + ref + "' is not three comma separated coordinates (ref)");
+            link.id = conditionId("rbe2", keys);
+            leftovers();
+            if (result.diagnostics.size() == errorsBefore) result.model.rigidLinks.push_back(link);
         } else if (command == "gravity") {
             std::array<double, 3> g{};
             if (!positional.empty()) error("SCRIPT_UNEXPECTED", "Unexpected '" + positional[0] + "' after gravity");
@@ -480,8 +494,15 @@ std::string serializeAnalysisScript(const AnalysisModel& model) {
         if (!d.amplitude.empty()) out << " amp=" << d.amplitude;
         out << '\n';
     }
+    for (const auto& link : model.rigidLinks) {
+        // Only the links given by group have a script form: the others are not written (see RigidLink::group).
+        if (link.group.empty()) continue;
+        out << "rbe2";
+        if (!link.id.empty()) out << " id=" << link.id;
+        out << " group:" << link.group << " ref=" << link.reference[0] << ',' << link.reference[1] << ',' << link.reference[2] << '\n';
+    }
     if (model.hasGravity)
-        out << "gravity g=" << model.gravity[0] << ',' << model.gravity[1] << ',' << model.gravity[2] << '\n';
+        out << "gravity g="<< model.gravity[0] << ',' << model.gravity[1] << ',' << model.gravity[2] << '\n';
     for (const auto& job : model.jobs) {
         out << "job " << job.id << '\n';
         for (const auto& step : job.steps) {
@@ -798,6 +819,33 @@ bool fitHoleCircle(const MeshData& mesh, const std::vector<NodeIndex>& edge, Hol
     return true;
 }
 
+std::vector<std::vector<std::size_t>> sharedTokenClusters(const std::vector<std::vector<std::string>>& itemTokens) {
+    // Union-find over the items: an item joins the first item that uses each of its tokens.
+    std::vector<std::size_t> parent(itemTokens.size());
+    for (std::size_t i = 0; i < parent.size(); ++i) parent[i] = i;
+    auto root = [&parent](std::size_t i) {
+        while (parent[i] != i) { parent[i] = parent[parent[i]]; i = parent[i]; }
+        return i;
+    };
+    std::map<std::string, std::size_t> firstUser;
+    for (std::size_t i = 0; i < itemTokens.size(); ++i) {
+        for (const std::string& token : itemTokens[i]) {
+            const auto [it, inserted] = firstUser.emplace(token, i);
+            if (!inserted) parent[root(i)] = root(it->second);
+        }
+    }
+    // Clusters in order of their first item.
+    std::vector<std::vector<std::size_t>> clusters;
+    std::map<std::size_t, std::size_t> clusterOf;   // root -> cluster index
+    for (std::size_t i = 0; i < itemTokens.size(); ++i) {
+        const std::size_t r = root(i);
+        const auto [it, inserted] = clusterOf.emplace(r, clusters.size());
+        if (inserted) clusters.emplace_back();
+        clusters[it->second].push_back(i);
+    }
+    return clusters;
+}
+
 std::vector<RigidLink> holeRigidLinks(const MeshData& mesh, const std::vector<std::vector<NodeIndex>>& holes,
                                       const std::array<double, 3>& reference, std::vector<ImportDiagnostic>& diagnostics,
                                       std::string& error) {
@@ -1079,7 +1127,17 @@ SolverInputResult failed(SolverInputResult r, std::string message) {
 SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& scriptModel, const std::filesystem::path& path,
                                    const std::string& jobId) {
     SolverInputResult r;
-    const AnalysisModel model = withMeshConstraints(mesh, scriptModel, r.diagnostics);
+    AnalysisModel model = withMeshConstraints(mesh, scriptModel, r.diagnostics);
+    // A rigid link given by group takes its slaves from the group now that the mesh is known.
+    for (RigidLink& link : model.rigidLinks) {
+        if (link.group.empty()) continue;
+        NodeSelector sel;
+        sel.kind = SelectorKind::Group;
+        sel.name = link.group;
+        std::string selectError;
+        link.slaves = selectNodes(mesh, sel, selectError);
+        if (!selectError.empty()) return failed(r, "Rigid link " + link.id + ": " + selectError);
+    }
     const AnalysisJob* job = findJob(model, jobId);
     if (!job) {
         if (jobId.empty() && model.jobs.size() > 1) return failed(r, "The model has several jobs: name the job to write");

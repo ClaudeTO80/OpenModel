@@ -71,7 +71,7 @@ canvas.drag { cursor: grabbing; }
 .vtGroup button[aria-pressed="true"] { background: var(--accent); color: #fff; }
 .vtGroup button:disabled { opacity: .45; cursor: default; }
 .vtGroup input[type=range] { width: 120px; }
-#colorbar { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); z-index: 3; width: 232px; max-width: calc(100% - 20px); background: color-mix(in srgb, var(--panel) 90%, transparent); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; font-size: 12px; font-variant-numeric: tabular-nums; }
+#colorbar { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); z-index: 3; width: 232px; max-width: calc(100% - 20px); background: transparent; text-shadow: 0 0 3px var(--panel), 0 0 3px var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; font-size: 12px; font-variant-numeric: tabular-nums; }
 #colorbar .cbTitle { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #colorbar .cbRow { display: flex; gap: 8px; margin: 6px 0 8px; }
 #colorbar .cbBar { width: 14px; height: 200px; border-radius: 3px; border: 1px solid var(--line); flex: none; }
@@ -81,12 +81,25 @@ canvas.drag { cursor: grabbing; }
 #colorbar .cbCtl span { color: var(--muted); }
 #colorbar .cbCtl input, #colorbar .cbCtl select { min-width: 0; width: 100%; font: inherit; }
 #colorbar .cbNote { color: var(--muted); margin-top: 6px; }
+#colorbar .cbHead { display: flex; align-items: center; gap: 6px; }
+#colorbar .cbHead .cbTitle { flex: 1; min-width: 0; }
+#colorbar .cbOptsBtn { flex: none; font: inherit; font-size: 11px; padding: 1px 6px; }
 /* Results card on the canvas (top right): load case, mode, component shown and the scale of the deformed shape. */
 #resultsPanel { position: absolute; top: 10px; right: 10px; z-index: 3; width: min(260px, calc(100% - 20px)); background: color-mix(in srgb, var(--panel) 90%, transparent); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; font-size: 12px; }
 #resultsPanel .rpTitle { font-weight: 600; margin-bottom: 6px; }
 #resultsPanel dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 3px 10px; margin: 0; font-variant-numeric: tabular-nums; }
 #resultsPanel dt { color: var(--muted); }
 #resultsPanel dd { margin: 0; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#resultsBar { position: absolute; right: 10px; bottom: 10px; z-index: 3; width: 200px; max-width: calc(100% - 20px); max-height: calc(100% - 190px); overflow-y: auto; background: color-mix(in srgb, var(--panel) 90%, transparent); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; font-size: 12px; }
+#resultsBar[hidden] { display: none; }
+#resultsBar .rbHead { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+#resultsBar .rbTitle { font-weight: 600; }
+#resultsBar .rbToggle { font: inherit; font-size: 11px; padding: 1px 6px; }
+#resultsBar .rbSub { color: var(--muted); margin: 6px 0 2px; }
+#resultsBar ul { list-style: none; margin: 0; padding: 0; }
+#resultsBar li button { width: 100%; text-align: left; font: inherit; color: var(--text); background: none; border: 1px solid transparent; border-radius: 4px; padding: 2px 4px; cursor: pointer; }
+#resultsBar li button[aria-pressed="true"] { border-color: var(--accent); font-weight: 600; }
+#resultsBar.collapsed #rbBody { display: none; }
 #axes { position: absolute; left: 12px; bottom: 46px; width: 112px; height: 112px; pointer-events: none; }
 #axes[hidden] { display: none; }
 #hud { position: absolute; left: 12px; bottom: 10px; color: var(--muted); background: color-mix(in srgb, var(--panel) 80%, transparent); border: 1px solid var(--line); border-radius: 6px; padding: 5px 9px; pointer-events: none; }
@@ -242,7 +255,10 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     <dl id="rpList"></dl>
   </div>
   <div id="colorbar" hidden>
-    <div class="cbTitle" id="cbTitle"></div>
+    <div class="cbHead">
+      <div class="cbTitle" id="cbTitle"></div>
+      <button type="button" class="cbOptsBtn" id="cbOptsBtn" aria-expanded="true" aria-controls="cbOptions" title="Show or hide the palette, scale and range controls">Hide options</button>
+    </div>
     <div class="cbRow">
       <div class="cbBar" id="cbBar"></div>
       <div class="cbTicks">
@@ -251,14 +267,23 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
         <span id="cbMin" style="bottom:0"></span>
       </div>
     </div>
-    <div class="cbCtl">
-      <span>Max</span><input type="number" id="cbMaxIn" step="any" aria-label="Scale maximum">
-      <span>Min</span><input type="number" id="cbMinIn" step="any" aria-label="Scale minimum">
-      <span>Palette</span><select id="palSel" aria-label="Colour palette"></select>
-      <span>Scale</span><select id="scaleSel" aria-label="Scale type"><option value="lin">Linear</option><option value="log">Logarithmic</option></select>
+    <div id="cbOptions">
+      <div class="cbCtl">
+        <span>Max</span><input type="number" id="cbMaxIn" step="any" aria-label="Scale maximum">
+        <span>Min</span><input type="number" id="cbMinIn" step="any" aria-label="Scale minimum">
+        <span>Palette</span><select id="palSel" aria-label="Colour palette"></select>
+        <span>Scale</span><select id="scaleSel" aria-label="Scale type"><option value="lin">Linear</option><option value="log">Logarithmic</option></select>
+      </div>
+      <div class="cbNote" id="cbNote" hidden>Logarithmic needs min &gt; 0 and max &gt; min: linear scale shown</div>
     </div>
-    <div class="cbNote" id="cbNote" hidden>Logarithmic needs min &gt; 0 and max &gt; min: linear scale shown</div>
   </div>
+  <section id="resultsBar" hidden aria-label="Results in the model">
+    <div class="rbHead"><span class="rbTitle">Results</span><button type="button" class="rbToggle" id="rbToggle" aria-expanded="true" aria-controls="rbBody">Hide</button></div>
+    <div id="rbBody">
+      <div id="rbFieldsGroup"><div class="rbSub">Fields</div><ul id="rbFields"></ul></div>
+      <div id="rbModesGroup"><div class="rbSub">Modes</div><ul id="rbModes"></ul></div>
+    </div>
+  </section>
   <div id="selBox" hidden style="position:absolute;border:1px dashed var(--accent);background:color-mix(in srgb, var(--accent) 15%, transparent);pointer-events:none"></div>
   <canvas id="axes" width="112" height="112" aria-label="Axes of the model coordinate system"></canvas>
   <div id="hud">Left: rotate (or select, if enabled) · Right or Shift: pan · Wheel: zoom · Double-click: fit</div>
@@ -466,6 +491,28 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     }
   }`;
 
+  // Rigid links (RBE2): segments from the reference point to each coupled node (uDot = 0), and a red dot on the
+  // reference point (uDot = 1). Positions are the model's, in the frame of the mesh; the section clip applies as to the mesh.
+  const VS_RIG = GLSL_COMMON + `
+  uniform mat4 uMV, uP; uniform float uPointSize;
+  in vec3 aPos; out vec3 vModel;
+  void main() {
+    vModel = aPos;
+    gl_Position = uP * uMV * vec4(aPos, 1.0);
+    gl_PointSize = uPointSize;
+  }`;
+  const FS_RIG = GLSL_COMMON + `
+  uniform vec4 uClip; uniform int uClipOn; uniform int uDot;
+  in vec3 vModel; out vec4 o;
+  void main() {
+    if (uClipOn == 1 && dot(uClip.xyz, vModel) > uClip.w) discard;
+    if (uDot == 1) {
+      vec2 d = gl_PointCoord - 0.5;
+      if (dot(d, d) > 0.25) discard;
+    }
+    o = vec4(0.86, 0.12, 0.12, 1.0);
+  }`;
+
   function program(vs, fs) {
     const make = (type, src) => {
       const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
@@ -483,6 +530,33 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
   }
   const triProg = program(VS_TRI, FS_TRI), edgeProg = program(VS_EDGE, FS_EDGE);
   const pickTriProg = program(VS_PICK_TRI, FS_PICK), nodeProg = program(VS_NODE, FS_PICK), consProg = program(VS_CONS, FS_CONS);
+  const rigProg = program(VS_RIG, FS_RIG);
+  rigProg.a = gl.getAttribLocation(rigProg.p, "aPos");
+  /** Buffers of the rigid links of a model (meta.rigidLinks): one VAO for the segments, one for the reference dots. */
+  function buildRigid(meta) {
+    const lines = [], points = [];
+    for (const link of (meta && meta.rigidLinks) || []) {
+      const r = link.reference;
+      points.push(r[0], r[1], r[2]);
+      for (let i = 0; i + 2 < link.nodes.length; i += 3) lines.push(r[0], r[1], r[2], link.nodes[i], link.nodes[i + 1], link.nodes[i + 2]);
+    }
+    const partOf = (data) => {
+      if (!data.length) return null;
+      const buf = gl.createBuffer(), va = gl.createVertexArray();
+      gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(data), gl.STATIC_DRAW);
+      gl.bindVertexArray(va);
+      gl.enableVertexAttribArray(rigProg.a);
+      gl.vertexAttribPointer(rigProg.a, 3, gl.FLOAT, false, 0, 0);
+      gl.bindVertexArray(null);
+      return { vao: va, buf, n: data.length / 3 };
+    };
+    return { lines: partOf(lines), points: partOf(points) };
+  }
+  function freeRigid(rig) {
+    if (!rig) return;
+    for (const part of [rig.lines, rig.points]) if (part) { gl.deleteBuffer(part.buf); gl.deleteVertexArray(part.vao); }
+  }
   const vao = gl.createVertexArray();
 
   /* ------------------------------------------------------------- textures */
@@ -542,6 +616,14 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
   /** CSS gradient of a colour map: 90deg runs left to right, 0deg runs from bottom to top. */
   const gradientCss = (name, angle) => "linear-gradient(" + angle + "deg," + PALETTES[name].join(",") + ")";
   $("bar").style.background = gradientCss(activePalette, 90);
+  /** Makes a colour map the active one for the scalar colouring and the colour bar; false for an unknown name. */
+  function applyPalette(name) {
+    if (!Object.prototype.hasOwnProperty.call(PALETTES, name)) return false;
+    activePalette = name; uploadLut();
+    $("bar").style.background = gradientCss(activePalette, 90);
+    S.dirty = true; updateColorbar();
+    return true;
+  }
   /** Logarithmic colouring applies only to a positive range; otherwise the linear scale is used. */
   function logActive() { return S.logScale && S.range[0] > 0 && S.range[1] > S.range[0]; }
 
@@ -674,6 +756,8 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     S.faceInfo = null; S.nodeVertex = null; S.holeCache = new Map();
     S.count = { tris: n.triangles, skinTris: n.boundaryTriangles, edges: n.edges, skinEdges: n.boundaryEdges,
                 cons: model.consVertex ? model.consVertex.length : 0 };
+    freeRigid(S.rig);
+    S.rig = buildRigid(model.meta);
   }
   function setField(i) {
     const f = S.model.fields[i];
@@ -759,6 +843,13 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
   function bounds() {
     const b = S.model.meta.bbox, o = S.model.meta.origin;
     const lo = b.min.map((v, i) => v - o[i]), hi = b.max.map((v, i) => v - o[i]);
+    // The rigid links (RBE2) are framed too, so that their reference points can be seen after a fit. The stored
+    // bounding box (the Dimensions) stays the mesh's.
+    const grow = (p) => { for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], p[k]); hi[k] = Math.max(hi[k], p[k]); } };
+    for (const link of S.model.meta.rigidLinks || []) {
+      grow(link.reference);
+      for (let i = 0; i + 2 < link.nodes.length; i += 3) grow([link.nodes[i], link.nodes[i + 1], link.nodes[i + 2]]);
+    }
     return { lo, hi, center: lo.map((v, i) => (v + hi[i]) / 2), diag: Math.hypot(...hi.map((v, i) => v - lo[i])) };
   }
   const VIEWS = {
@@ -911,6 +1002,16 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
       gl.uniform1i(consProg.u.uKind, 1); gl.drawArrays(gl.LINES, 0, nc * 96);
       gl.uniform1i(consProg.u.uKind, 2); gl.drawArrays(gl.POINTS, 0, nc);
     }
+    // Rigid links: drawn with the constraints (the "fixed dofs" switch).
+    if (S.consOn && S.rig && (S.rig.lines || S.rig.points)) {
+      gl.useProgram(rigProg.p);
+      gl.uniformMatrix4fv(rigProg.u.uMV, false, MV); gl.uniformMatrix4fv(rigProg.u.uP, false, P);
+      gl.uniform4fv(rigProg.u.uClip, clip); gl.uniform1i(rigProg.u.uClipOn, S.clipOn ? 1 : 0);
+      gl.uniform1f(rigProg.u.uPointSize, 9 * dpr);
+      if (S.rig.lines) { gl.uniform1i(rigProg.u.uDot, 0); gl.bindVertexArray(S.rig.lines.vao); gl.drawArrays(gl.LINES, 0, S.rig.lines.n); }
+      if (S.rig.points) { gl.uniform1i(rigProg.u.uDot, 1); gl.bindVertexArray(S.rig.points.vao); gl.drawArrays(gl.POINTS, 0, S.rig.points.n); }
+      gl.bindVertexArray(null);
+    }
     if (S.pickMode === "node" && S.sel.node.size > 0) {
       gl.useProgram(nodeProg.p);
       gl.uniformMatrix4fv(nodeProg.u.uMV, false, MV); gl.uniformMatrix4fv(nodeProg.u.uP, false, P);
@@ -1057,7 +1158,20 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     }));
   }
   /** Results card: the load case, the mode, the component coloured, and the scale of the deformed shape with its value. */
+  /** Results bar on the right: the fields and the modes of the model; the one in use is pressed. Hidden without results. */
+  function updateResultsBar() {
+    const model = S.model;
+    const fields = model ? model.fields : [], modes = model ? model.modes : [];
+    $("resultsBar").hidden = !model || (!fields.length && !modes.length);
+    $("rbFieldsGroup").hidden = !fields.length;
+    $("rbModesGroup").hidden = !modes.length;
+    $("rbFields").innerHTML = fields.map((f, i) =>
+      `<li><button type="button" data-rb-field="${i}" aria-pressed="${S.mode === "scalar" && S.fieldIndex === i}">${esc(f.name)}${f.element ? " [element]" : ""}</button></li>`).join("");
+    $("rbModes").innerHTML = modes.map((m, i) =>
+      `<li><button type="button" data-rb-mode="${i}" aria-pressed="${i === S.modeIndex}">${esc(modeText(m))}</button></li>`).join("");
+  }
   function updateResultsPanel() {
+    updateResultsBar();
     const model = S.model, meta = model && model.meta;
     const show = !!model && !!meta.results;
     $("resultsPanel").hidden = !show;
@@ -1092,6 +1206,7 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     box.hidden = false;
   }
   function refreshUi() {
+    updateResultsBar();
     $("scalarBox").hidden = S.mode !== "scalar";
     $("clipBox").hidden = !S.clipOn;
     fillBlocks(); fillComponents(); fillLegend();
@@ -1149,6 +1264,21 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     el.hidden = !meta.results; el.textContent = meta.results ? "Results: " + meta.results.label : "";
   }
   function showMessage(text) { const el = $("msg"); el.textContent = text; el.hidden = !text; }
+  /** Empties the viewer as at start: no model, no selection and no sections or colour bar, with the empty-state message back. */
+  function clearModel() {
+    freeModel();
+    freeRigid(S.rig); S.rig = null;
+    S.model = null; S.tex = {}; S.count = {}; S.vis = null; S.palettes = {};
+    S.clipOn = false; $("clipOn").checked = false;
+    S.pickMode = "off"; $("pickMode").value = "off"; canvas.style.cursor = "";
+    S.sel = { node: new Set(), element: new Set(), face: new Set() };
+    for (const id of ["blocksSec", "compSec", "defSec", "resultsInfo", "scalarBox", "clipBox", "legendBox", "resultsPanel", "pickSec", "consRows"]) $(id).hidden = true;
+    updateResultsBar();
+    $("blocks").innerHTML = ""; $("legend").innerHTML = ""; $("stats").innerHTML = ""; $("pickCount").textContent = "none";
+    $("fileName").textContent = "No file loaded";
+    $("drop").hidden = false; showMessage("");
+    updateColorbar(); syncViewTools(); S.dirty = true;
+  }
   function loadBuffer(buffer, name) {
     try {
       const t0 = performance.now();
@@ -1186,16 +1316,41 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
   $("fitBtn").addEventListener("click", fit);
   document.querySelectorAll("[data-view]").forEach((b) => b.addEventListener("click", () => setView(b.dataset.view)));
   $("colorMode").addEventListener("change", (e) => { S.mode = e.target.value; refreshUi(); });
-  $("fieldSel").addEventListener("change", (e) => setField(+e.target.value));
+  $("fieldSel").addEventListener("change", (e) => { setField(+e.target.value); updateResultsBar(); });
+  // Results bar: a field switches to the scalar colouring of that field; a mode is selected as in the Mode list.
+  $("resultsBar").addEventListener("click", (e) => {
+    const field = e.target.closest("[data-rb-field]"), mode = e.target.closest("[data-rb-mode]");
+    if (field) {
+      const i = +field.dataset.rbField;
+      $("fieldSel").value = i; setField(i);
+      S.mode = "scalar"; $("colorMode").value = "scalar"; refreshUi(); S.dirty = true;
+    } else if (mode) {
+      setMode(+mode.dataset.rbMode);
+    }
+  });
+  // The results bar can be folded to its title; the choice is kept between sessions.
+  function setResultsBarOpen(open) {
+    $("resultsBar").classList.toggle("collapsed", !open);
+    $("rbToggle").setAttribute("aria-expanded", String(open));
+    $("rbToggle").textContent = open ? "Hide" : "Show";
+    try { localStorage.setItem("openmodel.resultsBar", open ? "shown" : "hidden"); } catch (e) { /* storage unavailable */ }
+  }
+  setResultsBarOpen((() => { try { return localStorage.getItem("openmodel.resultsBar") !== "hidden"; } catch (e) { return true; } })());
+  $("rbToggle").addEventListener("click", () => setResultsBarOpen($("resultsBar").classList.contains("collapsed")));
   $("smin").addEventListener("input", (e) => { S.range[0] = +e.target.value; S.dirty = true; updateColorbar(); });
   $("smax").addEventListener("input", (e) => { S.range[1] = +e.target.value; S.dirty = true; updateColorbar(); });
   // Colour bar controls: palette, scale type and the ends of the range (the sidebar Min/Max inputs follow).
   for (const name of Object.keys(PALETTES)) $("palSel").add(new Option(name, name));
-  $("palSel").addEventListener("change", (e) => {
-    activePalette = e.target.value; uploadLut();
-    $("bar").style.background = gradientCss(activePalette, 90);
-    S.dirty = true; updateColorbar();
-  });
+  $("palSel").addEventListener("change", (e) => applyPalette(e.target.value));
+  // Hide or show the legend options (palette, scale, range); the choice is kept between sessions.
+  function setLegendOptions(shown) {
+    $("cbOptions").hidden = !shown;
+    $("cbOptsBtn").setAttribute("aria-expanded", String(shown));
+    $("cbOptsBtn").textContent = shown ? "Hide options" : "Show options";
+    try { localStorage.setItem("openmodel.legendOptions", shown ? "shown" : "hidden"); } catch (e) { /* storage unavailable */ }
+  }
+  setLegendOptions((() => { try { return localStorage.getItem("openmodel.legendOptions") !== "hidden"; } catch (e) { return true; } })());
+  $("cbOptsBtn").addEventListener("click", () => setLegendOptions($("cbOptions").hidden));
   $("scaleSel").addEventListener("change", (e) => { S.logScale = e.target.value === "log"; S.dirty = true; updateColorbar(); });
   const setRangeEnd = (k, text) => {
     const v = text === "" ? NaN : Number(text);
@@ -1898,12 +2053,32 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     },
     load: loadBuffer,
     loadUrl,
+    /** Empties the viewer: the model, its selection and its sections go away. */
+    clear: clearModel,
+    /** Names of the colour maps of the Palette list, in its order. */
+    palettes() { return Object.keys(PALETTES); },
+    /** Name of the colour map in use. */
+    palette() { return activePalette; },
+    /** Makes a colour map active; false when the name is unknown. */
+    setPalette: applyPalette,
+    /** Shows (true) or hides (false) the palette, scale and range controls of the colour bar. */
+    setLegendOptions,
+    /** Folds (false) or unfolds (true) the results bar on the right. */
+    setResultsBarOpen,
     state: S,
     /**
      * The constraints drawn in the viewer: one entry per constrained node that is drawn.
      * @returns {{vertex:number, node:number, dofs:string[], prescribed:boolean}[]} `node` is the external node id (-1 when the
      *          file has no picking chunks); `dofs` lists the constrained degrees of freedom among ux, uy, uz, rx, ry, rz.
      */
+    /**
+     * The rigid links drawn in the viewer.
+     * @returns {{links:number, segments:number}} `links` reference points, `segments` links from a reference point to a node.
+     */
+    rigidLinks() {
+      const r = S.rig;
+      return { links: r && r.points ? r.points.n : 0, segments: r && r.lines ? r.lines.n / 2 : 0 };
+    },
     constraints() {
       const m = S.model;
       if (!m || !m.consVertex) return [];

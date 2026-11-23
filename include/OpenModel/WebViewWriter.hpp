@@ -48,6 +48,12 @@ struct WebMode {
 };
 
 /** @brief Options controlling WebViewWriter output. */
+/** @brief A rigid link as drawn in the viewer: its reference point and the coordinates of the nodes it couples. */
+struct WebRigidLink {
+    std::array<double, 3> reference{{0.0, 0.0, 0.0}};
+    std::vector<std::array<double, 3>> nodes;
+};
+
 struct WebViewOptions {
     /**
      * Export the faces shared by two volume elements (needed for cutaway views).
@@ -93,6 +99,11 @@ struct WebViewOptions {
      * outside the mesh make the build fail.
      */
     std::vector<NodeConstraint> extraConstraints;
+    /**
+     * Rigid links to draw: a red dot at the reference point and a red segment from it to each coupled node. The
+     * coordinates are the model's (the writer moves them to the origin of the file, like the positions).
+     */
+    std::vector<WebRigidLink> rigidLinks;
 };
 
 /** @brief Outcome and statistics of a WebViewWriter call. */
