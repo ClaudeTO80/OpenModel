@@ -640,14 +640,19 @@ details.node details.node{margin-top:8px;background:transparent}
       <label for="asStepKind">Analysis</label>
       <select id="asStepKind" onchange="stepKindChanged()">
         <option value="static">Static (loads ramped over the step)</option>
+        <option value="frequency">Frequency (natural modes, loads ignored)</option>
         <option value="dynamic">Dynamic (transient, implicit)</option>
       </select>
+      <div id="asModeFields" hidden>
+        <label for="asModes">Number of modes</label>
+        <input id="asModes" type="number" min="1" max="1000" step="1" value="6">
+      </div>
       <div id="asDynFields" class="grid2" hidden>
         <div><label for="asDt">Initial increment dt</label><input id="asDt" type="number" step="any" placeholder="0.01"></div>
         <div><label for="asPeriod">Step time period</label><input id="asPeriod" type="number" step="any" placeholder="1"></div>
       </div>
       <button class="full" onclick="setStep()">Set step in script</button>
-      <p class="hint">Replaces the step line of the script. A dynamic analysis needs the density (rho=) and supports (fix). Loads without amplitude act at full value from the start.</p>
+      <p class="hint">Replaces the step line of the script. A frequency analysis needs the density (rho=) and supports (fix), and returns the natural frequencies and mode shapes shown in Vibration modes. A dynamic analysis needs the density (rho=) and supports (fix). Loads without amplitude act at full value from the start.</p>
     </details>
     <details id="secSolve" class="node" open>
       <summary>Analysis and solver</summary>
@@ -2764,12 +2769,23 @@ function addAmplitude() {
   }
   appendScript("amplitude name=" + name + " t=" + values.join(","));
 }
-function stepKindChanged() { $("asDynFields").hidden = $("asStepKind").value !== "dynamic"; }
+function stepKindChanged() {
+  const kind = $("asStepKind").value;
+  $("asDynFields").hidden = kind !== "dynamic";
+  $("asModeFields").hidden = kind !== "frequency";
+}
 /** Replaces the step line of the script with the chosen analysis type. */
 function setStep() {
   const kind = $("asStepKind").value;
   let line = "step static";
-  if (kind === "dynamic") {
+  if (kind === "frequency") {
+    // Same rule as the parser (AnalysisSetup.cpp, SCRIPT_BAD_MODES): an integer between 1 and 1000.
+    const raw = $("asModes").value.trim(), modes = Number(raw);
+    if (raw === "" || !Number.isInteger(modes) || modes < 1 || modes > 1000) {
+      show("The number of modes must be an integer between 1 and 1000.", "bad"); return;
+    }
+    line = "step frequency modes=" + modes;
+  } else if (kind === "dynamic") {
     const dt = Number($("asDt").value), period = Number($("asPeriod").value);
     if (!Number.isFinite(dt) || !Number.isFinite(period) || !(dt > 0) || !(period > 0) || dt > period) {
       show("A dynamic step needs 0 < dt <= period.", "bad"); return;
