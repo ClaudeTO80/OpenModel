@@ -227,6 +227,58 @@ int main() {
         CHECK(!r.success);
     }
 
+    // 10. The script form: rbe2 group:NAME ref=x,y,z is parsed and written back with the same values.
+    {
+        const std::string material = "material E=210000 nu=0.3\n";
+        const auto parsed = parseAnalysisScript(material + "rbe2 id=R group:BOLT ref=0.5,0.5,2\n");
+        CHECK(parsed.success);
+        CHECK(parsed.model.rigidLinks.size() == 1);
+        if (parsed.model.rigidLinks.size() == 1) {
+            const RigidLink& link = parsed.model.rigidLinks[0];
+            CHECK(link.id == "R");
+            CHECK(link.group == "BOLT");
+            CHECK(near(link.reference[0], 0.5) && near(link.reference[1], 0.5) && near(link.reference[2], 2.0));
+            CHECK(link.slaves.empty());
+        }
+        const std::string text = serializeAnalysisScript(parsed.model);
+        CHECK(text.find("rbe2 id=R group:BOLT ref=0.5,0.5,2\n") != std::string::npos);
+        // A reference that is not three numbers is a diagnostic, not a link.
+        CHECK(!parseAnalysisScript(material + "rbe2 group:BOLT ref=1,2\n").success);
+        CHECK(!parseAnalysisScript(material + "rbe2 ref=1,2,3\n").success);
+    }
+    // 11. A link given by group takes its slaves from the group when the deck is written.
+    {
+        MeshData mesh = tetrahedron();
+        mesh.addNodeSet("BOLT", {1, 2, 3});
+        AnalysisModel model;
+        model.material.youngModulus = 210000.0;
+        model.material.poisson = 0.3;
+        FixedSupport fix;
+        fix.id = "fix";
+        fix.where.kind = SelectorKind::Nodes;
+        fix.where.nodes = {0};
+        model.supports.push_back(fix);
+        RigidLink link;
+        link.id = "rbe2-1";
+        link.group = "BOLT";
+        link.reference = {0.5, 0.5, 2.0};
+        model.rigidLinks.push_back(link);
+        AnalysisJob job;
+        job.id = "job";
+        job.steps.emplace_back();
+        model.jobs.push_back(job);
+        const auto dir = std::filesystem::temp_directory_path() / "openmodel_rigid_link_test";
+        std::filesystem::create_directories(dir);
+        const auto r = writeSolverInput(mesh, model, dir / "group.inp");
+        CHECK(r.success);
+        const std::string deck = readAll(dir / "group.inp");
+        CHECK(deck.find("*NSET, NSET=MG_RBS1\n2, 3, 4\n") != std::string::npos);
+        CHECK(deck.find("*RIGID BODY, NSET=MG_RBS1, REF NODE=5\n") != std::string::npos);
+        // The group does not exist: the deck is not written.
+        model.rigidLinks[0].group = "MISSING";
+        CHECK(!writeSolverInput(mesh, model, dir / "missing.inp").success);
+    }
+
     if (g_failures == 0) std::cout << "rigid_link_test: all checks passed\n";
     return g_failures == 0 ? 0 : 1;
 }

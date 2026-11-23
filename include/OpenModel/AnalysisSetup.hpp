@@ -88,6 +88,9 @@ struct RigidLink {
     std::string id;                    ///< Stable condition identifier (generated for holes: "rbe2-N").
     std::array<double, 3> reference{{0.0, 0.0, 0.0}}; ///< Position of the reference node, model length units.
     std::vector<NodeIndex> slaves;     ///< Mesh nodes coupled to the reference node.
+    /// Node group the slaves come from (script `rbe2 group:NAME ref=...`). When set, the slaves are resolved from the
+    /// group when the deck is written, and the script form is written; a link without a group keeps its slaves only in memory.
+    std::string group;
 };
 
 /**

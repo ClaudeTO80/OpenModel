@@ -2395,6 +2395,41 @@ void materialDeleteHandler(webui_event_t* e) {
     reply(e, true, "Known material '" + id + "' removed.");
 }
 
+/**
+ * Arguments: selection mode, selection payload. Replies "hole;x,y,z" when the selected nodes lie on a circle (the
+ * reference point is its centre, see fitHoleCircle) or "centroid;x,y,z" otherwise (the centroid of the selected nodes).
+ * The page creates the node group and appends the rbe2 line to the script with this point.
+ */
+void rbe2ReferenceHandler(webui_event_t* e) {
+    StateLock lock;
+    if (!lock.ok()) { replyBusy(e); return; }
+    if (g.mesh.getNumNodes() == 0) { reply(e, false, "Load or generate a volume mesh first."); return; }
+    OpenModel::ViewerSelection selection;
+    std::string error;
+    if (!parseSelection(getStringArg(e, 0), getStringArg(e, 1), selection, error)) { reply(e, false, error); return; }
+    std::vector<NodeIndex> nodes = OpenModel::selectedNodes(g.mesh, selection, error);
+    std::sort(nodes.begin(), nodes.end());
+    nodes.erase(std::unique(nodes.begin(), nodes.end()), nodes.end());
+    if (nodes.empty()) { reply(e, false, error.empty() ? "The selection contains no node." : error); return; }
+
+    std::string kind = "centroid";
+    std::array<double, 3> point{};
+    OpenModel::HoleFit fit;
+    if (nodes.size() >= 3 && OpenModel::fitHoleCircle(g.mesh, nodes, fit) && fit.maxDeviation <= 0.05) {
+        kind = "hole";
+        point = fit.centre;
+    } else {
+        for (const NodeIndex n : nodes) {
+            const auto c = g.mesh.nodeCoordinates(n);
+            for (std::size_t k = 0; k < 3; ++k) point[k] += c[k];
+        }
+        for (std::size_t k = 0; k < 3; ++k) point[k] /= static_cast<double>(nodes.size());
+    }
+    std::ostringstream out;
+    out << std::setprecision(17) << kind << ';' << point[0] << ',' << point[1] << ',' << point[2];
+    reply(e, true, out.str());
+}
+
 void constraintListHandler(webui_event_t* e) {
     StateLock lock;
     if (!lock.ok()) { replyBusy(e); return; }
@@ -2872,6 +2907,7 @@ int main() {
     webui_bind(window, "openmodel_constraint_release", constraintReleaseHandler);
     webui_bind(window, "openmodel_constraint_clear", constraintClearHandler);
     webui_bind(window, "openmodel_constraint_list", constraintListHandler);
+    webui_bind(window, "openmodel_rbe2_reference", rbe2ReferenceHandler);
     webui_bind(window, "openmodel_material_list", materialListHandler);
     webui_bind(window, "openmodel_material_save", materialSaveHandler);
     webui_bind(window, "openmodel_material_delete", materialDeleteHandler);
