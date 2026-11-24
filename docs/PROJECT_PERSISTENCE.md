@@ -66,6 +66,10 @@ type, optional byte size and optional SHA-256 digest. Asset IDs, not paths, are 
 cross-references. A missing optional payload is represented by an absent asset record,
 not by a fabricated empty file.
 
+Asset paths are written as UTF-8 on every platform (`TK4CPP::Utility::pathToUtf8`) and read back
+with `pathFromUtf8`. A manifest written on Windows by an earlier build with non-ASCII asset paths
+is not read back with the same names.
+
 ## CAD and mesh identity
 
 The CAD source file is not a substitute for the face-group mapping snapshot. Topological

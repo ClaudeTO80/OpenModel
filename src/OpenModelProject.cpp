@@ -1,5 +1,8 @@
 #include <OpenModel/OpenModelProject.hpp>
 
+#include <TK4CPP/Utility/UUIDHandler.h>
+#include <TK4CPP/Utility/Utf8.hpp>
+
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -12,7 +15,6 @@
 #include <utility>
 #include <system_error>
 #include <chrono>
-#include <random>
 #if defined(_WIN32)
 #  define NOMINMAX
 #  include <windows.h>
@@ -112,9 +114,8 @@ std::string sha256File(const std::filesystem::path& path) {
     return out.str();
 }
 std::filesystem::path tempPath(const std::filesystem::path& p) {
-    std::random_device rd;
     std::ostringstream suffix;
-    suffix << ".tmp." << std::hex << rd() << rd();
+    suffix << ".tmp." << TK4CPP::Utility::UUIDHandler::Generate_V4();
     return p.parent_path() / (p.filename().string() + suffix.str());
 }
 void replaceFile(const std::filesystem::path& from, const std::filesystem::path& to) {
@@ -223,7 +224,7 @@ void OpenModelProject::save(const std::filesystem::path& manifest) const {
             << std::quoted(metadata.createdUtc) << ' ' << std::quoted(metadata.modifiedUtc) << '\n';
         for (const auto& a : assets) {
             out << "ASSET " << std::quoted(a.id) << ' ' << std::quoted(a.role) << ' '
-                << std::quoted(a.path.generic_string()) << ' ' << storageName(a.storage) << ' '
+                << std::quoted(TK4CPP::Utility::pathToUtf8(a.path)) << ' ' << storageName(a.storage) << ' '
                 << std::quoted(a.mediaType) << ' ' << a.sizeBytes << ' ' << std::quoted(a.sha256) << '\n';
         }
         out.flush();
@@ -262,7 +263,7 @@ OpenModelProject OpenModelProject::load(const std::filesystem::path& manifest) {
             if (!(in >> std::quoted(a.id) >> std::quoted(a.role) >> std::quoted(path) >> storage
                   >> std::quoted(a.mediaType) >> a.sizeBytes >> std::quoted(a.sha256)))
                 throw std::runtime_error("OpenModelProject: malformed ASSET record");
-            a.path = std::filesystem::u8path(path);
+            a.path = TK4CPP::Utility::pathFromUtf8(path);   // the manifest stores UTF-8
             a.storage = parseStorage(storage);
             project.addAsset(std::move(a));
         } else throw std::runtime_error("OpenModelProject: unknown manifest record: " + tag);

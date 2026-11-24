@@ -1,0 +1,4 @@
+[submodule "3dParty/TK4CPP"]
+	path = 3dParty/TK4CPP
+	url = https://github.com/ClaudeTO80/TK4CPP.git
+	branch = main
