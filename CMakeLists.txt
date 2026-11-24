@@ -112,11 +112,12 @@ function(openmodel_configure_core_target target export_name)
 endfunction()
 
 # ── TK4CPP ─────────────────────────────────────────────────────────────────
-# OpenModel runs the solvers with TK4CPP::Process and decodes the base64 of dropped files with TK4CPP::Encode.
+# OpenModel runs the solvers with TK4CPP::Process, decodes the base64 of dropped files with TK4CPP::Encode and
+# uses TK4CPP::Utility for UTF-8 paths and unique temporary file names.
 # OPENMODEL_TK4CPP_SOURCE chooses where TK4CPP comes from:
 #   FETCH     download TK4CPP from OPENMODEL_TK4CPP_GIT_REPOSITORY at OPENMODEL_TK4CPP_GIT_TAG during configure and build
-#             only the two modules OpenModel uses, as static libraries. Needs git and network access at configure time.
-#   INSTALLED use a TK4CPP that is already installed (CMake package TK4CPP with the components Process and Encode).
+#             only the modules OpenModel uses (Process, Encode, Utility and Thread), as static libraries. Needs git and network access at configure time.
+#   INSTALLED use a TK4CPP that is already installed (CMake package TK4CPP with the components Process, Encode and Utility).
 #             It is searched in OPENMODEL_TK4CPP_DIR (install prefix) and in CMAKE_PREFIX_PATH.
 # TK4CPP requires CMake 3.23 or newer. The submodule 3dParty/TK4CPP points to the TK4CPP commit this version was tested with.
 set(OPENMODEL_TK4CPP_SOURCE "FETCH" CACHE STRING "Where TK4CPP comes from: FETCH (download and build) or INSTALLED (installed package)")
@@ -134,7 +135,10 @@ if(OPENMODEL_TK4CPP_SOURCE STREQUAL "FETCH")
     set(TK4CPP_BUILD_SHARED OFF)
     set(TK4CPP_BUILD_STATIC ON)
     set(TK4CPP_INSTALL      OFF)
-    foreach(_openmodel_unused_tk4cpp_module Logging Utility JWT XML Thread Zip)
+    # Utility needs Thread, so both are built; the other modules are not used.
+    set(TK4CPP_BUILD_UTILITY ON)
+    set(TK4CPP_BUILD_THREAD  ON)
+    foreach(_openmodel_unused_tk4cpp_module Logging JWT XML Zip)
         string(TOUPPER "${_openmodel_unused_tk4cpp_module}" _openmodel_unused_tk4cpp_module_upper)
         set(TK4CPP_BUILD_${_openmodel_unused_tk4cpp_module_upper} OFF)
     endforeach()
@@ -151,7 +155,7 @@ elseif(OPENMODEL_TK4CPP_SOURCE STREQUAL "INSTALLED")
     if(OPENMODEL_TK4CPP_DIR)
         set(_openmodel_tk4cpp_hints HINTS "${OPENMODEL_TK4CPP_DIR}")
     endif()
-    find_package(TK4CPP 0.1 CONFIG REQUIRED COMPONENTS Process Encode ${_openmodel_tk4cpp_hints})
+    find_package(TK4CPP 0.1 CONFIG REQUIRED COMPONENTS Process Encode Utility ${_openmodel_tk4cpp_hints})
     unset(_openmodel_tk4cpp_hints)
     set(OPENMODEL_USES_INSTALLED_TK4CPP ON)
     message(STATUS "OpenModel: using the installed TK4CPP ${TK4CPP_VERSION}")
@@ -161,7 +165,7 @@ endif()
 
 # The static library when both variants exist, the only variant otherwise (the same rule as the TK4CPP package).
 set(OPENMODEL_TK4CPP_LIBRARIES "")
-foreach(_openmodel_tk4cpp_component Process Encode)
+foreach(_openmodel_tk4cpp_component Process Encode Utility)
     if(TARGET TK4CPP::${_openmodel_tk4cpp_component}_static)
         list(APPEND OPENMODEL_TK4CPP_LIBRARIES TK4CPP::${_openmodel_tk4cpp_component}_static)
     elseif(TARGET TK4CPP::${_openmodel_tk4cpp_component})

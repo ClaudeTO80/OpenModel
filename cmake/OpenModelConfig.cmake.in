@@ -5,7 +5,7 @@ find_dependency(Threads)
 
 if(@OPENMODEL_USES_INSTALLED_TK4CPP@)
     # OpenModel::Core links TK4CPP::Process and TK4CPP::Encode. Set TK4CPP_DIR or CMAKE_PREFIX_PATH to the install of TK4CPP.
-    find_dependency(TK4CPP 0.1 CONFIG COMPONENTS Process Encode)
+    find_dependency(TK4CPP 0.1 CONFIG COMPONENTS Process Encode Utility)
 endif()
 
 if(@OPENMODEL_BUILD_ASSIMP_BACKEND@)

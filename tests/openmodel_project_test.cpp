@@ -42,6 +42,23 @@ int main() {
     assert(integrityIssues.size() == 1);
     assert(integrityIssues.front().message == "asset SHA-256 mismatch");
 
+    // Non-ASCII asset path ("zàmbo ü", UTF-8 bytes): written as UTF-8 and read back unchanged.
+    // On Linux this checks the byte round trip only; the Windows path (wide to UTF-8) is not exercised here.
+    const auto utf8Manifest = root / "utf8.omproj";
+    const std::filesystem::path accented = std::filesystem::path("dati") / "z\xC3\xA0mbo \xC3\xBC.mgmb";
+    std::filesystem::create_directories(root / "dati");
+    { std::ofstream file(root / accented, std::ios::binary); file << "xyz"; }
+    OpenModel::OpenModelProject utf8;
+    utf8.metadata.id = "project-utf8";
+    utf8.metadata.name = "UTF-8 paths";
+    utf8.metadata.applicationVersion = "0.1.0";
+    utf8.addAsset({"utf8-1", "mesh.volume", accented, OpenModel::ProjectAssetStorage::Managed, "application/x-mgmb", 0, ""});
+    utf8.refreshAssetIntegrity(utf8Manifest, "utf8-1");
+    utf8.save(utf8Manifest);
+    const auto utf8Back = OpenModel::OpenModelProject::load(utf8Manifest);
+    assert(utf8Back.findAsset("utf8-1") && utf8Back.findAsset("utf8-1")->path == accented);
+    assert(utf8Back.verifyAssetIntegrity(utf8Manifest).empty());
+
     OpenModel::OpenModelProject invalid = p;
     invalid.assets[0].path = "../../outside.mgmb";
     assert(!invalid.validate(manifest).empty());
