@@ -177,6 +177,16 @@ Each backend is off by default and needs its native library to be found by CMake
 General options: `OPENMODEL_VERSION` (`0.1.5`, see [Version](#version)), `OPENMODEL_BUILD_TESTS` (ON), `OPENMODEL_BUILD_CLI` (ON), `OPENMODEL_BUILD_SHARED` (ON), `OPENMODEL_BUILD_BENCHMARKS` (OFF),
 `OPENMODEL_BUILD_WEBUI` (OFF), `OPENMODEL_TEST_WEBGL_VIEWER` (OFF, needs Node.js with Playwright).
 
+### TK4CPP
+
+OpenModel runs the solvers with `TK4CPP::Process` and decodes dropped files with `TK4CPP::Encode` from the
+[TK4CPP](https://github.com/ClaudeTO80/TK4CPP) framework. It needs CMake 3.23 or newer. Choose where TK4CPP comes from with `OPENMODEL_TK4CPP_SOURCE`:
+
+- `FETCH` (default): TK4CPP is downloaded from `OPENMODEL_TK4CPP_GIT_REPOSITORY` at `OPENMODEL_TK4CPP_GIT_TAG` (default `main`) during configure and only its two modules are built. Needs git and network access. An installed OpenModel package built this way does not contain TK4CPP.
+- `INSTALLED`: an installed TK4CPP is used (CMake package `TK4CPP`, components `Process` and `Encode`), found in `OPENMODEL_TK4CPP_DIR` (its install prefix) or in `CMAKE_PREFIX_PATH`. The installed OpenModel package then finds it too.
+
+`3dParty/TK4CPP` is a submodule pointing to the TK4CPP commit this version was tested with. To build TK4CPP from it, run `cmake -S 3dParty/TK4CPP -B build-tk4cpp -DTK4CPP_BUILD_TESTS=OFF -DTK4CPP_BUILD_SHARED=OFF -DCMAKE_INSTALL_PREFIX=/opt/tk4cpp`, install it, and configure OpenModel with `-DOPENMODEL_TK4CPP_SOURCE=INSTALLED -DOPENMODEL_TK4CPP_DIR=/opt/tk4cpp`. Initialise the submodule first with `git submodule update --init 3dParty/TK4CPP`.
+
 ### Gmsh meshing controls
 
 `MeshingOptions` (Gmsh backend) controls, besides the element sizes and the order:

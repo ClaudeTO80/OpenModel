@@ -262,7 +262,11 @@ OpenModelProject OpenModelProject::load(const std::filesystem::path& manifest) {
             if (!(in >> std::quoted(a.id) >> std::quoted(a.role) >> std::quoted(path) >> storage
                   >> std::quoted(a.mediaType) >> a.sizeBytes >> std::quoted(a.sha256)))
                 throw std::runtime_error("OpenModelProject: malformed ASSET record");
+#if __cplusplus >= 202002L
+            a.path = std::filesystem::path(std::u8string(path.begin(), path.end()));  // the manifest stores UTF-8
+#else
             a.path = std::filesystem::u8path(path);
+#endif
             a.storage = parseStorage(storage);
             project.addAsset(std::move(a));
         } else throw std::runtime_error("OpenModelProject: unknown manifest record: " + tag);
