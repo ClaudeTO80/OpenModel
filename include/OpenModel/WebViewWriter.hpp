@@ -92,7 +92,7 @@ struct WebViewOptions {
     std::size_t defaultFrame = static_cast<std::size_t>(-1);
     /**
      * Optional display colour (sRGB, 0..1) per physical group name, for example the colour a component has in
-     * the CAD file. Groups without an entry get the viewer's palette. Not stored in MGMB: only in the MGWV image.
+     * the CAD file. Groups without an entry get the viewer's palette. Not stored in MGOM: only in the MGWV image.
      */
     std::map<std::string, std::array<float, 3>> groupColors;
     /**

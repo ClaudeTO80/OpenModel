@@ -14,7 +14,7 @@ where you can also pick nodes, elements and faces to build groups, supports and 
 | Area | What it does |
 |---|---|
 | Mesh core | `MeshData` (nodes, linear and quadratic elements, blocks, node sets, physical groups), topology (faces, edges, material interfaces), geometric validation and quality metrics |
-| Mesh I/O | Abaqus / CalculiX `.inp` reader and writer; code_aster `.mail` reader and writer; compact binary **MGMB**; glTF / GLB export with PBR materials |
+| Mesh I/O | Abaqus / CalculiX `.inp` reader and writer; code_aster `.mail` reader and writer; compact binary **MGOM** (`.omb`); stored ZIP project archive (`project-export` / `project-import`); glTF / GLB export with PBR materials |
 | Meshing backends *(optional)* | Gmsh, TetGen, Netgen, MFEM adapter, Open CASCADE (STEP / IGES / BREP) and Assimp importers |
 | CAD → FEM groups | Named CAD groups (XDE layers, named sub-shapes) and user-defined B-Rep face groups are carried onto the mesh as dimension-2 groups, by Gmsh at meshing time or afterwards by geometry (`mapCADFacesToMesh`); face groups are stored in a `.omgroups` sidecar next to the CAD file ([`docs/cad-face-groups-phase-4.md`](docs/cad-face-groups-phase-4.md)) |
 | FEM results | CalculiX `.frd`, `.dat`, code_aster `.tab` tables and CSV readers: displacements, stresses, strains, principal and von Mises values, modal frequencies and mode shapes |
@@ -54,18 +54,20 @@ openmodel validate-demo
 openmodel demo-inp <output.inp>
 openmodel demo-gltf <output.gltf>   |   demo-glb <output.glb>
 openmodel demo-web <output.mgwv> [cells-per-side]
-openmodel convert <input.omb|input.mgmb|input.inp|input.mail> <output.omb|.mgmb|.inp> [--coords exact|q16|q32]   # MGOM; --coords only for .omb
-openmodel export-web <input.omb|input.mgmb|input.inp|input.mail> <output.mgwv> [--no-interior] [--field x|y|z|r]
+openmodel convert <input.omb|input.inp|input.mail> <output.omb|.inp> [--coords exact|q16|q32]   # MGOM; --coords only for .omb
+openmodel project-export <project.omproj> <archive.zip>   # one stored (uncompressed) ZIP: manifest + all assets
+openmodel project-import <archive.zip> <new-directory>
+openmodel export-web <input.omb|input.inp|input.mail> <output.mgwv> [--no-interior] [--field x|y|z|r]
                      [--results <file.frd|file.dat|file.csv> ...] [--step N] [--displacement NAME|none] [--modes N]
                      [--engineering-strain] [--no-derived] [--no-coordinate-check]
 openmodel results-info <file.frd|file.dat|file.csv> [more files, merged]
-openmodel write-input <mesh.mgmb|mesh.inp> <analysis.txt> <job.inp>
-openmodel solve <mesh.mgmb|mesh.inp> <analysis.txt> <workdir> [--solver ccx-path] [--elmer ElmerSolver-path] [--web out.mgwv]
-openmodel export-elmer <mesh.mgmb|mesh.inp> <analysis.txt> <dir> [--job NAME]
+openmodel write-input <mesh.omb|mesh.inp> <analysis.txt> <job.inp>
+openmodel solve <mesh.omb|mesh.inp> <analysis.txt> <workdir> [--solver ccx-path] [--elmer ElmerSolver-path] [--web out.mgwv]
+openmodel export-elmer <mesh.omb|mesh.inp> <analysis.txt> <dir> [--job NAME]
 openmodel export-aster <mesh> <analysis.txt> <dir> [--job NAME] [--solver MUMPS] [--cpus N] [--memory MB] [--time S]
 openmodel solve-aster <mesh> <analysis.txt> <dir> [--launcher run_aster] [--web out.mgwv]
 openmodel export-mail <mesh> <out.mail>
-openmodel mesh-volume <input.step|input.iges|input.brep> <output.inp|.omb|.mgmb|.mgwv> <max-element-size> [order]   # only with the Gmsh backend
+openmodel mesh-volume <input.step|input.iges|input.brep> <output.inp|.omb|.mgwv> <max-element-size> [order]   # only with the Gmsh backend
 ```
 
 Example: load a CalculiX result on its mesh and view it.
@@ -259,7 +261,7 @@ cmake/               package configuration template, Version.hpp.in (generated v
 - [`docs/cad-face-groups-phase-4.md`](docs/cad-face-groups-phase-4.md) – CAD face → Gmsh surface mapping; the earlier steps are in `docs/cad-fem-group-mapping-phase-3.*.md`
 - [`docs/assimp-surface-fallback.md`](docs/assimp-surface-fallback.md) – Assimp import and geometric selectors without CAD
 - [`docs/PROJECT_PERSISTENCE.md`](docs/PROJECT_PERSISTENCE.md) – project manifest (`.omproj`)
-- [`docs/MGMB_FORMAT.md`](docs/MGMB_FORMAT.md), [`docs/MGWV_FORMAT.md`](docs/MGWV_FORMAT.md) – binary formats
+- [`docs/MGOM_FORMAT.md`](docs/MGOM_FORMAT.md), [`docs/MGWV_FORMAT.md`](docs/MGWV_FORMAT.md) – binary formats
 - [`tests/webgl/README.md`](tests/webgl/README.md) – browser and GUI end-to-end tests
 - [`docs/DEVELOPMENT_LOG.md`](docs/DEVELOPMENT_LOG.md) – historical phase notes (Italian, former MeshGen numbering)
 - [`CHANGELOG.md`](CHANGELOG.md), [`CONTRIBUTING.md`](CONTRIBUTING.md)

@@ -5,8 +5,8 @@
 #include <OpenModel/Solvers.hpp>
 #include <OpenModel/ProcessRunner.hpp>
 #include <OpenModel/GltfWriter.hpp>
-#include <OpenModel/MeshBinaryIO.hpp>
 #include <OpenModel/ModelBinaryIO.hpp>
+#include <OpenModel/ProjectArchive.hpp>
 #include <OpenModel/MeshData.hpp>
 #include <OpenModel/MeshImporter.hpp>
 #include <OpenModel/WebViewWriter.hpp>
@@ -194,15 +194,15 @@ bool readTextFile(const std::string& path, std::string& text) {
     return true;
 }
 
-/** Loads a .mgmb or .inp mesh; returns 0 or the process exit code to use. */
+/** Loads an .omb, .inp or .mail mesh; returns 0 or the process exit code to use. */
 int loadMeshFile(const std::string& path, MeshData& mesh) {
     const auto extension = lowerExtension(path);
     if (extension == ".omb") {
         try { mesh = ModelBinaryIO::read(path); }
         catch (const std::exception& error) { std::cerr << "Cannot read " << path << ": " << error.what() << "\n"; return 1; }
     } else if (extension == ".mgmb") {
-        try { mesh = MeshBinaryIO::read(path); }
-        catch (const std::exception& error) { std::cerr << "Cannot read " << path << ": " << error.what() << "\n"; return 1; }
+        std::cerr << "MGMB is no longer supported: " << path << " must be converted with an earlier release\n";
+        return 2;
     } else if (extension == ".inp") {
         OpenModel::AbaqusInpImporter importer;
         const auto imported = importer.read(path, mesh);
@@ -216,7 +216,7 @@ int loadMeshFile(const std::string& path, MeshData& mesh) {
         for (const auto& diagnostic : imported.diagnostics) std::cerr << diagnostic.code << ": " << diagnostic.message << "\n";
         if (!imported) return 1;
     } else {
-        std::cerr << "Unsupported input format (expected .omb, .mgmb, .inp or .mail)\n";
+        std::cerr << "Unsupported input format (expected .omb, .inp or .mail)\n";
         return 2;
     }
     return 0;
@@ -310,18 +310,20 @@ void usage() {
               << "  openmodel demo-gltf <output.gltf>\n"
               << "  openmodel demo-glb <output.glb>\n"
               << "  openmodel demo-web <output.mgwv> [cells-per-side]\n"
-              << "  openmodel convert <input.omb|input.mgmb|input.inp|input.mail> <output.omb|.mgmb|.inp> [--coords exact|q16|q32]\n"
-              << "  openmodel export-web <input.omb|input.mgmb|input.inp|input.mail> <output.mgwv> [--no-interior] [--field x|y|z|r]\n"
+              << "  openmodel convert <input.omb|input.inp|input.mail> <output.omb|.inp> [--coords exact|q16|q32]\n"
+              << "  openmodel project-export <project.omproj> <archive.zip>   (stored ZIP: manifest and all assets)\n"
+              << "  openmodel project-import <archive.zip> <new-directory>    (extracts and verifies the project)\n"
+              << "  openmodel export-web <input.omb|input.inp|input.mail> <output.mgwv> [--no-interior] [--field x|y|z|r]\n"
               << "                     [--results <file.frd|file.dat|file.csv> [--results <more files>] [--step N | --time T] [--displacement NAME|none] [--modes N] [--engineering-strain]\n                      [--no-derived] [--no-coordinate-check]]\n"
               << "  openmodel results-info <file.frd|file.dat|file.csv> [more files, merged]\n"
-              << "  openmodel write-input <mesh.mgmb|mesh.inp> <analysis.txt> <job.inp>      (analysis script: see docs/SOLVER.md)\n"
-              << "  openmodel solve <mesh.mgmb|mesh.inp> <analysis.txt> <workdir> [--solver ccx-path] [--elmer ElmerSolver-path] [--web out.mgwv]\n"
-              << "  openmodel export-elmer <mesh.mgmb|mesh.inp|mesh.mail> <analysis.txt> <dir> [--job NAME]    (static analysis, Elmer case)\n"
-              << "  openmodel export-aster <mesh.mgmb|mesh.inp|mesh.mail> <analysis.txt> <dir> [--job NAME] [--solver MULT_FRONT|MUMPS|PETSC|LDLT] [--cpus N] [--memory MB] [--time S] [--version V]\n"
+              << "  openmodel write-input <mesh.omb|mesh.inp> <analysis.txt> <job.inp>      (analysis script: see docs/SOLVER.md)\n"
+              << "  openmodel solve <mesh.omb|mesh.inp> <analysis.txt> <workdir> [--solver ccx-path] [--elmer ElmerSolver-path] [--web out.mgwv]\n"
+              << "  openmodel export-elmer <mesh.omb|mesh.inp|mesh.mail> <analysis.txt> <dir> [--job NAME]    (static analysis, Elmer case)\n"
+              << "  openmodel export-aster <mesh.omb|mesh.inp|mesh.mail> <analysis.txt> <dir> [--job NAME] [--solver MULT_FRONT|MUMPS|PETSC|LDLT] [--cpus N] [--memory MB] [--time S] [--version V]\n"
               << "  openmodel solve-aster <mesh> <analysis.txt> <dir> [--launcher run_aster|as_run path] [--web out.mgwv] [export-aster options]\n"
-              << "  openmodel export-mail <mesh.mgmb|mesh.inp|mesh.mail> <out.mail>        (mesh only, code_aster text format)\n"
+              << "  openmodel export-mail <mesh.omb|mesh.inp|mesh.mail> <out.mail>        (mesh only, code_aster text format)\n"
 #ifdef OPENMODEL_HAS_GMSH
-              << "  openmodel mesh-volume <input.step|input.iges|input.brep> <output.inp|.omb|.mgmb|.mgwv> <max-element-size> [order]\n"
+              << "  openmodel mesh-volume <input.step|input.iges|input.brep> <output.inp|.omb|.mgwv> <max-element-size> [order]\n"
 #endif
               ;
 }
@@ -360,9 +362,6 @@ int main(int argc, char** argv) {
         } else if (outputExtension == ".omb") {
             try { ModelBinaryIO::write(outputPath, mesh); }
             catch (const std::exception& error) { std::cerr << error.what() << "\n"; return 1; }
-        } else if (outputExtension == ".mgmb") {
-            try { MeshBinaryIO::write(outputPath, mesh); }
-            catch (const std::exception& error) { std::cerr << error.what() << "\n"; return 1; }
         } else {
             const auto written = AbaqusInpWriter::writeFile(outputPath, mesh);
             if (!written.success) { for (const auto& error : written.errors) std::cerr << error << "\n"; return 1; }
@@ -371,8 +370,21 @@ int main(int argc, char** argv) {
         return 0;
     }
 #endif
+    if (command == "project-export" || command == "project-import") {
+        if (argc != 4) { usage(); return 2; }
+        try {
+            if (command == "project-export") {
+                OpenModel::exportProjectArchive(argv[2], argv[3]);
+                std::cout << "Archived project " << argv[2] << " to " << argv[3] << " (stored, not compressed)\n";
+            } else {
+                const auto manifest = OpenModel::importProjectArchive(argv[2], argv[3]);
+                std::cout << "Imported project to " << manifest.string() << "\n";
+            }
+        } catch (const std::exception& error) { std::cerr << error.what() << "\n"; return 1; }
+        return 0;
+    }
     if (command == "convert") {
-        // convert <input> <output> [--coords exact|q16|q32]: the only way to write MGOM from an existing mesh file.
+        // convert <input> <output> [--coords exact|q16|q32]: converts a mesh file to MGOM or to Abaqus input.
         std::vector<std::string> positional;
         std::string coords = "exact";
         bool coordsGiven = false;
@@ -403,14 +415,11 @@ int main(int argc, char** argv) {
         if (outputExtension == ".omb") {
             try { ModelBinaryIO::write(output, mesh, ModelBinaryIO::Options{true, encoding}); }
             catch (const std::exception& error) { std::cerr << error.what() << "\n"; return 1; }
-        } else if (outputExtension == ".mgmb") {
-            try { MeshBinaryIO::write(output, mesh); }
-            catch (const std::exception& error) { std::cerr << error.what() << "\n"; return 1; }
         } else if (outputExtension == ".inp") {
             const auto written = AbaqusInpWriter::writeFile(output, mesh);
             if (!written.success) { for (const auto& error : written.errors) std::cerr << error << "\n"; return 1; }
         } else {
-            std::cerr << "Unsupported output format (expected .omb, .mgmb or .inp)\n";
+            std::cerr << "Unsupported output format (expected .omb or .inp)\n";
             return 2;
         }
         std::cout << "Converted " << input << " -> " << output << ": " << mesh.getNumNodes() << " nodes, "
@@ -419,7 +428,7 @@ int main(int argc, char** argv) {
     }
     if (command == "info") {
         std::cout << "OpenModel " << OpenModel::versionString() << "\n"
-                  << "Core API: MeshData, MeshBinaryIO, MeshImporter, FemResults, ResultBinding, MeshValidator, MeshTopology, SurfaceMesh, GltfWriter, WebViewWriter, AbaqusInpWriter\n"
+                  << "Core API: MeshData, ModelBinaryIO, MeshImporter, FemResults, ResultBinding, MeshValidator, MeshTopology, SurfaceMesh, GltfWriter, WebViewWriter, AbaqusInpWriter\n"
                   << "Build features: static library, shared library (when enabled), CLI\n";
         return 0;
     }

@@ -68,7 +68,7 @@ set(OPENMODEL_CORE_SOURCES
     src/MeshBodies.cpp
     src/MeshRuns.cpp
     src/ProgressLog.cpp
-    src/MeshBinaryIO.cpp
+    src/ProjectArchive.cpp
     src/ModelBinaryIO.cpp
     src/Version.cpp
     "${OPENMODEL_BUILD_INFO_SOURCE}"
@@ -301,7 +301,7 @@ if(OPENMODEL_BUILD_TESTS)
     target_compile_definitions(build_info_test PRIVATE
         "OPENMODEL_EXPECTED_BUILD_SHARED=$<BOOL:${OPENMODEL_BUILD_SHARED}>"
         "OPENMODEL_EXPECTED_CONFIGURATION=\"$<CONFIG>\"")
-    openmodel_add_test(mesh_binary_io_test tests/mesh_binary_io_test.cpp)
+    openmodel_add_test(project_archive_test tests/project_archive_test.cpp)
     openmodel_add_test(model_binary_io_test tests/model_binary_io_test.cpp)
     openmodel_add_test(openmodel_project_test tests/openmodel_project_test.cpp)
     openmodel_add_test(mesh_importer_test tests/mesh_importer_test.cpp)
@@ -332,7 +332,7 @@ if(OPENMODEL_BUILD_TESTS)
     target_link_libraries(web_base64_test PRIVATE ${OPENMODEL_TK4CPP_LIBRARIES})
     set(_openmodel_core_test_names core_smoke_test mesh_validation_test abaqus_writer_test physical_groups_test
         mesh_topology_test surface_mesher_test gltf_writer_test surface_refiner_test
-        web_view_writer_test mesh_binary_io_test model_binary_io_test openmodel_project_test mesh_importer_test fem_results_test analysis_setup_test mesh_selection_test mesh_constraints_test material_database_test material_library_test code_aster_test mesh_quality_test cad_face_mapper_test mesh_bodies_test mesh_runs_test rigid_link_test gmsh_settings_test process_runner_test web_base64_test)
+        web_view_writer_test model_binary_io_test openmodel_project_test project_archive_test mesh_importer_test fem_results_test analysis_setup_test mesh_selection_test mesh_constraints_test material_database_test material_library_test code_aster_test mesh_quality_test cad_face_mapper_test mesh_bodies_test mesh_runs_test rigid_link_test gmsh_settings_test process_runner_test web_base64_test)
     if(OPENMODEL_BUILD_CLI)
         list(APPEND _openmodel_core_test_names openmodel_cli_info openmodel_cli_validate_demo)
     endif()

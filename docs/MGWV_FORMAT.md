@@ -1,6 +1,6 @@
 # MGWV — OpenModel Web View format, version 1
 
-MGWV is a render-oriented, little-endian container produced by `WebViewWriter` and consumed by `examples/webgl-fem-viewer`. It is **not** a persistence format: it keeps only what is needed to draw a mesh (use MGMB to save and reload a `MeshData`). Positions are float32, so MGWV cannot round-trip a mesh.
+MGWV is a render-oriented, little-endian container produced by `WebViewWriter` and consumed by `examples/webgl-fem-viewer`. It is **not** a persistence format: it keeps only what is needed to draw a mesh (use MGOM to save and reload a `MeshData`). Positions are float32, so MGWV cannot round-trip a mesh.
 
 ## Layout
 

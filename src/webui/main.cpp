@@ -21,7 +21,6 @@
 #include <OpenModel/FemResults.hpp>
 #include <OpenModel/GltfWriter.hpp>
 #include <OpenModel/GmshSettings.hpp>
-#include <OpenModel/MeshBinaryIO.hpp>
 #include <OpenModel/ModelBinaryIO.hpp>
 #include <OpenModel/MeshData.hpp>
 #include <OpenModel/MeshRuns.hpp>
@@ -1382,7 +1381,7 @@ void loadMesh(webui_event_t* e) {
     StateLock lock;
     if (!lock.ok()) { replyBusy(e); return; }
     const std::string text = getStringArg(e, 0);
-    if (text.empty()) { reply(e, false, "Enter the path of a .omb, .mgmb, .inp or .mail mesh or use Browse."); return; }
+    if (text.empty()) { reply(e, false, "Enter the path of a .omb, .inp or .mail mesh or use Browse."); return; }
     std::error_code ec;
     const auto file = absolutePath(text);
     if (!fs::is_regular_file(file, ec)) { reply(e, false, "File not found or not accessible: " + text); return; }
@@ -1393,8 +1392,7 @@ void loadMesh(webui_event_t* e) {
         try { loaded = ModelBinaryIO::read(file); }
         catch (const std::exception& error) { reply(e, false, std::string("Reading MGOM failed: ") + error.what()); return; }
     } else if (ext == ".mgmb") {
-        try { loaded = MeshBinaryIO::read(file); }
-        catch (const std::exception& error) { reply(e, false, std::string("Reading MGMB failed: ") + error.what()); return; }
+        reply(e, false, "MGMB is no longer supported: convert the file with an earlier release."); return;
     } else if (ext == ".inp") {
         OpenModel::AbaqusInpImporter importer;
         const auto result = importer.read(file, loaded);
@@ -1406,7 +1404,7 @@ void loadMesh(webui_event_t* e) {
         for (const auto& d : result.diagnostics) note += "\n" + d.code + ": " + d.message;
         if (!result) { reply(e, false, "code_aster mesh import failed:" + note); return; }
     } else {
-        reply(e, false, "Unsupported format: use .omb, .mgmb, .inp or .mail (code_aster)."); return;
+        reply(e, false, "Unsupported format: use .omb, .inp or .mail (code_aster)."); return;
     }
     g.cad.reset();
     g.surface = SurfaceMesh{};
@@ -2888,18 +2886,6 @@ bool outputPath(webui_event_t* e, std::string& path) {
     return true;
 }
 
-void saveMgmb(webui_event_t* e) {
-    StateLock lock;
-    if (!lock.ok()) { replyBusy(e); return; }
-    if (g.mesh.getNumNodes() == 0) { reply(e, false, "No mesh to save: generate or load one."); return; }
-    std::string path;
-    if (!outputPath(e, path)) return;
-    try { MeshBinaryIO::write(path, g.mesh); }
-    catch (const std::exception& error) { reply(e, false, std::string("Saving MGMB failed: ") + error.what()); return; }
-    std::error_code ec;
-    reply(e, true, "Mesh saved to " + path + " (" + std::to_string(fs::file_size(path, ec)) + " bytes).");
-}
-
 /** Maps the Save panel's precision choice ("exact", "q16", "q32") to the MGOM coordinate encoding. */
 bool coordinateEncoding(webui_event_t* e, ModelBinaryIO::CoordinateEncoding& encoding) {
     const std::string mode = getStringArg(e, 2);
@@ -3049,7 +3035,6 @@ int main() {
     webui_bind(window, "openmodel_solver_cancel", cancelSolver);
     webui_bind(window, "openmodel_status", getStatus);
     webui_bind(window, "openmodel_validate", validateMesh);
-    webui_bind(window, "openmodel_save_mgmb", saveMgmb);
     webui_bind(window, "openmodel_save_model", saveModel);
     webui_bind(window, "openmodel_export_inp", exportInp);
     webui_bind(window, "openmodel_export_mgwv", exportMgwv);

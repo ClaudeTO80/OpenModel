@@ -20,7 +20,7 @@ Usage: `node viewer_colorbar_smoke.js <index.html> <file.mgwv> [screenshot-dir]`
 Drives the real `openmodel-webui` on the real WebUI runtime: import a STEP file, select a rendered surface triangle and verify
 that the viewer reports its original OCC `sourceFaceId`; create a `BladeRoot` CAD face group, verify its sidecar persistence
 after reimport, verify Gmsh maps it to a non-empty `BladeRoot_NODES` FEM node set, delete it, then mesh with Gmsh and TetGen,
-check what the viewer shows, save/export MGMB/INP/MGWV/GLB, reload them and use the file browser. The test copies the STEP
+check what the viewer shows, save/export MGOM/INP/MGWV/GLB, reload them and use the file browser. The test copies the STEP
 fixture into the work directory and removes its sidecar afterward.
 
 ```bash
@@ -41,7 +41,7 @@ build/make_assembly_fixture /tmp/asm.step        # needs the OpenCASCADE backend
 node tests/webgl/gui_assembly_e2e.js /tmp/asm.step /tmp/work /tmp/shots
 ```
 Checks the CAD structure report, the component tree and CAD colours in the viewer, hiding by component and by branch,
-Gmsh conformal/independent meshes with their physical groups, MGMB round trip of the groups and TetGen's diagnostics.
+Gmsh conformal/independent meshes with their physical groups, MGOM round trip of the groups and TetGen's diagnostics.
 
 ## Solver results in the viewer (`viewer_results_smoke.js`)
 Loads an MGWV written with `--results` (fields, displacement) and a plain one. Checks on real pixels that a results file opens in
@@ -77,7 +77,7 @@ node tests/webgl/gui_ribbon_e2e.js /tmp/beam /tmp/shots
 ```
 Checks the six tabs, that every button has a handler, enabling/disabling by context (no model, model, results, modes), opening a mesh and a
 result file through the file dialog (including Enter in the path box), mode selection/animation, deformation scale, field choice, view,
-colour, edge, section and theme buttons with their pressed state, status/validation, result removal, MGWV/MGMB/INP export and keyboard
+colour, edge, section and theme buttons with their pressed state, status/validation, result removal, MGWV/MGOM/INP export and keyboard
 navigation between tabs. The click helpers of the other GUI scripts are scoped to `aside` so that ribbon buttons never match them.
 
 ## Solver launch (`gui_solver_e2e.js`)

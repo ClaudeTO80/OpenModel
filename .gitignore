@@ -19,7 +19,6 @@ Thumbs.db
 /VS2026
 # Generated or local artefacts
 *.mgwv
-*.mgmb
 *.glb
 job/
 openmodel_job/

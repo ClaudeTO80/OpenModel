@@ -90,7 +90,7 @@ Group names: 1–64 characters from letters, digits, `_`, `-`, `.`; unique, case
 
 MGWV: three optional chunks (`vertexNodeId`, `triElementId`, `triFace`) carry the ids; see `MGWV_FORMAT.md`. Library: `include/OpenModel/MeshSelection.hpp`.
 
-Limits (not verified or not done): groups cannot be deleted or renamed (MeshData has no removal); a face group adds surface elements to the mesh (they appear in MGMB/INP exports); picking sends ids as text, performance with selections of hundreds of thousands of faces is untested; picking nodes of hidden blocks near visible surfaces is not filtered per block; touch input is untested; mid-side node detection assumes straight edges (within a quarter edge length).
+Limits (not verified or not done): groups cannot be deleted or renamed (MeshData has no removal); a face group adds surface elements to the mesh (they appear in MGOM/INP exports); picking sends ids as text, performance with selections of hundreds of thousands of faces is untested; picking nodes of hidden blocks near visible surfaces is not filtered per block; touch input is untested; mid-side node detection assumes straight edges (within a quarter edge length).
 
 ## Several solvers and Elmer
 

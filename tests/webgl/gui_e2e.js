@@ -106,7 +106,7 @@ const check = (ok, text) => { console.log((ok ? 'PASS ' : 'FAIL ') + text); if (
   // 3. Save / export in every format.
   const base = path.join(workDir, 'gui_out');
   await page.fill('#outBase', base);
-  for (const [label, ext] of [['Save MGMB', '.mgmb'], ['Export INP', '.inp'], ['Export MGWV', '.mgwv'], ['Export GLB', '.glb']]) {
+  for (const [label, ext] of [['Save MGOM', '.omb'], ['Export INP', '.inp'], ['Export MGWV', '.mgwv'], ['Export GLB', '.glb']]) {
     await click(label);
     check(fs.existsSync(base + ext) && fs.statSync(base + ext).size > 100, label + ' writes ' + path.basename(base + ext));
   }
@@ -127,10 +127,10 @@ const check = (ok, text) => { console.log((ok ? 'PASS ' : 'FAIL ') + text); if (
   const tg = await viewerInfo();
   check(tg && /Tetrahedron4/.test(tg.types), 'viewer shows the TetGen tetrahedra (' + (tg && tg.elements) + ' elements)');
 
-  // 5. Reload the saved MGMB (loads a mesh without CAD) and compare counts with the Gmsh mesh.
-  await page.fill('#loadPath', base + '.mgmb');
+  // 5. Reload the saved MGOM (loads a mesh without CAD) and compare counts with the Gmsh mesh.
+  await page.fill('#loadPath', base + '.omb');
   await click('Load and display');
-  check(/caricata/.test(await message()), 'saved MGMB reloads');
+  check(/caricata/.test(await message()), 'saved MGOM reloads');
   const back = await viewerInfo();
   check(back && gm && back.elements === gm.elements, 'reloaded mesh has the same element count as the saved one (' + (back && back.elements) + ')');
   await page.fill('#loadPath', base + '.inp');
@@ -148,7 +148,7 @@ const check = (ok, text) => { console.log((ok ? 'PASS ' : 'FAIL ') + text); if (
   await page.keyboard.press('Escape');
 
   // 7. Errors are reported, not swallowed.
-  await page.fill('#loadPath', path.join(workDir, 'missing.mgmb'));
+  await page.fill('#loadPath', path.join(workDir, 'missing.omb'));
   await click('Load and display');
   check(/non trovato/.test(await message()), 'missing file is reported');
 
