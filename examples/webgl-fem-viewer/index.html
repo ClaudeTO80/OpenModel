@@ -842,6 +842,7 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
   };
   const rotX = (a) => [1, 0, 0, 0, Math.cos(a), -Math.sin(a), 0, Math.sin(a), Math.cos(a)];
   const rotY = (a) => [Math.cos(a), 0, Math.sin(a), 0, 1, 0, -Math.sin(a), 0, Math.cos(a)];
+  const rotZ = (a) => [Math.cos(a), -Math.sin(a), 0, Math.sin(a), Math.cos(a), 0, 0, 0, 1];
   function orthonormalize(m) {
     let x = [m[0], m[1], m[2]], y = [m[3], m[4], m[5]];
     const nrm = (v) => { const l = Math.hypot(...v) || 1; return v.map((q) => q / l); };
@@ -2004,6 +2005,25 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     S.rot = orthonormalize(mat3mul(rotX(dy * k), mat3mul(rotY(dx * k), S.rot)));
     S.dirty = true;
   }
+  /**
+   * Rotation about one axis of the view, for the modifier keys of the left button:
+   * roll (Ctrl+Alt) about the view axis, pitch (Ctrl+Shift) about the horizontal axis, yaw (Shift+Alt) about the vertical one.
+   * Only the drag component that drives the axis is used: dx for roll and yaw, dy for pitch.
+   */
+  function rotateAxis(axis, dx, dy) {
+    const k = 0.006;
+    const m = axis === "roll" ? rotZ(dx * k) : axis === "pitch" ? rotX(dy * k) : rotY(dx * k);
+    S.rot = orthonormalize(mat3mul(m, S.rot));
+    S.dirty = true;
+  }
+  /** Axis of a rotation started with the left button and a modifier key, or null. */
+  function axisOfModifiers(e) {
+    if (e.button !== 0) return null;
+    if (e.ctrlKey && e.altKey && !e.shiftKey) return "roll";
+    if (e.ctrlKey && e.shiftKey && !e.altKey) return "pitch";
+    if (e.shiftKey && e.altKey && !e.ctrlKey) return "yaw";
+    return null;
+  }
   function pan(dx, dy) {
     const worldPerPx = (2 * S.dist * Math.tan(0.4)) / canvas.clientHeight;
     const R = S.rot, right = [R[0], R[1], R[2]], up = [R[3], R[4], R[5]];
@@ -2015,8 +2035,9 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
   const selBox = $("selBox");
   canvas.addEventListener("pointerdown", (e) => {
     canvas.setPointerCapture(e.pointerId);
-    const box = canSelect() && e.button === 0 && !e.shiftKey && (S.pickBox || e.altKey);
-    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, button: e.button, shift: e.shiftKey, x0: e.clientX, y0: e.clientY, moved: 0, box, ctrl: e.ctrlKey || e.metaKey });
+    const axis = axisOfModifiers(e);
+    const box = !axis && canSelect() && e.button === 0 && !e.shiftKey && (S.pickBox || e.altKey);
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, button: e.button, shift: e.shiftKey, x0: e.clientX, y0: e.clientY, moved: 0, box, axis, ctrl: e.ctrlKey || e.metaKey });
     canvas.classList.add("drag"); lastPinch = 0;
   });
   canvas.addEventListener("pointermove", (e) => {
@@ -2032,7 +2053,8 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
       return;
     }
     if (pointers.size === 1) {
-      if (p.button === 2 || p.button === 1 || p.shift) pan(dx, dy); else rotate(dx, dy);
+      if (p.axis) rotateAxis(p.axis, dx, dy);
+      else if (p.button === 2 || p.button === 1 || p.shift) pan(dx, dy); else rotate(dx, dy);
     } else if (pointers.size === 2) {
       const [a, b] = [...pointers.values()];
       const other = a === p ? b : a;
@@ -2045,7 +2067,7 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
   const release = (e) => { pointers.delete(e.pointerId); if (!pointers.size) canvas.classList.remove("drag"); selBox.hidden = true; };
   canvas.addEventListener("pointerup", (e) => {
     const p = pointers.get(e.pointerId);
-    if (p && canSelect() && p.button === 0 && !p.shift && pointers.size === 1) {
+    if (p && !p.axis && canSelect() && p.button === 0 && !p.shift && pointers.size === 1) {
       const additive = p.ctrl || e.ctrlKey || e.metaKey;
       if (p.box && p.moved > 3) {
         const [ax, ay] = toCanvasPx(p.x0, p.y0), [bx, by] = toCanvasPx(e.clientX, e.clientY);
