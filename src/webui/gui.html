@@ -665,10 +665,10 @@ details.node details.node{margin-top:8px;background:transparent}
     <p class="hint">Edit or remove individual materials, constraints, loads and steps. Changes update the script used by the solver directly.</p>
     <label for="anJob">Job file (folder or .inp; empty = openmodel_job in the jobs folder of Settings; a relative path is relative to that folder; for code_aster the folder and the file name matter)</label>
     <input id="anJob" placeholder="/path/work/job.inp">
-    <label for="anSolverKind">Solver</label>
-    <select id="anSolverKind"><option value="ccx">CalculiX</option><option value="aster">code_aster</option></select>
-    <label for="anSolver">Executable (empty = the solver path of Settings, else 'ccx' on PATH; code_aster: 'run_aster' or 'as_run', or the OPENMODEL_CODE_ASTER variable)</label>
-    <input id="anSolver" placeholder="/usr/bin/ccx">
+    <label for="anSolverId">Solver (empty = the job's own solver= in the script, else the default of its analysis type in Settings)</label>
+    <select id="anSolverId"><option value="">Job default</option></select>
+    <label for="anSolver">Executable (empty = the executable of the chosen solver in Settings; code_aster also takes the OPENMODEL_CODE_ASTER variable, Elmer the OPENMODEL_ELMER variable)</label>
+    <input id="anSolver" placeholder="from Settings">
     <div class="grid2"><button id="btnWrite" onclick="analysisWrite()">Write input</button><button id="btnRun" class="primary" onclick="analysisRun()">Run solver</button></div>
     <div class="grid2"><button id="btnCancel" onclick="analysisCancel()" disabled>Cancel</button><button onclick="analysisExample()">Example</button></div>
     <p class="hint">Commands: <code>material E= nu= rho=</code>, <code>fix plane:x=0 [dof=1,2,3]</code>, <code>force plane:x=10 F=fx,fy,fz</code>, <code>pressure group:NAME p=</code>, <code>gravity g=gx,gy,gz</code>, <code>step static</code> or <code>step frequency modes=N</code>. Selectors: <code>all</code>, <code>group:NAME</code>, <code>plane:x|y|z=VALUE</code>. Use consistent units of your choice. When the run finishes, the results are loaded automatically.</p>
@@ -771,8 +771,15 @@ details.node details.node{margin-top:8px;background:transparent}
 <div class="modal" id="settingsModal" hidden>
   <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
     <h3 id="settingsTitle">Settings</h3>
-    <label for="setSolver">Solver path (used when the Executable field of Analysis is empty)</label>
-    <div class="row"><input id="setSolver" placeholder="/usr/bin/ccx"><button onclick="browse('setSolver','solver')">Browse…</button></div>
+    <label>Solvers: id, kind and executable (empty executable = the default name of the kind on PATH). calculix, code_aster and elmer are always present.</label>
+    <div id="setSolvers"></div>
+    <div class="row"><button onclick="addSolverRow()">Add solver</button></div>
+    <label for="defStatic">Default solver of static analysis</label>
+    <select id="defStatic"></select>
+    <label for="defFrequency">Default solver of frequency analysis</label>
+    <select id="defFrequency"></select>
+    <label for="defDynamic">Default solver of dynamic analysis</label>
+    <select id="defDynamic"></select>
     <label for="setJobDir">Jobs folder (base of the job files; empty = the folder the server runs in)</label>
     <div class="row"><input id="setJobDir" placeholder="/path/work"><button onclick="browse('setJobDir','folder')">Browse…</button></div>
     <label for="setPalette">Legend palette (colour bar of the viewer)</label>
@@ -2172,7 +2179,17 @@ setInterval(syncTree, 700);
  * The settings are kept by the server (see openmodel_settings_get), so the solver path and the jobs folder apply to
  * every run. The palette is a viewer setting: it is applied to the viewer when the viewer loads and when it is saved.
  */
-let workbenchSettings = {solverPath: "", jobDir: "", legendPalette: "Viridis"};
+let workbenchSettings = {jobDir: "", legendPalette: "Viridis"};
+const SOLVER_KINDS = [["calculix", "CalculiX"], ["code_aster", "code_aster"], ["elmer", "Elmer"]];
+/** Analysis types each kind can run (see Solvers.cpp). */
+const SOLVER_RUNS = {calculix: ["static", "frequency", "dynamic"], code_aster: ["static", "frequency"], elmer: ["static"]};
+const ANALYSIS_TYPES = [["static", "defStatic"], ["frequency", "defFrequency"], ["dynamic", "defDynamic"]];
+/** The solvers of a settings object, which holds flat keys solver.<id>.kind and solver.<id>.path. */
+function solversOf(s) {
+  return Object.keys(s).map((k) => /^solver\.(.+)\.kind$/.exec(k)).filter(Boolean)
+    .map((m) => ({id: m[1], kind: s[m[0]], path: s["solver." + m[1] + ".path"] || ""}))
+    .sort((a, b) => a.id.localeCompare(b.id));
+}
 // The viewer window, whether or not a model is loaded (viewerApi above returns it only with a model).
 const viewerWindow = () => { const w = $("viewer").contentWindow; return w && w.OpenModelViewer ? w : null; };
 function applyLegendPalette() {
@@ -2181,7 +2198,10 @@ function applyLegendPalette() {
 }
 /** Shows the settings where they are used: the placeholders of the Analysis fields and the viewer palette. */
 function applySettingsToPage() {
-  $("anSolver").placeholder = workbenchSettings.solverPath || "ccx on PATH";
+  const current = $("anSolverId").value;
+  $("anSolverId").innerHTML = '<option value="">Job default</option>' +
+    solversOf(workbenchSettings).map((x) => `<option value="${esc2(x.id)}">${esc2(x.id)} (${esc2(x.kind)})</option>`).join("");
+  if ([...$("anSolverId").options].some((o) => o.value === current)) $("anSolverId").value = current;
   $("anJob").placeholder = (workbenchSettings.jobDir || defaults.cwd || ".") + "/openmodel_job/job.inp";
   applyLegendPalette();
 }
@@ -2194,15 +2214,49 @@ async function loadSettings() {
 function openSettings() {
   const names = viewerWindow() ? viewerWindow().OpenModelViewer.palettes() : ["Viridis", "Rosso", "Ocra", "Blu", "Arcobaleno"];
   $("setPalette").innerHTML = names.map((n) => `<option value="${n}">${n}</option>`).join("");
-  $("setSolver").value = workbenchSettings.solverPath || "";
   $("setJobDir").value = workbenchSettings.jobDir || "";
   $("setPalette").value = workbenchSettings.legendPalette;
   $("setNote").textContent = "";
+  $("setSolvers").innerHTML = "";
+  for (const x of solversOf(workbenchSettings)) addSolverRow(x);
+  refreshDefaultOptions();
+  for (const [type, selId] of ANALYSIS_TYPES) $(selId).value = workbenchSettings["default." + type] || $(selId).value;
   $("settingsModal").hidden = false;
+}
+let solverRowSeq = 0;
+/** One solver of the Settings table: id, kind, executable (with Browse and Remove). */
+function addSolverRow(x = {id: "", kind: "calculix", path: ""}) {
+  const n = ++solverRowSeq;
+  const row = document.createElement("div");
+  row.className = "row solverRow";
+  row.innerHTML = `<input class="sId" value="${esc2(x.id)}" placeholder="id" style="max-width:110px" oninput="refreshDefaultOptions()">` +
+    `<select class="sKind" onchange="refreshDefaultOptions()">${SOLVER_KINDS.map(([v, t]) => `<option value="${v}"${v === x.kind ? " selected" : ""}>${t}</option>`).join("")}</select>` +
+    `<input class="sPath" id="setSolverPath${n}" value="${esc2(x.path)}" placeholder="executable (empty = on PATH)">` +
+    `<button onclick="browse('setSolverPath${n}','solver')">Browse…</button>` +
+    `<button onclick="this.parentElement.remove();refreshDefaultOptions()">Remove</button>`;
+  $("setSolvers").appendChild(row);
+  refreshDefaultOptions();
+}
+function solverRowsNow() {
+  return [...document.querySelectorAll("#setSolvers .solverRow")]
+    .map((r) => ({id: r.querySelector(".sId").value.trim(), kind: r.querySelector(".sKind").value, path: r.querySelector(".sPath").value.trim()}))
+    .filter((x) => x.id);
+}
+/** Keeps the default selectors in line with the solvers listed: each offers only the solvers that can run its type. */
+function refreshDefaultOptions() {
+  const rows = solverRowsNow();
+  for (const [type, selId] of ANALYSIS_TYPES) {
+    const sel = $(selId), current = sel.value;
+    const usable = rows.filter((x) => (SOLVER_RUNS[x.kind] || []).includes(type));
+    sel.innerHTML = usable.map((x) => `<option value="${esc2(x.id)}">${esc2(x.id)}</option>`).join("");
+    if (usable.some((x) => x.id === current)) sel.value = current;
+  }
 }
 function closeSettings() { $("settingsModal").hidden = true; }
 async function saveSettings() {
-  const next = {solverPath: $("setSolver").value.trim(), jobDir: $("setJobDir").value.trim(), legendPalette: $("setPalette").value};
+  const next = {jobDir: $("setJobDir").value.trim(), legendPalette: $("setPalette").value};
+  for (const x of solverRowsNow()) { next["solver." + x.id + ".kind"] = x.kind; next["solver." + x.id + ".path"] = x.path; }
+  for (const [type, selId] of ANALYSIS_TYPES) if ($(selId).value) next["default." + type] = $(selId).value;
   const r = await call("openmodel_settings_set", JSON.stringify(next));
   if (!r.ok) { $("setNote").textContent = r.message; return; }
   workbenchSettings = r.settings;
@@ -2295,11 +2349,11 @@ const analysisWrite = async () => {
   const synced = await act("openmodel_analysis_load", $("anScript").value);
   if (!synced || !synced.ok) return;
   $("anScript").value = synced.message;
-  await act("openmodel_write_input", $("anScript").value, $("anJob").value.trim(), $("anSolverKind").value);
+  await act("openmodel_write_input", $("anScript").value, $("anJob").value.trim(), $("anSolverId").value);
 };
 async function analysisRun() {
   if (busy || solverRunning) return;
-  const r = await act("openmodel_run_solver", $("anScript").value, $("anJob").value.trim(), $("anSolver").value.trim(), $("anSolverKind").value);
+  const r = await act("openmodel_run_solver", $("anScript").value, $("anJob").value.trim(), $("anSolver").value.trim(), $("anSolverId").value);
   if (!r || !r.ok) return;
   solverRunning = true;
   logLines(["— solver started —"], true);

@@ -43,14 +43,17 @@ int main() {
         std::string error = "stale";
         const Settings s = load(file, error);
         CHECK(error.empty());
-        CHECK(s.solverPath.empty() && s.jobDir.empty());
+        CHECK(s.jobDir.empty());
+        CHECK(s.solvers.defaults.at("static") == "calculix");
         CHECK(s.legendPalette == "Viridis");
     }
 
     // 2. Save, then load: every field comes back unchanged, including characters that need escaping.
     {
         Settings out;
-        out.solverPath = "C:\\Program Files\\CalculiX\\ccx \"beta\".exe";
+        out.solvers.solvers[0].path = "C:\\Program Files\\CalculiX\\ccx \"beta\".exe";
+        out.solvers.solvers.push_back({"elmer-dev", OpenModel::SolverKind::Elmer, "/opt/elmer \"dev\"/ElmerSolver"});
+        out.solvers.defaults["dynamic"] = "calculix";
         out.jobDir = "/home/user/jobs\twith tab";
         out.legendPalette = "Arcobaleno";
         std::string error;
@@ -61,6 +64,8 @@ int main() {
         const Settings in = load(file, loadError);
         CHECK(loadError.empty());
         CHECK(in == out);
+        CHECK(in.solvers.solvers.size() == 4);
+        CHECK(in.solvers.solvers[3].path == "/opt/elmer \"dev\"/ElmerSolver");
     }
 
     // 3. Save replaces an existing file.
@@ -84,7 +89,7 @@ int main() {
         const Settings s = load(partial, error);
         CHECK(error.empty());
         CHECK(s.jobDir == "/work");
-        CHECK(s.solverPath.empty());
+        CHECK(s.solvers.defaults.at("static") == "calculix");
         CHECK(s.legendPalette == "Viridis");
     }
 
@@ -103,7 +108,7 @@ int main() {
         std::string error;
         const Settings s = load(damaged, error);
         CHECK(!error.empty());
-        CHECK(s.solverPath.empty() && s.legendPalette == "Viridis");
+        CHECK(s.jobDir.empty() && s.legendPalette == "Viridis");
 
         const fs::path notJson = root / "not_json.json";
         writeText(notJson, "solverPath=/usr/bin/ccx");
@@ -119,9 +124,32 @@ int main() {
         CHECK(escapeJson("line\nend") == "line\\nend");
         CHECK(escapeJson(std::string("x\x01y", 3)) == "x\\u0001y");
         Settings s;
-        s.solverPath = "p\"q";
+        s.jobDir = "p\"q";
         const std::string json = toJson(s);
-        CHECK(json.find("\"solverPath\":\"p\\\"q\"") != std::string::npos);
+        CHECK(json.find("\"jobDir\":\"p\\\"q\"") != std::string::npos);
+    }
+
+    // 9. A settings file of the earlier version (one CalculiX path) is read as the solver `calculix`.
+    {
+        const fs::path legacy = root / "legacy.json";
+        writeText(legacy, "{\"solverPath\":\"/usr/bin/ccx\",\"jobDir\":\"/jobs\"}");
+        std::string error;
+        const Settings s = load(legacy, error);
+        CHECK(error.empty());
+        CHECK(s.jobDir == "/jobs");
+        CHECK(s.solvers.solvers.size() == 3);
+        CHECK(OpenModel::findSolver(s.solvers, "calculix")->path == "/usr/bin/ccx");
+    }
+
+    // 10. A solver entry with an unknown kind is reported; the valid entries are kept.
+    {
+        const fs::path weird = root / "weird.json";
+        writeText(weird, "{\"solver.bad.kind\":\"fluent\",\"solver.ok.kind\":\"elmer\",\"solver.ok.path\":\"/e\"}");
+        std::string error;
+        const Settings s = load(weird, error);
+        CHECK(!error.empty());
+        CHECK(OpenModel::findSolver(s.solvers, "bad") == nullptr);
+        CHECK(OpenModel::findSolver(s.solvers, "ok") && OpenModel::findSolver(s.solvers, "ok")->kind == OpenModel::SolverKind::Elmer);
     }
 
     // 8. Saving creates the folder of the file when it does not exist.

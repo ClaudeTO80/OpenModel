@@ -13,6 +13,8 @@
 #include <OpenModel/AnalysisSetup.hpp>
 #include <OpenModel/BuildInfo.hpp>
 #include <OpenModel/CodeAster.hpp>
+#include <OpenModel/ElmerSolver.hpp>
+#include <OpenModel/Solvers.hpp>
 #include <OpenModel/ProcessRunner.hpp>
 #include <OpenModel/ProgressLog.hpp>
 #include <OpenModel/CADModel.hpp>
@@ -1543,6 +1545,7 @@ struct SolverJob {
     fs::path directory;
     std::string name;
     bool aster = false;           ///< The job is a code_aster run (results are `.tab` tables), otherwise CalculiX.
+    bool elmer = false;           ///< The job is an Elmer run (no results are loaded yet; the outcome is the solver's exit state).
 };
 
 SolverJob g_job;
@@ -1557,8 +1560,41 @@ std::string analysisDiagnosticsText(const std::vector<OpenModel::ImportDiagnosti
     return text;
 }
 
-/** Parses the script and writes the solver input. Returns the message; `ok` tells whether the file was written. */
-std::string writeAnalysisInput(const std::string& script, const fs::path& inputPath, bool& ok, bool aster = false) {
+OpenModel::Workbench::Settings currentSettings();   // defined with the job path helpers below
+
+/** The solver of a run: the one the Solver field names, else the solver of the job of the script (its own solver=, or the default of its analysis type). */
+struct RunSolver {
+    bool ok = false;
+    std::string message;                                  ///< The reason when !ok.
+    OpenModel::SolverKind kind = OpenModel::SolverKind::CalculiX;
+    std::string path;                                     ///< Executable of the solver entry (the Executable field overrides it).
+    std::string jobId;                                    ///< The job of the script (names the Elmer case and its results).
+};
+
+RunSolver resolveRunSolver(const std::string& script, const std::string& solverId) {
+    RunSolver r;
+    const auto parsed = OpenModel::parseAnalysisScript(script);
+    if (!parsed.success) { r.message = "Invalid analysis script:" + analysisDiagnosticsText(parsed.diagnostics); return r; }
+    const OpenModel::AnalysisJob* job = OpenModel::findJob(parsed.model, "");
+    if (!job) {
+        r.message = parsed.model.jobs.size() > 1 ? "The model has several jobs: a run takes one job (use the command line for several)." : "The model has no job.";
+        return r;
+    }
+    OpenModel::AnalysisJob chosen = *job;
+    if (!solverId.empty()) chosen.solver = solverId;
+    std::string error;
+    const OpenModel::SolverEntry* entry = OpenModel::solverForJob(currentSettings().solvers, chosen, error);
+    if (!entry) { r.message = error; return r; }
+    r.ok = true;
+    r.kind = entry->kind;
+    r.path = entry->path;
+    r.jobId = job->id;
+    return r;
+}
+
+/** Parses the script and writes the solver input of the given kind. Returns the message; `ok` tells whether the file was written. */
+std::string writeAnalysisInput(const std::string& script, const fs::path& inputPath, bool& ok,
+                               OpenModel::SolverKind kind = OpenModel::SolverKind::CalculiX) {
     ok = false;
     if (g.mesh.getNumNodes() == 0) return "Load or generate a volume mesh first.";
     const auto parsed = OpenModel::parseAnalysisScript(script);
@@ -1566,7 +1602,15 @@ std::string writeAnalysisInput(const std::string& script, const fs::path& inputP
     std::error_code ec;
     fs::create_directories(inputPath.parent_path(), ec);
     if (ec) return "Cannot create the folder " + inputPath.parent_path().string() + ": " + ec.message();
-    if (aster) {
+    if (kind == OpenModel::SolverKind::Elmer) {
+        const OpenModel::AnalysisJob* job = OpenModel::findJob(parsed.model, "");
+        const auto exported = OpenModel::writeElmerCase(g.mesh, parsed.model, inputPath.parent_path(), job ? job->id : std::string());
+        if (!exported.success) return "Writing the Elmer case failed: " + exported.error + analysisDiagnosticsText(exported.diagnostics);
+        ok = true;
+        return "Elmer case written to " + inputPath.parent_path().string() + " (" + exported.sifFile.filename().string() + ", mesh.*)\n" +
+               exported.summary + analysisDiagnosticsText(parsed.diagnostics) + analysisDiagnosticsText(exported.diagnostics);
+    }
+    if (kind == OpenModel::SolverKind::CodeAster) {
         OpenModel::CodeAsterOptions options;
         options.jobName = inputPath.stem().string();
         const auto exported = OpenModel::writeCodeAsterCase(g.mesh, parsed.model, inputPath.parent_path(), options);
@@ -1751,9 +1795,11 @@ void settingsGet(webui_event_t* e) {
 }
 
 /**
- * Handler of "openmodel_settings_set": takes one JSON object {solverPath, jobDir, legendPalette}. A key that is missing
- * keeps its current value. The jobs folder is created when it does not exist; an unknown solver path is only noted,
- * since the solver may be installed later. On error nothing is saved and the answer carries the settings still in effect.
+ * Handler of "openmodel_settings_set": takes one flat JSON object with jobDir, legendPalette and the solver keys
+ * (solver.<id>.kind, solver.<id>.path, default.<type>; see Solvers.hpp). A key that is missing keeps its current value;
+ * when any solver key is sent, the whole solver list is replaced by the one sent (the built-in solvers always stay).
+ * The jobs folder is created when it does not exist; an unknown solver path is only noted, since the solver may be
+ * installed later. On error nothing is saved and the answer carries the settings still in effect.
  */
 void settingsSet(webui_event_t* e) {
     std::string error;
@@ -1765,7 +1811,20 @@ void settingsSet(webui_event_t* e) {
         return;
     }
     OpenModel::Workbench::Settings next = previous;
-    if (const auto it = fields.find("solverPath"); it != fields.end()) next.solverPath = it->second;
+    bool solverKeys = false;
+    for (const auto& field : fields)
+        solverKeys = solverKeys || field.first.rfind("solver.", 0) == 0 || field.first.rfind("default.", 0) == 0 || field.first == "solverPath";
+    if (solverKeys) {
+        const auto legacy = fields.find("solverPath");
+        std::string solverError;
+        const auto config = OpenModel::configFromFields(fields, legacy == fields.end() ? std::string() : legacy->second, solverError);
+        const std::string problem = solverError.empty() ? OpenModel::validateSolverConfig(config) : solverError;
+        if (!problem.empty()) {
+            webui_return_string(e, settingsReply(false, "Settings not saved: " + problem, previous).c_str());
+            return;
+        }
+        next.solvers = config;
+    }
     if (const auto it = fields.find("jobDir"); it != fields.end()) next.jobDir = it->second;
     if (const auto it = fields.find("legendPalette"); it != fields.end()) next.legendPalette = it->second;
     if (next.legendPalette.empty()) next.legendPalette = "Viridis";
@@ -1784,8 +1843,9 @@ void settingsSet(webui_event_t* e) {
         }
     }
     std::error_code existsEc;
-    if (!next.solverPath.empty() && !fs::exists(next.solverPath, existsEc))
-        note = " The solver file was not found: check the path before running.";
+    for (const auto& solver : next.solvers.solvers)
+        if (!solver.path.empty() && !fs::exists(solver.path, existsEc))
+            note += " The file of solver '" + solver.id + "' was not found: check the path before running.";
     if (!OpenModel::Workbench::save(OpenModel::Workbench::settingsFile(), next, error)) {
         webui_return_string(e, settingsReply(false, "Settings not saved: " + error, previous).c_str());
         return;
@@ -1793,33 +1853,47 @@ void settingsSet(webui_event_t* e) {
     webui_return_string(e, settingsReply(true, "Settings saved." + note, next).c_str());
 }
 
-/** Arguments: script, job path (folder or .inp; empty = openmodel_job/job in the jobs folder of the Settings), solver kind ("aster" for code_aster, anything else CalculiX). */
+/** Arguments: script, job path (folder or .inp; empty = openmodel_job/job in the jobs folder of the Settings), solver id (empty = the solver of the job). */
 void writeInput(webui_event_t* e) {
     StateLock lock;
     if (!lock.ok()) { replyBusy(e); return; }
+    const std::string script = getStringArg(e, 0);
+    const RunSolver resolved = resolveRunSolver(script, getStringArg(e, 2));
+    if (!resolved.ok) { reply(e, false, resolved.message); return; }
     bool ok = false;
-    const auto message = writeAnalysisInput(getStringArg(e, 0), jobInputPath(getStringArg(e, 1)), ok, getStringArg(e, 2) == "aster");
+    const auto message = writeAnalysisInput(script, jobInputPath(getStringArg(e, 1)), ok, resolved.kind);
     reply(e, ok, message);
 }
 
-/** Arguments: script, job path, solver executable (empty = "ccx" or, for code_aster, run_aster / as_run from PATH), solver kind ("aster" or CalculiX). */
+/** Arguments: script, job path, executable (empty = the executable of the solver in Settings), solver id (empty = the solver of the job). */
 void runSolver(webui_event_t* e) {
     StateLock lock;
     if (!lock.ok()) { replyBusy(e); return; }
     std::lock_guard<std::mutex> job(g_job.mutex);
     if (g_job.runner.running()) { reply(e, false, "An analysis is already running: wait for it or cancel it."); return; }
+    const std::string script = getStringArg(e, 0);
+    const RunSolver resolved = resolveRunSolver(script, getStringArg(e, 3));
+    if (!resolved.ok) { reply(e, false, resolved.message); return; }
     const fs::path input = jobInputPath(getStringArg(e, 1));
-    const bool aster = getStringArg(e, 3) == "aster";
     bool ok = false;
-    const auto message = writeAnalysisInput(getStringArg(e, 0), input, ok, aster);
+    const auto message = writeAnalysisInput(script, input, ok, resolved.kind);
     if (!ok) { reply(e, false, message); return; }
     // Old outputs would be mistaken for the new ones if the solver fails before writing them.
     std::error_code ec;
     const std::string stem = input.stem().string();
     std::vector<std::string> command;
     std::string solver = getStringArg(e, 2);
-    if (solver.empty()) solver = currentSettings().solverPath;   // the solver path of the Settings
-    if (aster) {
+    if (solver.empty()) solver = resolved.path;   // the executable of the solver in Settings
+    const bool aster = resolved.kind == OpenModel::SolverKind::CodeAster;
+    const bool elmer = resolved.kind == OpenModel::SolverKind::Elmer;
+    if (elmer) {
+        solver = OpenModel::findElmerExecutable(solver);
+        if (solver.empty()) {
+            reply(e, false, message + "\n\nElmer not found: give the path of ElmerSolver in Settings or in the Executable field, or set the OPENMODEL_ELMER variable.");
+            return;
+        }
+        command = OpenModel::elmerLaunchCommand(solver, input.parent_path() / (resolved.jobId + ".sif"));
+    } else if (aster) {
         OpenModel::removeCodeAsterOutputs(input.parent_path(), stem);
         solver = OpenModel::findCodeAsterExecutable(solver);
         if (solver.empty()) {
@@ -1835,16 +1909,18 @@ void runSolver(webui_event_t* e) {
     const auto error = g_job.runner.start(command, input.parent_path());
     if (!error.empty()) {
         reply(e, false, message + "\n\nStarting the solver failed: " + error +
-                            (aster ? "\nGive the full path of run_aster (or as_run) in Settings or in the Solver field."
-                                   : "\nGive the full path of the CalculiX executable (ccx) in Settings or in the Solver field."));
+                            (aster ? "\nGive the full path of run_aster (or as_run) in Settings or in the Executable field."
+                                   : elmer ? "\nGive the full path of ElmerSolver in Settings or in the Executable field."
+                                           : "\nGive the full path of the CalculiX executable (ccx) in Settings or in the Executable field."));
         return;
     }
     g_job.active = true;
     g_job.resultsHandled = false;
     g_job.endMessage.clear();
     g_job.directory = input.parent_path();
-    g_job.name = stem;
+    g_job.name = elmer ? resolved.jobId : stem;
     g_job.aster = aster;
+    g_job.elmer = elmer;
     std::string started;
     for (const auto& part : command) started += (started.empty() ? "" : " ") + part;
     reply(e, true, message + "\n\nSolver started: " + started);
@@ -1865,6 +1941,11 @@ void finishJob(const OpenModel::ProcessStatus& status) {
         seconds << status.elapsedSeconds;
         g_job.endMessage = "The solver terminated with an error (code " + std::to_string(status.exitCode) + ") after " + seconds.str() +
                            " s. Check the log above and the file " + (g_job.aster ? base.string() + ".mess" : base.string() + ".inp") + ".";
+    } else if (g_job.elmer) {
+        // Elmer results are not read into the viewer yet: the job is reported as finished, with the files it wrote.
+        g_job.endOk = true;
+        g_job.endMessage = "Elmer finished. Results in " + (g_job.directory / (g_job.name + ".result")).string() +
+                           " (not shown in the viewer yet).";
     } else {
         std::error_code ec;
         std::vector<fs::path> files;

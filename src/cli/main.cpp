@@ -1,6 +1,8 @@
 #include <OpenModel/AbaqusInpWriter.hpp>
 #include <OpenModel/AnalysisSetup.hpp>
 #include <OpenModel/CodeAster.hpp>
+#include <OpenModel/ElmerSolver.hpp>
+#include <OpenModel/Solvers.hpp>
 #include <OpenModel/ProcessRunner.hpp>
 #include <OpenModel/GltfWriter.hpp>
 #include <OpenModel/MeshBinaryIO.hpp>
@@ -313,7 +315,8 @@ void usage() {
               << "                     [--results <file.frd|file.dat|file.csv> [--results <more files>] [--step N | --time T] [--displacement NAME|none] [--modes N] [--engineering-strain]\n                      [--no-derived] [--no-coordinate-check]]\n"
               << "  openmodel results-info <file.frd|file.dat|file.csv> [more files, merged]\n"
               << "  openmodel write-input <mesh.mgmb|mesh.inp> <analysis.txt> <job.inp>      (analysis script: see docs/SOLVER.md)\n"
-              << "  openmodel solve <mesh.mgmb|mesh.inp> <analysis.txt> <workdir> [--solver ccx-path] [--web out.mgwv]\n"
+              << "  openmodel solve <mesh.mgmb|mesh.inp> <analysis.txt> <workdir> [--solver ccx-path] [--elmer ElmerSolver-path] [--web out.mgwv]\n"
+              << "  openmodel export-elmer <mesh.mgmb|mesh.inp|mesh.mail> <analysis.txt> <dir> [--job NAME]    (static analysis, Elmer case)\n"
               << "  openmodel export-aster <mesh.mgmb|mesh.inp|mesh.mail> <analysis.txt> <dir> [--job NAME] [--solver MULT_FRONT|MUMPS|PETSC|LDLT] [--cpus N] [--memory MB] [--time S] [--version V]\n"
               << "  openmodel solve-aster <mesh> <analysis.txt> <dir> [--launcher run_aster|as_run path] [--web out.mgwv] [export-aster options]\n"
               << "  openmodel export-mail <mesh.mgmb|mesh.inp|mesh.mail> <out.mail>        (mesh only, code_aster text format)\n"
@@ -449,10 +452,11 @@ int main(int argc, char** argv) {
     }
     if (command == "solve") {
         if (argc < 5) { usage(); return 2; }
-        std::string solver = "ccx", webOut;
+        std::string calculixPath = "ccx", elmerPath, webOut;
         for (int i = 5; i < argc; ++i) {
             const std::string arg = argv[i];
-            if (arg == "--solver" && i + 1 < argc) solver = argv[++i];
+            if (arg == "--solver" && i + 1 < argc) calculixPath = argv[++i];
+            else if (arg == "--elmer" && i + 1 < argc) elmerPath = argv[++i];
             else if (arg == "--web" && i + 1 < argc) webOut = argv[++i];
             else { usage(); return 2; }
         }
@@ -460,25 +464,59 @@ int main(int argc, char** argv) {
         std::vector<std::string> jobs;
         if (const int code = prepareAnalysis(argv[2], argv[3], workDir / "job.inp", jobs)) return code;
         if (!webOut.empty() && jobs.size() != 1) { std::cerr << "--web shows the results of one job: the model has " << jobs.size() << " jobs\n"; return 2; }
+
+        // Each job runs with its own solver (script `job NAME solver=ID`, else the default of its analysis type).
+        MeshData mesh;
+        if (const int code = loadMeshFile(argv[2], mesh)) return code;
+        std::string scriptText;
+        if (!readTextFile(argv[3], scriptText)) return 1;
+        const auto parsed = OpenModel::parseAnalysisScript(scriptText);
+        const OpenModel::SolverConfig config = OpenModel::defaultSolverConfig();
         std::error_code ec;
         std::vector<std::filesystem::path> files;
-        // One solver session per job, in script order; each job's results are <job>.frd and <job>.dat.
-        for (const auto& jobId : jobs) {
-            for (const char* ext : {".frd", ".dat", ".sta", ".cvg"}) std::filesystem::remove(workDir / (jobId + ext), ec);
+        // Runs one solver command in the work folder, streaming its log; returns false when it fails.
+        auto runStreamed = [&](const std::vector<std::string>& command, const std::string& name) {
             OpenModel::ProcessRunner runner;
-            const auto startError = runner.start({solver, "-i", jobId}, workDir);
-            if (!startError.empty()) { std::cerr << startError << "\n"; return 1; }
-            // Stream the log while the solver runs.
+            const auto startError = runner.start(command, workDir);
+            if (!startError.empty()) { std::cerr << startError << "\n"; return false; }
             for (;;) {
                 const auto status = runner.poll();
                 for (const auto& line : status.newLines) std::cout << line << "\n";
                 std::cout.flush();
                 if (status.state != OpenModel::ProcessState::Running) {
-                    if (status.state != OpenModel::ProcessState::Finished) { std::cerr << "The solver failed on job " << jobId << " (exit code " << status.exitCode << ")\n"; return 1; }
-                    break;
+                    if (status.state != OpenModel::ProcessState::Finished) { std::cerr << "The solver failed on job " << name << " (exit code " << status.exitCode << ")\n"; return false; }
+                    return true;
                 }
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
             }
+        };
+        // One solver session per job, in script order; each job's results are <job>.frd and <job>.dat (CalculiX).
+        for (std::size_t k = 0; k < jobs.size(); ++k) {
+            const auto& jobId = jobs[k];
+            const OpenModel::AnalysisJob* job = k < parsed.model.jobs.size() ? &parsed.model.jobs[k] : nullptr;
+            std::string solverError;
+            const OpenModel::SolverEntry* solver = job ? OpenModel::solverForJob(config, *job, solverError) : nullptr;
+            if (!solver) { std::cerr << (solverError.empty() ? std::string("No solver for job ") + jobId : solverError) << "\n"; return 1; }
+            if (solver->kind == OpenModel::SolverKind::CodeAster) {
+                std::cerr << "job " << job->id << " uses code_aster: run it with solve-aster\n";
+                return 2;
+            }
+            if (solver->kind == OpenModel::SolverKind::Elmer) {
+                if (!webOut.empty()) { std::cerr << "--web cannot show Elmer results yet: Elmer results are not read into OpenModel\n"; return 2; }
+                const auto elmerWritten = OpenModel::writeElmerCase(mesh, parsed.model, workDir, job->id);
+                printAnalysisDiagnostics(elmerWritten.diagnostics);
+                if (!elmerWritten.success) { std::cerr << "error: job " << job->id << ": " << elmerWritten.error << "\n"; return 1; }
+                std::cout << elmerWritten.summary << "\n";
+                const std::string launcher = OpenModel::findElmerExecutable(solver->path.empty() ? elmerPath : solver->path);
+                if (launcher.empty()) { std::cerr << "ElmerSolver was not found: give --elmer, set OPENMODEL_ELMER or put ElmerSolver in PATH\n"; return 1; }
+                if (!runStreamed(OpenModel::elmerLaunchCommand(launcher, elmerWritten.sifFile), job->id)) return 1;
+                std::cout << "Elmer finished job " << job->id << ": results in " << (workDir / (job->id + ".result")).string() << " (not read into OpenModel yet)\n";
+                continue;
+            }
+            // CalculiX: the solver of the settings entry, else --solver.
+            const std::string ccx = solver->path.empty() ? calculixPath : solver->path;
+            for (const char* ext : {".frd", ".dat", ".sta", ".cvg"}) std::filesystem::remove(workDir / (jobId + ext), ec);
+            if (!runStreamed({ccx, "-i", jobId}, jobId)) return 1;
             std::vector<std::filesystem::path> jobFiles;
             for (const char* ext : {".frd", ".dat"}) {
                 const auto f = workDir / (jobId + ext);
@@ -491,8 +529,6 @@ int main(int argc, char** argv) {
             files.insert(files.end(), jobFiles.begin(), jobFiles.end());
         }
         if (!webOut.empty()) {
-            MeshData mesh;
-            if (const int code = loadMeshFile(argv[2], mesh)) return code;
             OpenModel::FemResults results;
             const auto imported = OpenModel::readResultsMerged(files, results);
             printDiagnostics(imported.diagnostics);
@@ -505,6 +541,28 @@ int main(int argc, char** argv) {
             if (!bound.success) { std::cerr << "The results do not fit the mesh: " << bound.error << "\n"; return 1; }
             return writeWeb(mesh, webOut, options) ? 0 : 1;
         }
+        return 0;
+    }
+    if (command == "export-elmer") {
+        // export-elmer <mesh> <analysis.txt> <dir> [--job NAME]: writes the Elmer case of one job (default: the only job).
+        if (argc < 5) { usage(); return 2; }
+        std::string jobName;
+        for (int i = 5; i < argc; ++i) {
+            const std::string arg = argv[i];
+            if (arg == "--job" && i + 1 < argc) jobName = argv[++i];
+            else { usage(); return 2; }
+        }
+        MeshData mesh;
+        if (const int code = loadMeshFile(argv[2], mesh)) return code;
+        std::string scriptText;
+        if (!readTextFile(argv[3], scriptText)) return 1;
+        const auto parsed = OpenModel::parseAnalysisScript(scriptText);
+        printAnalysisDiagnostics(parsed.diagnostics);
+        if (!parsed.success) return 2;
+        const auto written = OpenModel::writeElmerCase(mesh, parsed.model, std::filesystem::path(argv[4]), jobName);
+        printAnalysisDiagnostics(written.diagnostics);
+        if (!written.success) { std::cerr << "error: " << written.error << "\n"; return 1; }
+        std::cout << written.summary << "\nWrote " << written.sifFile.string() << "\n";
         return 0;
     }
     if (command == "export-aster") {

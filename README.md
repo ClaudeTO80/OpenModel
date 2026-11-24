@@ -20,7 +20,7 @@ where you can also pick nodes, elements and faces to build groups, supports and 
 | FEM results | CalculiX `.frd`, `.dat`, code_aster `.tab` tables and CSV readers: displacements, stresses, strains, principal and von Mises values, modal frequencies and mode shapes |
 | Viewer | Single-file WebGL viewer (**MGWV**): colour fields, deformed shape, modal animation, section plane, GPU picking of nodes / elements / faces |
 | Pre-processing | Selection → node / element / face groups → `fix`, `force`, `pressure` lines in an analysis script |
-| Solver | Analysis script → complete CalculiX input → `ccx` run in the background with live log and cancel → results loaded back into the viewer; the same script can also write and run a **code_aster** case ([`docs/CODE_ASTER.md`](docs/CODE_ASTER.md)) |
+| Solver | Analysis script → complete CalculiX input → `ccx` run in the background with live log and cancel → results loaded back into the viewer; the same script can also write and run a **code_aster** case ([`docs/CODE_ASTER.md`](docs/CODE_ASTER.md)) or an **Elmer** static case (see [`docs/SOLVER.md`](docs/SOLVER.md#several-solvers-and-elmer)) |
 | Fatigue *(library and tool)* | `OpenModel::Fatigue` (shared library `OpenModelFatigue`): stress history from FEM results, Rainflow counting, S–N and strain-life damage, Palmgren–Miner and Wang–Brown, mean-stress corrections, operating spectra, reports and damage maps for the viewer ([manual](docs/fatigue/index.html)). The `openmodel-fatigue` tool runs single-position analyses and spectra from JSON files (see below). Not in the workbench yet |
 | Project manifest *(library)* | `OpenModelProject`: an `.omproj` document that indexes CAD, mesh, analysis and result files with relative paths, SHA-256 and size checks ([`docs/PROJECT_PERSISTENCE.md`](docs/PROJECT_PERSISTENCE.md)). Not used by the CLI or the workbench yet |
 | Interfaces | C++ library (`OpenModel::Core`), CLI (`openmodel`), desktop workbench (`openmodel-webui`, **English user interface**) |
@@ -60,7 +60,8 @@ openmodel export-web <input.omb|input.mgmb|input.inp|input.mail> <output.mgwv> [
                      [--engineering-strain] [--no-derived] [--no-coordinate-check]
 openmodel results-info <file.frd|file.dat|file.csv> [more files, merged]
 openmodel write-input <mesh.mgmb|mesh.inp> <analysis.txt> <job.inp>
-openmodel solve <mesh.mgmb|mesh.inp> <analysis.txt> <workdir> [--solver ccx-path] [--web out.mgwv]
+openmodel solve <mesh.mgmb|mesh.inp> <analysis.txt> <workdir> [--solver ccx-path] [--elmer ElmerSolver-path] [--web out.mgwv]
+openmodel export-elmer <mesh.mgmb|mesh.inp> <analysis.txt> <dir> [--job NAME]
 openmodel export-aster <mesh> <analysis.txt> <dir> [--job NAME] [--solver MUMPS] [--cpus N] [--memory MB] [--time S]
 openmodel solve-aster <mesh> <analysis.txt> <dir> [--launcher run_aster] [--web out.mgwv]
 openmodel export-mail <mesh> <out.mail>

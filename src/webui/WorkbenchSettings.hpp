@@ -1,6 +1,7 @@
 #pragma once
 
 #include "FlatJson.hpp"
+#include <OpenModel/Solvers.hpp>
 
 #include <cstdlib>
 #include <filesystem>
@@ -12,22 +13,26 @@
 
 /**
  * @file WorkbenchSettings.hpp
- * @brief Settings of the OpenModel Workbench: solver path, jobs folder and legend palette.
+ * @brief Settings of the OpenModel Workbench: the configured solvers and their defaults, jobs folder and legend palette.
  *
- * The settings are kept in a small JSON object of strings, {"solverPath":"...","jobDir":"...","legendPalette":"..."},
- * in the user configuration folder. Header only and independent of the WebUI runtime, so the file handling can be
- * tested on its own.
+ * The settings are kept in one flat JSON object of strings in the user configuration folder:
+ * {"jobDir":"...","legendPalette":"...","solver.calculix.kind":"calculix","solver.calculix.path":"...",
+ *  "default.static":"calculix", ...}. The solver keys are those of OpenModel::configToFields(). A file of an older version
+ * with only "solverPath" is read as the solver `calculix`. Header only and independent of the WebUI runtime, so the file
+ * handling can be tested on its own.
  */
 namespace OpenModel::Workbench {
 
 /** @brief The settings of the workbench. Empty paths mean "not set": the program then uses its own default. */
 struct Settings {
-    std::string solverPath;                 ///< Solver executable; empty = "ccx" on PATH (code_aster: run_aster / as_run).
+    OpenModel::SolverConfig solvers = OpenModel::defaultSolverConfig();   ///< Configured solvers and the default of each analysis type.
     std::string jobDir;                     ///< Base folder of the job files; empty = the folder the program runs in.
     std::string legendPalette = "Viridis";  ///< Colour map of the viewer's colour bar.
 
     bool operator==(const Settings& other) const {
-        return solverPath == other.solverPath && jobDir == other.jobDir && legendPalette == other.legendPalette;
+        return solvers.solvers.size() == other.solvers.solvers.size() && solvers.defaults == other.solvers.defaults &&
+               jobDir == other.jobDir && legendPalette == other.legendPalette &&
+               OpenModel::configToFields(solvers) == OpenModel::configToFields(other.solvers);
     }
 };
 
@@ -78,7 +83,10 @@ inline Settings load(const std::filesystem::path& file, std::string& error) {
         error = "settings file ignored: " + parseError;
         return settings;
     }
-    if (const auto it = fields.find("solverPath"); it != fields.end()) settings.solverPath = it->second;
+    const auto legacy = fields.find("solverPath");
+    std::string solverError;
+    settings.solvers = OpenModel::configFromFields(fields, legacy == fields.end() ? std::string() : legacy->second, solverError);
+    if (!solverError.empty()) error = solverError;   // the valid entries are kept; the problem is reported
     if (const auto it = fields.find("jobDir"); it != fields.end()) settings.jobDir = it->second;
     if (const auto it = fields.find("legendPalette"); it != fields.end() && !it->second.empty())
         settings.legendPalette = it->second;
@@ -115,13 +123,15 @@ inline std::string escapeJson(const std::string& text) {
 }
 
 /**
- * @brief The settings as a JSON object, for the answers of the WebUI handlers.
+ * @brief The settings as a flat JSON object, for the answers of the WebUI handlers and for the file.
  * @param settings the settings
- * @return {"solverPath":"...","jobDir":"...","legendPalette":"..."}
+ * @return {"jobDir":"...","legendPalette":"...","solver.<id>.kind":"...","solver.<id>.path":"...","default.<type>":"..."}
  */
 inline std::string toJson(const Settings& settings) {
-    return "{\"solverPath\":\"" + escapeJson(settings.solverPath) + "\",\"jobDir\":\"" + escapeJson(settings.jobDir) +
-           "\",\"legendPalette\":\"" + escapeJson(settings.legendPalette) + "\"}";
+    std::string json = "{\"jobDir\":\"" + escapeJson(settings.jobDir) + "\",\"legendPalette\":\"" + escapeJson(settings.legendPalette) + "\"";
+    for (const auto& [key, value] : OpenModel::configToFields(settings.solvers))
+        json += ",\"" + escapeJson(key) + "\":\"" + escapeJson(value) + "\"";
+    return json + "}";
 }
 
 /**

@@ -93,7 +93,9 @@ set(OPENMODEL_CORE_SOURCES
     src/FemResults.cpp
     src/ResultBinding.cpp
     src/CodeAster.cpp
-    src/CodeAsterResults.cpp)
+    src/CodeAsterResults.cpp
+    src/Solvers.cpp
+    src/ElmerSolver.cpp)
 
 function(openmodel_configure_core_target target export_name)
     target_include_directories(${target} PUBLIC
@@ -247,6 +249,7 @@ if(OPENMODEL_BUILD_TESTS)
     openmodel_add_test(mesh_bodies_test tests/mesh_bodies_test.cpp)
     openmodel_add_test(mesh_runs_test tests/mesh_runs_test.cpp)
     openmodel_add_test(rigid_link_test tests/rigid_link_test.cpp)
+    openmodel_add_test(solvers_test tests/solvers_test.cpp)
     openmodel_add_test(gmsh_settings_test tests/gmsh_settings_test.cpp)
     set(_openmodel_core_test_names core_smoke_test mesh_validation_test abaqus_writer_test physical_groups_test
         mesh_topology_test surface_mesher_test gltf_writer_test surface_refiner_test

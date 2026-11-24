@@ -90,3 +90,50 @@ Group names: 1–64 characters from letters, digits, `_`, `-`, `.`; unique, case
 MGWV: three optional chunks (`vertexNodeId`, `triElementId`, `triFace`) carry the ids; see `MGWV_FORMAT.md`. Library: `include/OpenModel/MeshSelection.hpp`.
 
 Limits (not verified or not done): groups cannot be deleted or renamed (MeshData has no removal); a face group adds surface elements to the mesh (they appear in MGMB/INP exports); picking sends ids as text, performance with selections of hundreds of thousands of faces is untested; picking nodes of hidden blocks near visible surfaces is not filtered per block; touch input is untested; mid-side node detection assumes straight edges (within a quarter edge length).
+
+## Several solvers and Elmer
+
+### Solvers and defaults
+
+Settings hold a list of solvers. Each one has an **id** (letters, digits, `_`, `-`), a **kind** (`calculix`, `code_aster` or `elmer`) and an **executable** (empty = the default name of the kind on `PATH`). The built-in ids `calculix`, `code_aster` and `elmer` are always present. The settings also give the **default solver** of each analysis type: `static`, `frequency`, `dynamic`.
+
+Which analysis types a kind can run: CalculiX all three; code_aster static and frequency; Elmer static. A default that a kind cannot run is refused when the settings are saved.
+
+A job chooses its solver in the script:
+
+    job SETTLE solver=elmer
+    step static
+
+Without `solver=` the job uses the default of its analysis type (the type of its first step). The Analysis panel's Solver field overrides both for one run. A job naming an unknown solver, or a solver that cannot run its type, is an error.
+
+The settings file holds flat keys: `solver.<id>.kind`, `solver.<id>.path`, `default.<type>`. A file of the earlier version with one `solverPath` is read as the solver `calculix`.
+
+### Elmer case
+
+`openmodel export-elmer <mesh> <analysis.txt> <dir> [--job NAME]` writes, in `<dir>`, the mesh in the ElmerSolver directory format (`mesh.header`, `mesh.nodes`, `mesh.elements`, `mesh.boundary`) and the solver input `<job>.sif`. The solver runs in that folder: `ElmerSolver <job>.sif`. Its output is `<job>.result` and `<job>.vtu`.
+
+| Script | Elmer |
+|---|---|
+| each volume element block | one Body; its material is the default or the one of `assign BLOCK material=ID` |
+| `material E= nu= rho=` | Youngs Modulus, Poisson ratio, Density |
+| `fix plane:... dof=...` | one Boundary Condition per fix, with Displacement for the fixed directions (free directions not set); each constrained node is a point element |
+| `pressure group:NAME p=` | Normal Force on the faces of the surface group (linear triangles and quadrilaterals; each face must belong to one volume element) |
+| `gravity g=` | Stress Bodyforce = density times g, per body (density needed) |
+
+Refused with a message for Elmer: nodal `force`, `distributed` loads, `rbe2` rigid links, time-dependent loads, frequency and dynamic steps, and jobs with several steps. Core: `include/OpenModel/ElmerSolver.hpp`; tests in `tests/solvers_test.cpp`.
+
+### Not verified
+
+ElmerSolver was not installed where this was written, so nothing here has been solved. The tests check the files written and the messages, not the solution. The following come from the Elmer manual as remembered and must be checked with a test case before relying on results:
+
+- the point elements (type 101) used for the fixes, and the Displacement conditions on them;
+- the sign convention of Normal Force (the pressure direction);
+- the node order of each element type in the mesh files (the OpenModel order is used as it is; the export says so);
+- the keyword names `Stress Bodyforce`, `Youngs Modulus`, `Poisson ratio`, the solver procedure `StressSolve`, and the header of `mesh.header`.
+
+The results are not read back into OpenModel: the Elmer output is not in the viewer. The GUI and the `solve` command report the end of an Elmer run and its output file. In the command line, `solve` also writes the CalculiX input (`job.inp`) of every job, Elmer ones included, because the shared preparation writes it; that file is not run for an Elmer job.
+
+### Settings in the WebUI
+
+The Settings dialog lists the solvers (id, kind, executable with Browse, Remove) and the defaults of the three analysis types. The defaults offer only the solvers that can run their type. Saving sends the whole list; the built-in solvers cannot be removed, only changed.
+
