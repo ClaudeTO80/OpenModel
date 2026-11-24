@@ -72,7 +72,7 @@ Not yet: the script syntax for rigid links, the grouping of selected faces into 
 * Loads not written yet: body forces per element (`BX/BY/BZ`), centrifugal loads (`CENTRIF`: the manual does not state unambiguously the meaning of its first value), distributed traction (tangential), nodal moments (solid elements have no rotational degrees of freedom), thermal loads (out of scope). Each one needs its syntax checked against the solver manual before it is written.
 * Dynamic steps and amplitudes are not written to the code_aster case: `writeCodeAsterCase` refuses them with a message.
 * The results reader loads every increment of a dynamic run as its own step. The web view binds the displacement of those steps as time-history frames (at most 100, sampled evenly, first and last kept): the viewer's "Increment" slider steps through them and "Play" runs them at five per second, while the scalar fields stay those of the selected step. The default frame is the selected step (the last one unless `--time T` or `t=T` chooses another). Files with a single increment, and the modal results, have no frames. A static run with several load increments has frames too, since CalculiX labels them as times. The frames are not written to the code_aster case.
-* ProcessRunner is POSIX only; on Windows it returns an error (untested/unimplemented).
+* ProcessRunner uses `TK4CPP::Process`: a process group on POSIX and a Job Object on Windows. The Windows path has not been built or tested yet.
 * Child process receives no sandbox: it runs with the user's rights.
 
 ## Picking and groups (phase 50)

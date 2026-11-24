@@ -23,6 +23,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Core: `OpenModel::ProgressLog`, a thread-safe log with sequence numbers and a capacity (5000 entries by default); `parseGmshLogLine()` reads the Gmsh log lines. The CLI and the console output are unchanged.
 
 ### Changed
+- The solver runner no longer refuses Windows: `ProcessRunner` runs through `TK4CPP::Process`, which has a Windows implementation (Job Object). Not built or run on Windows yet. README (Requirements, TK4CPP, known limits) and `docs/SOLVER.md` updated accordingly.
 - Solver processes run through `TK4CPP::Process` instead of the hand-written fork/exec and CreateProcess code. `OpenModel::ProcessRunner` keeps its interface. `cancel(seconds)` now sends SIGTERM and kills the process when the grace period given by the caller has passed, measured by ProcessRunner itself. Test: `tests/process_runner_test.cpp` (output order, exit codes, working directory, cancel with and without a SIGTERM handler, death by signal, double start, missing program). The test passes under ThreadSanitizer.
 - The base64 decoder of the WebUI drop of files uses `TK4CPP::Encode::Base64` with its default options. Test: `tests/web_base64_test.cpp`.
 - CMake: `OPENMODEL_TK4CPP_SOURCE` chooses between downloading TK4CPP (`FETCH`, default) and an installed TK4CPP (`INSTALLED`). See the README section TK4CPP. A `FETCH` build installs an OpenModel package without TK4CPP.
