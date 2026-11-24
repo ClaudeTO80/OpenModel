@@ -23,6 +23,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Core: `OpenModel::ProgressLog`, a thread-safe log with sequence numbers and a capacity (5000 entries by default); `parseGmshLogLine()` reads the Gmsh log lines. The CLI and the console output are unchanged.
 
 ### Changed
+- Viewer: rotation about each axis with the left button and a modifier key. Ctrl+Alt+drag rolls (about the view axis), Ctrl+Shift+drag pitches (about the horizontal axis), Shift+Alt+drag yaws (about the vertical axis). Each drag uses only the component that drives its axis (horizontal for roll and yaw, vertical for pitch). The modifier drags do not select, and Ctrl+Alt no longer starts a rectangle selection. Plain drag and Shift+drag (pan) are unchanged. Test: `tests/webgl/viewer_rotation_axes_smoke.js`.
 - GUI: the Log moved from the bottom of the sidebar to a panel at the bottom of the window, with the Log and Solver tabs (the solver output left the Analysis section). The panel can be hidden and resized; its state is kept between sessions.
 - GUI: status bar at the bottom: the counts of the shown mesh, the latest message of the backend (kept after Clear), and the version.
 - GUI: the Selection controls moved from the top of the sidebar to a card over the viewer (same controls, the card can be collapsed).

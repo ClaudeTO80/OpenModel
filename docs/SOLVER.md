@@ -80,6 +80,7 @@ Not yet: the script syntax for rigid links, the grouping of selected faces into 
 Selecting in the viewer replaces typing selectors. In the GUI (section *7 · Selection and groups*, or the *Analysis* ribbon tab) choose what to pick — **nodes, elements or faces** — then:
 
 * click selects, Ctrl+click adds/removes, Alt+drag (or the *Riquadro* option) selects a rectangle; Shift+drag still pans;
+* left-button rotation about one axis of the view: Ctrl+Alt+drag rolls (about the view axis), Ctrl+Shift+drag pitches (about the horizontal axis), Shift+Alt+drag yaws (about the vertical axis); plain drag rotates about both screen axes. These drags never select;
 * faces: the *angle* option extends a click to the connected faces whose normals deviate less than that angle (0 = one face; 1° = a planar patch);
 * only what is **visible** can be picked (hidden blocks, back faces, parts cut by the section plane are not). With the section plane on, interior faces become pickable; interior elements are only reachable through a visible face.
 
