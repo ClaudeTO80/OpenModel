@@ -81,6 +81,7 @@ set(OPENMODEL_CORE_SOURCES
     src/MeshSelection.cpp
     src/MaterialDatabase.cpp
     src/MaterialStore.cpp
+    src/MaterialService.cpp
     src/ProcessRunner.cpp
     src/CADModel.cpp
     src/SurfaceMesh.cpp
@@ -333,6 +334,8 @@ if(OPENMODEL_BUILD_TESTS)
     openmodel_add_test(material_database_test tests/material_database_test.cpp)
     openmodel_add_test(material_library_test tests/material_library_test.cpp)
     openmodel_add_test(material_store_test tests/material_store_test.cpp)
+    openmodel_add_test(material_service_test tests/material_service_test.cpp)
+    target_link_libraries(material_service_test PRIVATE openmodel_sqlite)
     target_link_libraries(material_store_test PRIVATE openmodel_sqlite)
     openmodel_add_test(code_aster_test tests/code_aster_test.cpp)
     openmodel_add_test(mesh_quality_test tests/mesh_quality_test.cpp)
