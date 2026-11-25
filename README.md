@@ -1,6 +1,13 @@
 # OpenModel
 
-[![CI](https://github.com/ClaudeTO80/OpenModel/actions/workflows/ci.yml/badge.svg)](https://github.com/ClaudeTO80/OpenModel/actions/workflows/ci.yml)
+[![CI](https://github.com/ClaudeTO80/OpenModel/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ClaudeTO80/OpenModel/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/github/license/ClaudeTO80/OpenModel)](LICENSE)
+[![C++17 / 23](https://img.shields.io/badge/C%2B%2B-17%20%2F%2023-00599C?logo=c%2B%2B&logoColor=white)](https://en.cppreference.com/w/cpp/23)
+[![CMake ≥ 3.20](https://img.shields.io/badge/CMake-%E2%89%A5%203.20-064F8C?logo=cmake&logoColor=white)](https://cmake.org)
+[![Platforms](https://img.shields.io/badge/platforms-Linux%20%7C%20Windows-lightgrey)](#status-and-known-limits)
+[![Version](https://img.shields.io/badge/version-0.1.5-blue)](CMakeLists.txt)
+[![Status](https://img.shields.io/badge/status-early%20development-orange)](#status-and-known-limits)
+[![Last commit](https://img.shields.io/github/last-commit/ClaudeTO80/OpenModel)](https://github.com/ClaudeTO80/OpenModel/commits/main)
 
 A C++17 library, command-line tool and lightweight desktop workbench for **finite-element meshes and results**:
 import CAD and mesh files, generate and validate meshes, write solver input, run CalculiX or code_aster, and inspect the results in a WebGL viewer
