@@ -265,6 +265,9 @@ details.node details.node{margin-top:8px;background:transparent}
       <button class="rb" data-act="def-less" data-need="disp" title="Halve the scale factor"><span class="ic">➖</span>Scale ÷2</button>
     </div><div class="gname">Deformation</div></div>
     <div class="group"><div class="items">
+      <button class="rb" data-act="fatigue" data-need="results" title="Fatigue analysis of the loaded stress results"><span class="ic">🔁</span>Fatigue…</button>
+    </div><div class="gname">Fatigue</div></div>
+    <div class="group"><div class="items">
       <button class="rb small" data-act="mode-prev" data-need="modes" title="Previous mode"><span class="ic">◀</span>Prev.</button>
       <span class="rlabel" id="rbModeLabel">no mode</span>
       <button class="rb small" data-act="mode-next" data-need="modes" title="Next mode"><span class="ic">▶</span>Next</button>
@@ -2297,6 +2300,7 @@ const RIBBON_ACTIONS = {
   mesh: () => browse("loadPath", "mesh", loadMesh),
   res: () => browse("resPath", "results", loadResults),
   "res-clear": () => act("openmodel_clear_results"),
+  fatigue: () => openFatigueDialog(),
   "save-model": () => saveModel(),
   "save-inp": () => save("openmodel_export_inp", ".inp"),
   "save-mgwv": () => save("openmodel_export_mgwv", ".mgwv"),
@@ -3271,5 +3275,121 @@ $("sideToggle").addEventListener("click", () => setSidebar($("shell").classList.
   await loadSettings();
     })();
 </script>
+  <dialog id="fatigueDialog" style="max-width:640px;width:calc(100% - 32px);border:1px solid var(--border,#888);border-radius:8px;background:var(--panel,#fff);color:var(--text,inherit)">
+    <form id="fatigueForm">
+      <h3>Fatigue analysis</h3>
+      <p class="hint">Stress-life (S-N) analysis: the Basquin constants of a material give the curve, applied to the stress field of the loaded results.</p>
+      <label for="fatMaterial">Material</label>
+      <select id="fatMaterial" required></select>
+      <label for="fatField">Stress field</label>
+      <select id="fatField" required></select>
+      <label for="fatPositions">Positions, separated by ';': node:ID, element:ID or ip:ELEMENT:N</label>
+      <input id="fatPositions" required placeholder="node:1; node:2" autocomplete="off">
+      <div class="grid2">
+        <div><label for="fatProjection">Normal direction x,y,z</label><input id="fatProjection" value="1,0,0" autocomplete="off"></div>
+        <div><label for="fatTemperature">Temperature (K)</label><input id="fatTemperature" value="293.15" autocomplete="off"></div>
+      </div>
+      <div class="grid2">
+        <div><label for="fatUnit">Unit of the stress in the results</label><select id="fatUnit"><option value="MPa" data-scale="1000000" selected>MPa</option><option value="Pa" data-scale="1">Pa</option></select></div>
+        <div><label for="fatOut">Report folder (optional)</label><input id="fatOut" placeholder="empty: not saved" autocomplete="off"></div>
+      </div>
+      <div id="fatigueRows" style="max-height:240px;overflow:auto;margin-top:10px"></div>
+      <p id="fatigueStatus" class="hint" role="status"></p>
+      <div class="grid2" style="margin-top:12px"><button type="button" id="fatigueCancel">Close</button><button type="submit" id="fatigueRun" class="primary">Run analysis</button></div>
+    </form>
+  </dialog>
+  <script>
+  /* Fatigue dialog: configures the call to the fatigue module, runs it and lists one row per position. */
+  let fatigueWired = false;
+  let fatigueReady = false;
+  /** Fills a select with [value, label] pairs; when there are none, shows the placeholder and returns 0. */
+  function fillFatigueSelect(id, pairs, placeholder) {
+    const select = $(id);
+    select.replaceChildren();
+    if (!pairs.length) {
+      const none = document.createElement("option");
+      none.textContent = placeholder;
+      none.value = "";
+      select.appendChild(none);
+      return 0;
+    }
+    pairs.forEach(([value, label]) => {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      select.appendChild(option);
+    });
+    return pairs.length;
+  }
+  /** Opens the dialog with the materials (only those with Basquin constants) and the fields of the loaded results. */
+  async function openFatigueDialog() {
+    const opts = await call("openmodel_fatigue_options");
+    if (!opts.ok) { show(opts.message || "Fatigue options unavailable.", "bad"); return; }
+    if (!fatigueWired) {
+      fatigueWired = true;
+      $("fatigueCancel").addEventListener("click", () => $("fatigueDialog").close());
+      $("fatigueForm").addEventListener("submit", (event) => { event.preventDefault(); runFatigueDialog(); });
+    }
+    const materials = fillFatigueSelect("fatMaterial",
+      (opts.materials || []).map((m) => [m.id, m.name + " (" + m.id + ")"]),
+      "no material with Basquin constants");
+    const fields = fillFatigueSelect("fatField",
+      (opts.fields || []).map((f) => [f.name, f.name + " (" + f.location + ", " + f.components + " components)"]),
+      "no results loaded");
+    fatigueReady = Boolean(opts.resultsLoaded && materials && fields);
+    $("fatigueRun").disabled = !fatigueReady;
+    $("fatigueRows").replaceChildren();
+    $("fatigueStatus").textContent = !opts.resultsLoaded
+      ? "Load the solver results first (Results tab)."
+      : !materials
+        ? "Add the Basquin constants (fatigue strength coefficient and exponent) to a material first."
+        : "";
+    $("fatigueDialog").showModal();
+  }
+  /** Runs the analysis with the dialog's settings and shows the rows it returns. */
+  async function runFatigueDialog() {
+    const unit = $("fatUnit").selectedOptions[0];
+    const r = await act("openmodel_fatigue_run", $("fatMaterial").value, $("fatField").value,
+      $("fatPositions").value, $("fatProjection").value, $("fatTemperature").value,
+      unit.value, unit.dataset.scale, $("fatOut").value.trim());
+    $("fatigueRun").disabled = !fatigueReady;
+    if (!r) return;
+    renderFatigueRows(r);
+    $("fatigueStatus").textContent = r.message || "";
+    $("fatigueStatus").className = "hint " + (r.ok ? "good" : "bad");
+  }
+  /** One table row per position: damage D, life in blocks (1/D), cycles evaluated and the diagnostic of a failure. */
+  function renderFatigueRows(r) {
+    const box = $("fatigueRows");
+    box.replaceChildren();
+    if (!r.rows || !r.rows.length) return;
+    const table = document.createElement("table");
+    const head = document.createElement("tr");
+    ["Position", "Result", "Damage D", "Life (blocks)", "Cycles", "Diagnostic"].forEach((text) => {
+      const th = document.createElement("th");
+      th.textContent = text;
+      head.appendChild(th);
+    });
+    table.appendChild(head);
+    const num = (value) => (value === null || value === undefined) ? "—" : Number(value).toPrecision(4);
+    r.rows.forEach((row) => {
+      const tr = document.createElement("tr");
+      [row.label, row.ok ? "analysed" : "failed", num(row.damage), num(row.life), String(row.cycles), row.diagnostic || ""]
+        .forEach((text) => {
+          const td = document.createElement("td");
+          td.textContent = text;
+          tr.appendChild(td);
+        });
+      table.appendChild(tr);
+    });
+    box.appendChild(table);
+    if (r.folder) {
+      const note = document.createElement("p");
+      note.className = "hint";
+      note.textContent = "Report saved to " + r.folder + ".";
+      box.appendChild(note);
+    }
+  }
+  </script>
 </body>
 </html>

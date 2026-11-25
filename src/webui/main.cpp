@@ -19,6 +19,13 @@
 #include <OpenModel/ProgressLog.hpp>
 #include <OpenModel/CADModel.hpp>
 #include <OpenModel/FemResults.hpp>
+#if defined(OPENMODEL_HAS_FATIGUE)
+#include <OpenModel/Fatigue/FatigueReport.hpp>
+#include <OpenModel/Fatigue/FatigueReportWriter.hpp>
+#include <OpenModel/Fatigue/FatigueSpecification.hpp>
+#include <OpenModel/Fatigue/OpenModelFemResultsSource.hpp>
+#include <OpenModel/Fatigue/StressLifeFromMaterial.hpp>
+#endif
 #include <OpenModel/GltfWriter.hpp>
 #include <OpenModel/GmshSettings.hpp>
 #include <OpenModel/ModelBinaryIO.hpp>
@@ -2947,6 +2954,203 @@ const void* fileHandler(const char* filename, int* length) {
 
 } // namespace
 
+/* ---------------------------------------------------------------- fatigue */
+
+#if defined(OPENMODEL_HAS_FATIGUE)
+namespace Fat = OpenModel::Fatigue;
+
+/** Reads a finite number that is the whole argument text; false on trailing characters or non-numbers. */
+bool parseWholeNumber(const std::string& text, double& value) {
+    std::size_t consumed = 0;
+    try {
+        value = std::stod(text, &consumed);
+    } catch (const std::exception&) {
+        return false;
+    }
+    while (consumed < text.size() && (text[consumed] == ' ' || text[consumed] == '\t')) ++consumed;
+    return consumed == text.size() && std::isfinite(value);
+}
+
+/** JSON number, or null when the value is not finite (zero damage gives an infinite life). */
+std::string jsonNumberOrNull(double value) {
+    if (!std::isfinite(value)) return "null";
+    std::ostringstream text;
+    text.precision(12);
+    text << value;
+    return text.str();
+}
+
+/**
+ * Handler of "openmodel_fatigue_options": the data the fatigue dialog offers. Only materials with Basquin constants
+ * (sigma_f' > 0 and b < 0) are listed, because the others cannot give an S-N curve.
+ */
+void fatigueOptionsHandler(webui_event_t* e) {
+    StateLock lock;
+    if (!lock.ok()) {
+        replyBusy(e);
+        return;
+    }
+    ensureMaterialsLoaded();
+    std::ostringstream out;
+    out << "{\"ok\":true,\"message\":\"\",\"resultsLoaded\":" << (g.results.empty() ? "false" : "true")
+        << ",\"resultsName\":" << jsonString(g.resultsName) << ",\"fields\":[";
+    std::set<std::string> seen;
+    bool first = true;
+    for (const auto& field : g.results.fields) {
+        if (!seen.insert(field.name).second) continue;   // a field repeats once per solution step
+        out << (first ? "" : ",") << "{\"name\":" << jsonString(field.name)
+            << ",\"components\":" << field.componentCount()
+            << ",\"location\":" << jsonString(field.location == OpenModel::ResultLocation::Element ? "element" : "node")
+            << "}";
+        first = false;
+    }
+    out << "],\"materials\":[";
+    first = true;
+    for (const auto& record : materialStore.list()) {
+        const auto& f = record.fatigue;
+        if (!f.fatigueStrengthCoefficientPa || !f.fatigueStrengthExponent || !(*f.fatigueStrengthExponent < 0.0)) continue;
+        out << (first ? "" : ",") << "{\"id\":" << jsonString(record.elastic.id)
+            << ",\"name\":" << jsonString(record.elastic.name) << "}";
+        first = false;
+    }
+    out << "]}";
+    webui_return_string(e, out.str().c_str());
+}
+
+/**
+ * Handler of "openmodel_fatigue_run". Arguments: material id, field name, positions (node:ID, element:ID or
+ * ip:ELEMENT:N, separated by ';'), normal direction x,y,z, temperature (K), stress unit symbol, scale of that unit to
+ * Pa, report folder (empty = not saved).
+ *
+ * The unit is declared on a copy of the results: the results attached to the session keep their own declaration.
+ * Replies with JSON: ok, a message, and one row per position with its damage, life in blocks and diagnostic.
+ */
+void fatigueRunHandler(webui_event_t* e) {
+    StateLock lock;
+    if (!lock.ok()) {
+        replyBusy(e);
+        return;
+    }
+    ensureMaterialsLoaded();
+    if (g.results.empty()) {
+        reply(e, false, "Load the solver results first (Results tab): the fatigue analysis reads the stress field from them.");
+        return;
+    }
+    const std::string materialId = getStringArg(e, 0);
+    const std::string field = getStringArg(e, 1);
+    const std::string positionText = getStringArg(e, 2);
+    const std::string projectionText = getStringArg(e, 3);
+    const std::string temperatureText = getStringArg(e, 4);
+    const std::string unitSymbol = getStringArg(e, 5);
+    const std::string scaleText = getStringArg(e, 6);
+    const std::string folder = getStringArg(e, 7);
+
+    const auto record = materialStore.find(materialId);
+    if (!record) {
+        reply(e, false, "Unknown material '" + materialId + "'.");
+        return;
+    }
+    double temperature = 0.0;
+    if (!parseWholeNumber(temperatureText, temperature) || !(temperature > 0.0)) {
+        reply(e, false, "The temperature must be a positive number of kelvin.");
+        return;
+    }
+    double scale = 0.0;
+    if (unitSymbol.empty() || !parseWholeNumber(scaleText, scale) || !(scale > 0.0)) {
+        reply(e, false, "Choose a stress unit with a positive scale to Pa.");
+        return;
+    }
+    const Fat::PhysicalUnit unit = Fat::pressureUnit(unitSymbol, scale);
+
+    std::string error;
+    Fat::FatigueMaterial material;
+    if (!Fat::stressLifeCurveFromBasquin(*record, temperature, unit, material, error)) {
+        reply(e, false, error);
+        return;
+    }
+    Fat::StressProjection projection;
+    const Fat::SpecificationResult projected = Fat::parseProjection(projectionText, projection);
+    if (!projected) {
+        reply(e, false, "Normal direction: " + projected.error);
+        return;
+    }
+    std::vector<Fat::ResultPosition> positions;
+    if (!Fat::parsePositionList(positionText, positions, error)) {
+        reply(e, false, error);
+        return;
+    }
+
+    OpenModel::FemResults results = g.results;   // a copy: declaring the unit must not change the attached results
+    if (!Fat::declareFieldUnit(results, field, unit, error)) {
+        reply(e, false, error);
+        return;
+    }
+    Fat::OpenModelFemResultsSource source(results);
+    std::vector<Fat::FatiguePositionInput> inputs;
+    for (const auto& position : positions) {
+        Fat::FatiguePositionInput input;
+        input.position = position;
+        input.material = &material;
+        input.projection = projection;
+        input.label = Fat::positionLabel(position);
+        inputs.push_back(input);
+    }
+    const Fat::FatigueReport report = Fat::FatigueReportBuilder::build(source, field, inputs, temperature);
+
+    std::ostringstream rows;
+    for (std::size_t i = 0; i < report.positions.size(); ++i) {
+        const auto& row = report.positions[i];
+        const bool ok = static_cast<bool>(row.analysis);
+        const bool hasDamage = ok && row.hasDamage;
+        rows << (i ? "," : "") << "{\"label\":" << jsonString(row.label)
+             << ",\"ok\":" << (ok ? "true" : "false")
+             << ",\"damage\":" << (hasDamage ? jsonNumberOrNull(row.damage) : "null")
+             << ",\"life\":" << (hasDamage && row.damage > 0.0 ? jsonNumberOrNull(1.0 / row.damage) : "null")
+             << ",\"cycles\":" << row.analysis.damage.cyclesEvaluated
+             << ",\"diagnostic\":" << jsonString(ok ? std::string() : row.analysis.diagnostic) << "}";
+    }
+    const bool anyOk = report.successfulPositions > 0;
+    std::ostringstream message;
+    if (anyOk) {
+        message << "Fatigue analysis of " << field << ": " << report.successfulPositions << " of "
+                << report.positions.size() << " position(s) analysed.";
+        if (report.hasMaximumDamage) {
+            const std::string where = report.maximumDamageIndex < report.positions.size()
+                ? report.positions[report.maximumDamageIndex].label : std::string("?");
+            message << " Maximum damage " << report.maximumDamage << " at " << where << ".";
+        }
+    } else {
+        message << "No position could be analysed";
+        if (!report.diagnostic.empty()) message << ": " << report.diagnostic;
+        else message << ". See the diagnostic of each position.";
+    }
+
+    std::string savedTo;
+    if (!folder.empty()) {
+        std::error_code fsError;
+        std::filesystem::create_directories(folder, fsError);
+        const std::filesystem::path base(folder);
+        bool written = !fsError;
+        if (written) {
+            std::ofstream summary(base / "fatigue_summary.csv");
+            written = written && static_cast<bool>(summary) && static_cast<bool>(Fat::FatigueReportWriter::writeCsvSummary(report, summary));
+            std::ofstream cycles(base / "fatigue_cycles.csv");
+            written = written && static_cast<bool>(cycles) && static_cast<bool>(Fat::FatigueReportWriter::writeCsvCycles(report, cycles));
+            std::ofstream json(base / "fatigue_report.json");
+            written = written && static_cast<bool>(json) && static_cast<bool>(Fat::FatigueReportWriter::writeJson(report, json, true));
+        }
+        if (written) savedTo = folder;
+        else message << " The report could not be written to '" << folder << "'.";
+    }
+
+    std::ostringstream out;
+    out << "{\"ok\":" << (anyOk ? "true" : "false") << ",\"message\":" << jsonString(message.str())
+        << ",\"field\":" << jsonString(field) << ",\"folder\":" << jsonString(savedTo)
+        << ",\"rows\":[" << rows.str() << "]}";
+    webui_return_string(e, out.str().c_str());
+}
+#endif // OPENMODEL_HAS_FATIGUE
+
 int main() {
     const auto window = webui_new_window();
     if (window == 0) return 1;
@@ -2984,6 +3188,10 @@ int main() {
     webui_bind(window, "openmodel_constraint_list", constraintListHandler);
     webui_bind(window, "openmodel_rbe2_reference", rbe2ReferenceHandler);
     webui_bind(window, "openmodel_material_list", materialListHandler);
+#if defined(OPENMODEL_HAS_FATIGUE)
+    webui_bind(window, "openmodel_fatigue_options", fatigueOptionsHandler);
+    webui_bind(window, "openmodel_fatigue_run", fatigueRunHandler);
+#endif
     webui_bind(window, "openmodel_material_save", materialSaveHandler);
     webui_bind(window, "openmodel_material_delete", materialDeleteHandler);
     webui_bind(window, "openmodel_list_cad_face_groups", listCADFaceGroupsHandler);

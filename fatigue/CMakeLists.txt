@@ -43,6 +43,7 @@ set(OPENMODEL_FATIGUE_SOURCES
     src/OpenModelFemResultsSource.cpp
     src/StrainLifeAnalysis.cpp
     src/StrainLifeDamageModel.cpp
+    src/StressLifeFromMaterial.cpp
     src/StressHistory.cpp
     src/TensorNormalizer.cpp
     src/WangBrownDamageModel.cpp
@@ -119,6 +120,7 @@ if(OPENMODEL_BUILD_TESTS)
     openmodel_fatigue_add_test(fatigue_damage_map_test tests/fatigue_damage_map_test.cpp)
     openmodel_fatigue_add_test(fatigue_damage_map_writer_test tests/fatigue_damage_map_writer_test.cpp)
     openmodel_fatigue_add_test(fatigue_damage_map_webview_adapter_test tests/fatigue_damage_map_webview_adapter_test.cpp)
+    openmodel_fatigue_add_test(fatigue_stress_life_from_material_test tests/stress_life_from_material_test.cpp)
 endif()
 
 # Command-line checks. They read the solver-results fixture of the core tests (beam_fixture), so they exist only

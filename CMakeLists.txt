@@ -1148,6 +1148,11 @@ if(OPENMODEL_BUILD_WEBUI AND OPENMODEL_BUILD_GMSH_BACKEND)
     target_compile_definitions(openmodel-webui PRIVATE OPENMODEL_HAS_GMSH=1)
 endif()
 
+if(OPENMODEL_BUILD_WEBUI AND OPENMODEL_BUILD_FATIGUE AND TARGET OpenModel::Fatigue)
+    target_link_libraries(openmodel-webui PRIVATE OpenModel::Fatigue)
+    target_compile_definitions(openmodel-webui PRIVATE OPENMODEL_HAS_FATIGUE=1)
+endif()
+
 # Table of the libraries linked into openmodel-webui, shown by Help > About and included by src/webui/main.cpp.
 # It records what CMake knows at configure time (version found, location, how the library was built). The program adds
 # what only the library can tell at run time (see linkedLibraries() in src/webui/main.cpp). An empty version means
