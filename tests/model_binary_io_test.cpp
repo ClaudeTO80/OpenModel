@@ -1,4 +1,3 @@
-#include <OpenModel/MeshBinaryIO.hpp>
 #include <OpenModel/ModelBinaryIO.hpp>
 
 #include <cassert>
@@ -15,7 +14,7 @@
 namespace {
 
 // Builds a structured hexahedral grid with sequential node IDs (the common case for generated meshes), a physical
-// group, a mesh group and a constraint. Used for the size comparison against MGMB.
+// group, a mesh group and a constraint. Used for the size check of the format.
 MeshData makeStructuredGrid(std::size_t n) {
     MeshData mesh;
     const auto side = n + 1;
@@ -190,23 +189,21 @@ int main() {
     assert(emptyLoaded.isEmpty() && emptyLoaded.getBodies().empty() && emptyLoaded.getConstraints().empty());
     std::filesystem::remove(emptyPath);
 
-    // 3. Size against MGMB on a structured grid with sequential IDs: the reason for the format.
-    const auto grid = makeStructuredGrid(24); // 13,824 nodes, 13,824 hexahedra
-    const auto mgmbPath = root / "openmodel_model_io_test_grid.mgmb";
+    // 3. Size on a structured grid with sequential IDs. The uncompressed payload (binary64 coordinates, 64-bit
+    //    connectivity) is the reference: the file must be smaller than that.
+    const auto grid = makeStructuredGrid(24); // 15,625 nodes, 13,824 hexahedra
     const auto mgomPath = root / "openmodel_model_io_test_grid.omb";
-    MeshBinaryIO::write(mgmbPath, grid);
     ModelBinaryIO::write(mgomPath, grid);
-    const auto mgmbBytes = fileSize(mgmbPath);
     const auto mgomBytes = fileSize(mgomPath);
-    std::printf("grid 24^3: MGMB %ju bytes, MGOM %ju bytes (%.1f%% of MGMB)\n", mgmbBytes, mgomBytes,
-                100.0 * static_cast<double>(mgomBytes) / static_cast<double>(mgmbBytes));
-    assert(mgomBytes * 2 < mgmbBytes); // at least a 2x reduction on this mesh
+    const auto rawBytes = grid.getNumNodes() * 3 * sizeof(double) + grid.getNumElements() * 8 * sizeof(std::uint64_t);
+    std::printf("grid 24^3: MGOM %ju bytes, uncompressed reference %ju bytes\n", mgomBytes,
+                static_cast<std::uintmax_t>(rawBytes));
+    assert(mgomBytes < rawBytes);
     const auto gridLoaded = ModelBinaryIO::read(mgomPath);
     assert(gridLoaded.getNumElements() == grid.getNumElements());
     assert(gridLoaded.getElementBlock("solid").connectivity == grid.getElementBlock("solid").connectivity);
     assert(gridLoaded.getNodeIds() == grid.getNodeIds());
     assert(gridLoaded.getCoordinates() == grid.getCoordinates()); // binary64, bit-exact
-    std::filesystem::remove(mgmbPath);
     std::filesystem::remove(mgomPath);
 
     // 4. Corruption, truncation and foreign files are rejected, never returned as a partial mesh.
@@ -243,11 +240,11 @@ int main() {
     writeBytes(badMagic, foreign);
     assert(throwsModelError([&] { ModelBinaryIO::read(badMagic); }));
 
-    // An MGMB file is not an MGOM file.
-    const auto mgmbSmall = root / "openmodel_model_io_test_small.mgmb";
-    MeshBinaryIO::write(mgmbSmall, source);
-    assert(throwsModelError([&] { ModelBinaryIO::read(mgmbSmall); }));
-    std::filesystem::remove(mgmbSmall);
+    // A file with the former MGMB signature is not an MGOM file: MGMB is no longer read.
+    const auto legacySmall = root / "openmodel_model_io_test_legacy.mgmb";
+    writeBytes(legacySmall, std::vector<char>{'M', 'G', 'M', 'B', 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0});
+    assert(throwsModelError([&] { ModelBinaryIO::read(legacySmall); }));
+    std::filesystem::remove(legacySmall);
 
     // 5. Writing a structurally invalid mesh is refused and leaves no file behind.
     MeshData invalid;

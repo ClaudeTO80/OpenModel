@@ -1,6 +1,6 @@
 # MGOM — OpenModel binary model format, version 1.1
 
-MGOM is the persistence format for the whole mesh model (`MeshData`): nodes, element blocks, node sets, physical groups, mesh groups, node constraints and CAD bodies. It is written and read by `ModelBinaryIO` (`include/OpenModel/ModelBinaryIO.hpp`). It is intended to replace MGMB for new files. MGMB 1.x files stay readable and writable through `MeshBinaryIO`; MGOM is not a new major version of MGMB, so existing MGMB readers are unaffected.
+MGOM is the persistence format for the whole mesh model (`MeshData`): nodes, element blocks, node sets, physical groups, mesh groups, node constraints and CAD bodies. It is written and read by `ModelBinaryIO` (`include/OpenModel/ModelBinaryIO.hpp`). MGMB, the former mesh format, has been removed: `MeshBinaryIO` and the `.mgmb` extension are no longer read or written, and `.mgmb` files must be converted with an earlier release. MGOM is the only mesh persistence format. A project archive packs the MGOM files together with the other assets (see `PROJECT_PERSISTENCE.md`).
 
 MGOM is **not** a render format (use MGWV for that) and does not contain the CAD source, the analysis script or solver results. These are separate assets of a project, as described in `PROJECT_PERSISTENCE.md`.
 
@@ -171,6 +171,8 @@ The writer validates the mesh (unless disabled), encodes all sections, writes to
 
 Structured hexahedral grids with sequential node and element IDs, one physical group, release build (-O2) on the development sandbox, median of three runs. Times are indicative only.
 
+_Historical: measured while MGMB still existed; the MGMB columns no longer have a reader or writer._
+
 | Mesh | MGMB size | MGOM size | MGOM / MGMB | Write (MGMB → MGOM) | Read (MGMB → MGOM) |
 |---|---|---|---|---|---|
 | 24³ (15,625 nodes, 13,824 hex8) | 1.16 MB | 0.56 MB | 48% | 2.7 → 3.2 ms | 2.0 → 2.9 ms |
@@ -179,6 +181,8 @@ Structured hexahedral grids with sequential node and element IDs, one physical g
 The size breakdown of the lossless 60³ file explains the cost: coordinates are 5.4 MB (66%) and connectivity 2.4 MB (29%). Quantizing coordinates to 16 bits (below) removes most of the first share.
 
 Quantized mode (16 bit), same meshes, same run:
+
+_Historical, as above._
 
 | Mesh | MGMB | MGOM exact | MGOM 16-bit | Write (MGMB / exact / 16-bit) | Read (MGMB / exact / 16-bit) |
 |---|---|---|---|---|---|
@@ -191,7 +195,7 @@ Lossy error on the warped 20³ grid (9,261 nodes, anisotropic non-integer coordi
 
 Checksum and format structure were also verified outside the C++ code: section CRC-32 values were recomputed with an independent implementation (`zlib.crc32`) on the same files and agree for every section.
 
-`tests/model_binary_io_test.cpp` checks the round trip of every section (including both connectivity encodings), an empty mesh, the size ratio against MGMB, the rejection of a foreign file, a truncated file and an invalid mesh, and an exhaustive single-bit corruption test over the whole file: every flipped bit must be rejected with `ModelBinaryIO::Error`. The quantized mode is checked for the per-axis error bound, size ordering (exact > 32-bit > 16-bit), a degenerate flat axis, refusal of non-finite input, and exhaustive bit-flip rejection of a quantized file.
+`tests/model_binary_io_test.cpp` checks the round trip of every section (including both connectivity encodings), an empty mesh, the size against an uncompressed reference (binary64 coordinates and 64-bit connectivity), the rejection of a former MGMB file, a truncated file and an invalid mesh, and an exhaustive single-bit corruption test over the whole file: every flipped bit must be rejected with `ModelBinaryIO::Error`. The quantized mode is checked for the per-axis error bound, size ordering (exact > 32-bit > 16-bit), a degenerate flat axis, refusal of non-finite input, and exhaustive bit-flip rejection of a quantized file.
 
 ## Compatibility
 
@@ -210,7 +214,7 @@ Checksum and format structure were also verified outside the C++ code: section C
 
 | Format | Purpose | Status |
 |---|---|---|
-| MGMB | mesh persistence, sections without checksums or string table | still read and written by `MeshBinaryIO`; superseded for new files |
+| MGMB | former mesh persistence, sections without checksums or string table | removed: no longer read or written |
 | MGOM | model persistence (this document) | new, `ModelBinaryIO` |
 | MGWV | render-only payload for the WebGL viewer, float32 | unchanged, not a persistence format |
 | `.omproj` | project manifest referencing assets | the `mesh.surface` and `mesh.volume` roles can point to `.omb` files; the manifest contract is unchanged |

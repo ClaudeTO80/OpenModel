@@ -1,4 +1,4 @@
-#include <OpenModel/MeshBinaryIO.hpp>
+#include <OpenModel/ModelBinaryIO.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -51,20 +51,20 @@ int main(int argc, char** argv) {
         if (argc > 3) throw std::invalid_argument("usage: openmodel-io-benchmark [grid-divisions] [repetitions]");
         const auto n = parse(argc > 1 ? argv[1] : "", 8, 32, "grid-divisions");
         const auto reps = parse(argc > 2 ? argv[2] : "", 5, 31, "repetitions");
-        const auto path = std::filesystem::temp_directory_path() / "openmodel-io-benchmark.mgmb";
+        const auto path = std::filesystem::temp_directory_path() / "openmodel-io-benchmark.omb";
         const auto mesh = makeGrid(n);
         std::vector<double> writes, reads;
         writes.reserve(reps); reads.reserve(reps);
         MeshData loaded;
         for (std::size_t i = 0; i < reps; ++i) {
-            writes.push_back(timed([&] { MeshBinaryIO::write(path, mesh); }));
-            reads.push_back(timed([&] { loaded = MeshBinaryIO::read(path); }));
+            writes.push_back(timed([&] { ModelBinaryIO::write(path, mesh); }));
+            reads.push_back(timed([&] { loaded = ModelBinaryIO::read(path); }));
             if (loaded.getNumNodes() != mesh.getNumNodes() || loaded.getNumElements() != mesh.getNumElements())
                 throw std::runtime_error("round-trip count mismatch");
         }
         const auto bytes = std::filesystem::file_size(path);
         const auto writeSeconds = median(writes), readSeconds = median(reads);
-        std::cout << "OpenModel MGMB I/O benchmark\n"
+        std::cout << "OpenModel MGOM I/O benchmark\n"
                   << "grid_divisions=" << n << " repetitions=" << reps << '\n'
                   << "nodes=" << mesh.getNumNodes() << " elements=" << mesh.getNumElements() << '\n'
                   << "file_bytes=" << bytes << '\n'

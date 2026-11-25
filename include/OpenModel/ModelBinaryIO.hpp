@@ -10,8 +10,8 @@
  * @brief MGOM 1.0 binary persistence for the mesh model (MeshData) — compact, checksummed, fast to read and write.
  *
  * MGOM is the persistence format for the whole mesh model: nodes, element blocks, node sets, physical groups, mesh
- * groups, node constraints and CAD bodies. It replaces MGMB for new files; MGMB 1.x files remain readable and writable
- * through MeshBinaryIO. The layout is specified in docs/MGOM_FORMAT.md.
+ * groups, node constraints and CAD bodies. It is the only mesh persistence format: the former MGMB format was removed.
+ * The layout is specified in docs/MGOM_FORMAT.md.
  *
  * Size and speed come from four choices:
  * - identifiers and sorted index lists are stored as zigzag-encoded deltas in LEB128 varints (sequential IDs cost one

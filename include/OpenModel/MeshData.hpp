@@ -139,11 +139,9 @@ struct NodeConstraint {
     std::array<double, 6> values{};            ///< Prescribed values (zero for free degrees of freedom).
 };
 
-class MeshBinaryIO;
 class ModelBinaryIO;
 
 class MeshData {
-    friend class MeshBinaryIO;
     friend class ModelBinaryIO;
 public:
     void clear() noexcept ;
@@ -184,7 +182,7 @@ public:
      * held, and at which value (zero for a support, non-zero for a prescribed displacement). They are independent of the
      * analysis script (AnalysisModel), which selects nodes by plane or group when the solver input is written; the
      * constraints here are already resolved to nodes, so they can be shown, imported from a solver deck and stored
-     * with the mesh (MGMB 1.2).
+     * with the mesh (MGOM).
      * @{
      */
 

@@ -1,13 +1,13 @@
 /**
  * @file mesh_constraints_test.cpp
- * @brief Tests of the constraints on the degrees of freedom of the nodes: MeshData API, MGMB 1.2, Abaqus/CalculiX
+ * @brief Tests of the constraints on the degrees of freedom of the nodes: MeshData API, MGOM 1.1, Abaqus/CalculiX
  *        `*BOUNDARY` import and export, the constraints that the supports of an analysis put on a mesh, and their MGWV chunk.
  */
 #include <OpenModel/AbaqusInpWriter.hpp>
 #include <OpenModel/AnalysisSetup.hpp>
 #include <OpenModel/CodeAster.hpp>
 #include <OpenModel/MeshSelection.hpp>
-#include <OpenModel/MeshBinaryIO.hpp>
+#include <OpenModel/ModelBinaryIO.hpp>
 #include <OpenModel/MeshImporter.hpp>
 #include <OpenModel/WebViewWriter.hpp>
 
@@ -110,26 +110,23 @@ void testApi() {
     CHECK(mesh.constrainedNodeCount() == 0);                         // clear() drops them with the nodes
 }
 
-void testMgmb() {
+void testMgom() {
     const auto dir = tempDir();
-    // Without constraints the file is exactly what MGMB 1.1 wrote: version 1.1, six sections.
+    // Without constraints the file is written as MGOM 1.1 (minor version 1) and reads back without constraints.
     auto plain = makeCube(2);
-    MeshBinaryIO::write(dir / "plain.mgmb", plain);
-    const auto bytes = slurp(dir / "plain.mgmb");
+    ModelBinaryIO::write(dir / "plain.omb", plain);
+    const auto bytes = slurp(dir / "plain.omb");
     std::uint16_t minor = 0;
     std::memcpy(&minor, bytes.data() + 10, 2);
     CHECK(minor == 1);
-    CHECK(MeshBinaryIO::read(dir / "plain.mgmb").constrainedNodeCount() == 0);
+    CHECK(ModelBinaryIO::read(dir / "plain.omb").constrainedNodeCount() == 0);
 
     auto mesh = makeCube(2);
     mesh.constrainNodes({0, 1, 2}, kDofTranslations);
     mesh.constrainNode(5, DofUx | DofRz, {0.25, 0, 0, 0, 0, -0.125});
     mesh.constrainNode(26, kDofAll);
-    MeshBinaryIO::write(dir / "constrained.mgmb", mesh);
-    const auto withBytes = slurp(dir / "constrained.mgmb");
-    std::memcpy(&minor, withBytes.data() + 10, 2);
-    CHECK(minor == 2);
-    const auto back = MeshBinaryIO::read(dir / "constrained.mgmb");
+    ModelBinaryIO::write(dir / "constrained.omb", mesh);
+    const auto back = ModelBinaryIO::read(dir / "constrained.omb");
     CHECK(back.constrainedNodeCount() == 5 && back.constrainedDofCount() == mesh.constrainedDofCount());
     bool same = true;
     for (const auto& entry : mesh.getConstraints()) {
@@ -140,27 +137,17 @@ void testMgmb() {
     CHECK(back.constraintOf(5)->values[0] == 0.25 && back.constraintOf(5)->values[5] == -0.125);
     CHECK(back.getNumNodes() == mesh.getNumNodes() && back.getNumElements() == mesh.getNumElements());
 
-    // A damaged section is refused: a mask of zero, then a node beyond the mesh.
-    auto damaged = withBytes;
-    CHECK(damaged.size() > 80);
-    // The constraint records are the last section; the first record starts 4 bytes (count) after the section start, i.e.
-    // (count * 64 + 4) bytes before the directory. Locate it from the end: directory offset is in the header at byte 48.
+    // A damaged constraint or body payload is refused: the last payload byte before the directory is covered by
+    // the section CRC, so the flip is detected before any record is parsed.
+    const auto withBytes = slurp(dir / "constrained.omb");
     std::uint64_t directoryOffset = 0;
-    std::memcpy(&directoryOffset, damaged.data() + 48, 8);
-    CHECK(directoryOffset > 0 && directoryOffset < damaged.size());
-    const std::size_t sectionStart = static_cast<std::size_t>(directoryOffset) - (4 + 5 * 64);
-    const std::size_t firstRecord = sectionStart + 4;
+    std::memcpy(&directoryOffset, withBytes.data() + 48, 8);
+    CHECK(directoryOffset > 64 && directoryOffset < withBytes.size());
     {
-        auto bad = damaged;
-        bad[firstRecord + 8] = 0;                                    // mask 0
-        std::ofstream(dir / "bad_mask.mgmb", std::ios::binary).write(reinterpret_cast<const char*>(bad.data()), static_cast<std::streamsize>(bad.size()));
-        CHECK(throws([&] { MeshBinaryIO::read(dir / "bad_mask.mgmb"); }));
-    }
-    {
-        auto bad = damaged;
-        bad[firstRecord + 9] = 1;                                    // reserved byte
-        std::ofstream(dir / "bad_reserved.mgmb", std::ios::binary).write(reinterpret_cast<const char*>(bad.data()), static_cast<std::streamsize>(bad.size()));
-        CHECK(throws([&] { MeshBinaryIO::read(dir / "bad_reserved.mgmb"); }));
+        auto bad = withBytes;
+        bad[static_cast<std::size_t>(directoryOffset) - 1] ^= 0x01;
+        std::ofstream(dir / "bad_payload.omb", std::ios::binary).write(reinterpret_cast<const char*>(bad.data()), static_cast<std::streamsize>(bad.size()));
+        CHECK(throws([&] { ModelBinaryIO::read(dir / "bad_payload.omb"); }));
     }
 }
 
@@ -442,7 +429,7 @@ void testSolverInputs() {
 
 int main() {
     testApi();
-    testMgmb();
+    testMgom();
     testInpImport();
     testInpRoundTrip();
     testSupports();

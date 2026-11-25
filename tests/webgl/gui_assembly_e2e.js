@@ -119,15 +119,15 @@ function countPixels(png, pred) {
   const imsg = await message();
   check(/indipendenti/.test(imsg) && !/fragmented/.test(imsg) && /4 components/.test(imsg), 'independent mode reported, no fragmentation');
 
-  // 4. MGMB keeps the groups (names, hierarchy); colours are not stored there.
+  // 4. MGOM keeps the groups (names, hierarchy); colours are not stored there.
   const base = path.join(workDir, 'asm_out');
   await page.fill('#outBase', base);
-  await click('Save MGMB');
-  await page.fill('#loadPath', base + '.mgmb');
+  await click('Save MGOM');
+  await page.fill('#loadPath', base + '.omb');
   await click('Load and display');
   await page.waitForTimeout(800);
   const reloaded = await leaves();
-  check(reloaded.length === 4 && reloaded.includes('Assy/Base'), 'groups survive MGMB save/load: ' + reloaded.join(', '));
+  check(reloaded.length === 4 && reloaded.includes('Assy/Base'), 'groups survive MGOM save/load: ' + reloaded.join(', '));
 
   // 5. TetGen is honest about what it cannot do. Needs the CAD model: re-import.
   await page.fill('#cadPath', stepFile);

@@ -21,7 +21,7 @@
 - **`CADModel`** (`CADModel.hpp`): interfaccia di un modello CAD. Implementazioni: `OCCModel` (STEP/IGES/BREP con Open CASCADE), `AssimpModel` (formati generici). Espone i sotto-mesh di render (`getRenderMeshes`), i componenti e i gruppi del file.
 - **`Mesher`** (`Mesher.hpp`): interfaccia di un mesher. `buildMesh(cad, options, outMesh)` riempie un `MeshData`; `diagnostics()` restituisce note e avvisi. Implementazioni: `GmshMesher` (`GmshMesher.hpp`, `src/GmshMesher.cpp`), `TetGenMesher`, `NetgenMesher`.
 - **`MeshingOptions`** (`Mesher.hpp`): tutte le opzioni di meshatura. Contiene le sotto-strutture `StructuredGmshOptions` (mesh strutturata), `TetrahedralGmshOptions` (mesh tetraedrica di Gmsh) e il vettore `additionalFaceGroups`.
-- **`MeshData`** (`MeshData.hpp`): la mesh di output. Nodi (`Node`), blocchi di elementi (`ElementBlock`), gruppi fisici (`MeshPhysicalGroup`), gruppi (`MeshGroup`), corpi (`MeshBody`), vincoli (`NodeConstraint`). `MeshGroupRegistry` gestisce i gruppi per nome. `MeshBinaryIO` legge e scrive il formato MGMB.
+- **`MeshData`** (`MeshData.hpp`): la mesh di output. Nodi (`Node`), blocchi di elementi (`ElementBlock`), gruppi fisici (`MeshPhysicalGroup`), gruppi (`MeshGroup`), corpi (`MeshBody`), vincoli (`NodeConstraint`). `MeshGroupRegistry` gestisce i gruppi per nome. `ModelBinaryIO` legge e scrive il formato MGOM. Il formato MGMB è stato rimosso.
 - **`MeshQuality`** (`MeshQuality.hpp`): metrica di qualità per tipo di elemento (1 = ideale, non positivo = invertito). È la metrica che mostra la GUI, diversa dal `gamma` di Gmsh.
 - **`AnalysisSetup`** (`AnalysisSetup.hpp`): modello di analisi (materiali, vincoli, carichi, passi, job) e scrittura del deck per il solutore (`AnalysisModel`, `AnalysisJob`, `AnalysisStep`).
 - **`OpenModelProject`** (`OpenModelProject.hpp`): progetto salvato su disco.
@@ -31,7 +31,7 @@
 
 1. `OCCModel` (o `AssimpModel`) carica il file e produce il CAD in memoria.
 2. Un `Mesher` costruisce `MeshData` da `MeshingOptions`. Per Gmsh la mesh viene estratta da Gmsh e rimappata ai gruppi CAD (`mapCadGroups`).
-3. `MeshValidator` e `computeMeshQuality` verificano la mesh. `MeshBinaryIO` la salva; `WebViewWriter` e `GltfWriter` la esportano per il viewer.
+3. `MeshValidator` e `computeMeshQuality` verificano la mesh. `ModelBinaryIO` la salva (formato MGOM); `WebViewWriter` e `GltfWriter` la esportano per il viewer.
 4. `AnalysisSetup` scrive il deck (CalculiX o Code_Aster); `ProcessRunner` avvia il solutore; `FemResults` legge i risultati e `ResultBinding` li collega alla mesh.
 
 ## Dipendenze

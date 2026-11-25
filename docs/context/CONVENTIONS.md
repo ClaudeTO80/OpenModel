@@ -8,7 +8,7 @@
 - **Header pubblici** in `include/OpenModel/`, implementazioni in `src/`. Un backend opzionale resta dietro la sua opzione `OPENMODEL_BUILD_*_BACKEND`.
 - **Errori**: le funzioni di meshatura riportano l'errore con `lastError()` e `fail(...)`, non con eccezioni verso la GUI. La GUI risponde sempre con `reply(e, false, msg)`.
 - **Gmsh è globale**: `GmshMesher` usa un mutex e una sessione (`GmshSession`); le opzioni di Gmsh sono globali e vanno impostate dentro la sessione. Quando un tentativo fallisce e se ne prova un altro, pulire la mesh con `gmsh::model::mesh::clear()` prima di riprovare.
-- **Compatibilità**: il formato MGMB/MGWV resta compatibile (`docs/MGMB_FORMAT.md`, `docs/MGWV_FORMAT.md`); dati nuovi in blocchi opzionali.
+- **Compatibilità**: il formato MGOM/MGWV resta compatibile (`docs/MGOM_FORMAT.md`, `docs/MGWV_FORMAT.md`); dati nuovi in blocchi opzionali.
 
 ## Test
 

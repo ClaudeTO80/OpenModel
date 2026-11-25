@@ -19,4 +19,4 @@ C++ tests use `assert`; `NDEBUG` is disabled for them even in Release builds. Th
 - Public headers live in `include/OpenModel/`, implementations in `src/`. Optional backends stay behind their `OPENMODEL_BUILD_*_BACKEND` option.
 - Every behaviour change comes with a test. When a test fails, first decide whether the test or the code is wrong, and say which in the pull request.
 - Do not claim something works unless it was compiled and run; list in the pull request what was **not** verified.
-- Keep MGMB/MGWV backward compatible (see `docs/MGMB_FORMAT.md`, `docs/MGWV_FORMAT.md`); new data goes in optional chunks.
+- Keep MGOM/MGWV backward compatible (see `docs/MGOM_FORMAT.md`, `docs/MGWV_FORMAT.md`); new data goes in optional chunks.

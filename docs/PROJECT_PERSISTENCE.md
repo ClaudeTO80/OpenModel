@@ -22,8 +22,8 @@ MyProject/
   cad/
     source.step
   mesh/
-    surface.mgmb
-    volume.mgmb
+    surface.omb
+    volume.omb
   analysis/
     model.inp
   results/
@@ -34,6 +34,38 @@ MyProject/
 The CAD source and solver outputs may be external files. The project document stores
 paths relative to its own directory whenever possible. An external absolute path is
 allowed only when the user explicitly chooses to link rather than copy an asset.
+
+Mesh payloads are MGOM files (`.omb`, see `MGOM_FORMAT.md`). The former MGMB format
+is removed.
+
+Jobs, steps and loads are not stored in the mesh or in MGOM. They are lines of the
+analysis script (see `SOLVER.md`), kept in the `analysis.model` asset. Saving that
+script as an asset of the project is what persists them.
+
+## Project archive
+
+A project can be packed into one file: `openmodel project-export <project.omproj> <archive.zip>`
+writes a standard ZIP archive, and `openmodel project-import <archive.zip> <new-directory>`
+extracts it again. The project stays a directory in the workbench; the archive is the
+format for moving or saving the whole project at once.
+
+- Every entry is stored without compression (method 0). The script, the mesh and any
+  other text payload appear verbatim in the file.
+- The archive holds `project.omproj`, with every asset path rewritten to
+  `assets/<asset id>/<file name>` and storage `managed`, and the payload of every asset.
+  Linked assets are copied in, so the archive is self-contained.
+- Asset IDs must not contain `/`, `\`, `:` or control characters, and must not be `.` or `..`.
+- No ZIP64, no archive comment, no multi-disk archives, no encryption, no data descriptors.
+  Projects that need more than 4 GiB per entry or 65,534 entries are refused.
+- Export refuses a manifest that does not validate, a missing asset file, or a file whose size
+  or SHA-256 differs from the manifest. Nothing is written in those cases.
+- Import checks every CRC-32 and every recorded SHA-256, rejects names that would leave the
+  destination directory, and refuses a destination that already holds a manifest or
+  files with the same names. On failure the files written so far are removed.
+- The archive is written to a temporary sibling file and then renamed over the target.
+
+Test: `tests/project_archive_test.cpp` (round trip, byte-for-byte payloads, linked file,
+the script's jobs, steps and loads, and each refusal above).
 
 ## Document contract
 
@@ -117,6 +149,9 @@ Saving is a two-phase operation:
 The project document is committed last: it must never point to a payload that has not
 been installed. On platforms where replacing an existing file is not atomic, use a
 backup/rollback sequence and report that weaker guarantee explicitly.
+
+Current state: `OpenModelProject::save()` writes the manifest only; it does not write
+payloads. To save everything at once, use `exportProjectArchive()` (see *Project archive*).
 
 ## Compatibility and evolution
 

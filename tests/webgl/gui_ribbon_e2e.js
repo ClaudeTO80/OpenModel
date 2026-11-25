@@ -64,13 +64,13 @@ const check = (ok, text) => { console.log((ok ? 'PASS ' : 'FAIL ') + text); if (
   check(missing.length === 0, 'every ribbon button is wired to a handler (' + actions.length + ' distinct actions' + (missing.length ? '; missing ' + missing : '') + ')');
 
   // 2. Before any model: viewer-dependent buttons are disabled, opening ones are enabled.
-  check((await state('mode-block')).disabled && (await state('save-mgmb')).disabled && !(await state('demo')).disabled && !(await state('cad')).disabled,
+  check((await state('mode-block')).disabled && (await state('save-model')).disabled && !(await state('demo')).disabled && !(await state('cad')).disabled,
         'without a model, viewer and save actions are disabled; open actions are enabled');
 
   // 3. Demo model from the ribbon.
   await press('demo'); await waitIdle();
   check(!(await isBad()) && (await viewer()), 'ribbon "Modello demo" loads a model into the viewer');
-  check(!(await state('mode-block')).disabled && !(await state('save-mgmb')).disabled, 'buttons are enabled once a model is shown');
+  check(!(await state('mode-block')).disabled && !(await state('save-model')).disabled, 'buttons are enabled once a model is shown');
   check((await state('mode-scalar')).disabled && (await state('deform')).disabled && (await state('mode-next')).disabled,
         'result-only buttons stay disabled (no fields, displacement or modes)');
 
@@ -169,8 +169,8 @@ const check = (ok, text) => { console.log((ok ? 'PASS ' : 'FAIL ') + text); if (
   await page.fill('#outBase', path.resolve(dir, 'ribbon_out'));
   await press('save-mgwv'); await waitIdle();
   check(fs.existsSync(path.resolve(dir, 'ribbon_out.mgwv')), 'MGWV export from the ribbon writes the file');
-  await press('save-mgmb'); await waitIdle();
-  check(fs.existsSync(path.resolve(dir, 'ribbon_out.mgmb')), 'MGMB export from the ribbon writes the file');
+  await press('save-model'); await waitIdle();
+  check(fs.existsSync(path.resolve(dir, 'ribbon_out.omb')), 'MGOM export from the ribbon writes the file');
   await press('save-inp'); await waitIdle();
   check(fs.existsSync(path.resolve(dir, 'ribbon_out.inp')), 'INP export from the ribbon writes the file');
 
