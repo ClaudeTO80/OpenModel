@@ -12,8 +12,9 @@
  * @file ProcessRunner.hpp
  * @brief Run an external solver in the background, collecting its output line by line.
  *
- * POSIX implementation (fork/exec in its own process group, merged stdout+stderr through a pipe, a reader
- * thread). On Windows start() reports an error: that path is not implemented.
+ * The process is run by TK4CPP::Process (POSIX: its own process group; Windows: a Job Object). stdout and stderr
+ * are merged into one stream of lines. cancel() asks the process to stop and kills it when the grace period has
+ * passed. The class does not expose any TK4CPP type, so this header can be used without TK4CPP.
  */
 
 namespace OpenModel {

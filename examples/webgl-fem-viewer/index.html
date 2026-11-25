@@ -71,16 +71,35 @@ canvas.drag { cursor: grabbing; }
 .vtGroup button[aria-pressed="true"] { background: var(--accent); color: #fff; }
 .vtGroup button:disabled { opacity: .45; cursor: default; }
 .vtGroup input[type=range] { width: 120px; }
-#colorbar { position: absolute; right: 10px; bottom: 10px; z-index: 3; width: 220px; max-width: calc(100% - 20px); background: color-mix(in srgb, var(--panel) 90%, transparent); border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px; font-size: 12px; font-variant-numeric: tabular-nums; }
+#colorbar { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); z-index: 3; width: 232px; max-width: calc(100% - 20px); background: transparent; text-shadow: 0 0 3px var(--panel), 0 0 3px var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; font-size: 12px; font-variant-numeric: tabular-nums; }
 #colorbar .cbTitle { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-#colorbar .cbBar { height: 10px; border-radius: 3px; border: 1px solid var(--line); margin: 5px 0 3px; }
-#colorbar .cbLabels { display: flex; justify-content: space-between; color: var(--muted); }
+#colorbar .cbRow { display: flex; gap: 8px; margin: 6px 0 8px; }
+#colorbar .cbBar { width: 14px; height: 200px; border-radius: 3px; border: 1px solid var(--line); flex: none; }
+#colorbar .cbTicks { position: relative; flex: 1; min-width: 0; }
+#colorbar .cbTicks span { position: absolute; left: 0; transform: translateY(50%); color: var(--muted); white-space: nowrap; line-height: 1; }
+#colorbar .cbCtl { display: grid; grid-template-columns: auto 1fr; gap: 4px 8px; align-items: center; }
+#colorbar .cbCtl span { color: var(--muted); }
+#colorbar .cbCtl input, #colorbar .cbCtl select { min-width: 0; width: 100%; font: inherit; }
+#colorbar .cbNote { color: var(--muted); margin-top: 6px; }
+#colorbar .cbHead { display: flex; align-items: center; gap: 6px; }
+#colorbar .cbHead .cbTitle { flex: 1; min-width: 0; }
+#colorbar .cbOptsBtn { flex: none; font: inherit; font-size: 11px; padding: 1px 6px; }
 /* Results card on the canvas (top right): load case, mode, component shown and the scale of the deformed shape. */
 #resultsPanel { position: absolute; top: 10px; right: 10px; z-index: 3; width: min(260px, calc(100% - 20px)); background: color-mix(in srgb, var(--panel) 90%, transparent); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; font-size: 12px; }
 #resultsPanel .rpTitle { font-weight: 600; margin-bottom: 6px; }
 #resultsPanel dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 3px 10px; margin: 0; font-variant-numeric: tabular-nums; }
 #resultsPanel dt { color: var(--muted); }
 #resultsPanel dd { margin: 0; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#resultsBar { position: absolute; right: 10px; bottom: 10px; z-index: 3; width: 200px; max-width: calc(100% - 20px); max-height: calc(100% - 190px); overflow-y: auto; background: color-mix(in srgb, var(--panel) 90%, transparent); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; font-size: 12px; }
+#resultsBar[hidden] { display: none; }
+#resultsBar .rbHead { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+#resultsBar .rbTitle { font-weight: 600; }
+#resultsBar .rbToggle { font: inherit; font-size: 11px; padding: 1px 6px; }
+#resultsBar .rbSub { color: var(--muted); margin: 6px 0 2px; }
+#resultsBar ul { list-style: none; margin: 0; padding: 0; }
+#resultsBar li button { width: 100%; text-align: left; font: inherit; color: var(--text); background: none; border: 1px solid transparent; border-radius: 4px; padding: 2px 4px; cursor: pointer; }
+#resultsBar li button[aria-pressed="true"] { border-color: var(--accent); font-weight: 600; }
+#resultsBar.collapsed #rbBody { display: none; }
 #axes { position: absolute; left: 12px; bottom: 46px; width: 112px; height: 112px; pointer-events: none; }
 #axes[hidden] { display: none; }
 #hud { position: absolute; left: 12px; bottom: 10px; color: var(--muted); background: color-mix(in srgb, var(--panel) 80%, transparent); border: 1px solid var(--line); border-radius: 6px; padding: 5px 9px; pointer-events: none; }
@@ -170,6 +189,11 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
       <div class="row"><span>Frequency</span><span id="modeFreq" style="flex:1;text-align:right"></span></div>
       <label class="row"><span>Animate</span><input type="checkbox" id="modeAnim"> <span style="flex:1;color:var(--text)">oscillation</span></label>
     </div>
+    <div id="frameBox" hidden>
+      <label class="row"><span>Increment</span><input type="range" id="frameSel" min="0" max="0" value="0" step="1"></label>
+      <div class="row"><span>Time</span><span id="frameVal" style="flex:1;text-align:right"></span></div>
+      <label class="row"><span>Play</span><input type="checkbox" id="framePlay"> <span style="flex:1;color:var(--text)">through the increments</span></label>
+    </div>
   </section>
 
   <section id="pickSec" hidden>
@@ -236,10 +260,35 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     <dl id="rpList"></dl>
   </div>
   <div id="colorbar" hidden>
-    <div class="cbTitle" id="cbTitle"></div>
-    <div class="cbBar" id="cbBar"></div>
-    <div class="cbLabels"><span id="cbMin"></span><span id="cbMax"></span></div>
+    <div class="cbHead">
+      <div class="cbTitle" id="cbTitle"></div>
+      <button type="button" class="cbOptsBtn" id="cbOptsBtn" aria-expanded="true" aria-controls="cbOptions" title="Show or hide the palette, scale and range controls">Hide options</button>
+    </div>
+    <div class="cbRow">
+      <div class="cbBar" id="cbBar"></div>
+      <div class="cbTicks">
+        <span id="cbMax" style="bottom:100%"></span>
+        <div id="cbMid"></div>
+        <span id="cbMin" style="bottom:0"></span>
+      </div>
+    </div>
+    <div id="cbOptions">
+      <div class="cbCtl">
+        <span>Max</span><input type="number" id="cbMaxIn" step="any" aria-label="Scale maximum">
+        <span>Min</span><input type="number" id="cbMinIn" step="any" aria-label="Scale minimum">
+        <span>Palette</span><select id="palSel" aria-label="Colour palette"></select>
+        <span>Scale</span><select id="scaleSel" aria-label="Scale type"><option value="lin">Linear</option><option value="log">Logarithmic</option></select>
+      </div>
+      <div class="cbNote" id="cbNote" hidden>Logarithmic needs min &gt; 0 and max &gt; min: linear scale shown</div>
+    </div>
   </div>
+  <section id="resultsBar" hidden aria-label="Results in the model">
+    <div class="rbHead"><span class="rbTitle">Results</span><button type="button" class="rbToggle" id="rbToggle" aria-expanded="true" aria-controls="rbBody">Hide</button></div>
+    <div id="rbBody">
+      <div id="rbFieldsGroup"><div class="rbSub">Fields</div><ul id="rbFields"></ul></div>
+      <div id="rbModesGroup"><div class="rbSub">Modes</div><ul id="rbModes"></ul></div>
+    </div>
+  </section>
   <div id="selBox" hidden style="position:absolute;border:1px dashed var(--accent);background:color-mix(in srgb, var(--accent) 15%, transparent);pointer-events:none"></div>
   <canvas id="axes" width="112" height="112" aria-label="Axes of the model coordinate system"></canvas>
   <div id="hud">Left: rotate (or select, if enabled) · Right or Shift: pan · Wheel: zoom · Double-click: fit</div>
@@ -291,13 +340,20 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
   }`;
   const FS_TRI = GLSL_COMMON + `
   uniform vec4 uClip; uniform int uClipOn; uniform int uMode;
-  uniform sampler2D uLut; uniform vec2 uRange;
+  uniform sampler2D uLut; uniform vec2 uRange; uniform int uLog;
   in vec3 vView; in vec3 vModel; in vec3 vColor; in float vS; flat in uint vSel;
   out vec4 o;
   void main() {
     if (uClipOn == 1 && dot(uClip.xyz, vModel) > uClip.w) discard;
     vec3 base = vColor;
-    if (uMode == 3) base = texture(uLut, vec2(clamp((vS - uRange.x) / max(uRange.y - uRange.x, 1e-30), 0.0, 1.0), 0.5)).rgb;
+    if (uMode == 3) {
+      float t = (vS - uRange.x) / max(uRange.y - uRange.x, 1e-30);
+      if (uLog == 1) {
+        float lo = max(uRange.x, 1e-30), hi = max(uRange.y, lo * 1.000001);
+        t = (log(max(vS, lo)) - log(lo)) / (log(hi) - log(lo));
+      }
+      base = texture(uLut, vec2(clamp(t, 0.0, 1.0), 0.5)).rgb;
+    }
     if (vSel != 0u) base = mix(base, vec3(1.0, 0.45, 0.0), 0.75);
     vec3 n = normalize(cross(dFdx(vView), dFdy(vView)));
     float key = abs(dot(n, normalize(vec3(0.35, 0.55, 1.0))));
@@ -440,6 +496,28 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     }
   }`;
 
+  // Rigid links (RBE2): segments from the reference point to each coupled node (uDot = 0), and a red dot on the
+  // reference point (uDot = 1). Positions are the model's, in the frame of the mesh; the section clip applies as to the mesh.
+  const VS_RIG = GLSL_COMMON + `
+  uniform mat4 uMV, uP; uniform float uPointSize;
+  in vec3 aPos; out vec3 vModel;
+  void main() {
+    vModel = aPos;
+    gl_Position = uP * uMV * vec4(aPos, 1.0);
+    gl_PointSize = uPointSize;
+  }`;
+  const FS_RIG = GLSL_COMMON + `
+  uniform vec4 uClip; uniform int uClipOn; uniform int uDot;
+  in vec3 vModel; out vec4 o;
+  void main() {
+    if (uClipOn == 1 && dot(uClip.xyz, vModel) > uClip.w) discard;
+    if (uDot == 1) {
+      vec2 d = gl_PointCoord - 0.5;
+      if (dot(d, d) > 0.25) discard;
+    }
+    o = vec4(0.86, 0.12, 0.12, 1.0);
+  }`;
+
   function program(vs, fs) {
     const make = (type, src) => {
       const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
@@ -457,6 +535,33 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
   }
   const triProg = program(VS_TRI, FS_TRI), edgeProg = program(VS_EDGE, FS_EDGE);
   const pickTriProg = program(VS_PICK_TRI, FS_PICK), nodeProg = program(VS_NODE, FS_PICK), consProg = program(VS_CONS, FS_CONS);
+  const rigProg = program(VS_RIG, FS_RIG);
+  rigProg.a = gl.getAttribLocation(rigProg.p, "aPos");
+  /** Buffers of the rigid links of a model (meta.rigidLinks): one VAO for the segments, one for the reference dots. */
+  function buildRigid(meta) {
+    const lines = [], points = [];
+    for (const link of (meta && meta.rigidLinks) || []) {
+      const r = link.reference;
+      points.push(r[0], r[1], r[2]);
+      for (let i = 0; i + 2 < link.nodes.length; i += 3) lines.push(r[0], r[1], r[2], link.nodes[i], link.nodes[i + 1], link.nodes[i + 2]);
+    }
+    const partOf = (data) => {
+      if (!data.length) return null;
+      const buf = gl.createBuffer(), va = gl.createVertexArray();
+      gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(data), gl.STATIC_DRAW);
+      gl.bindVertexArray(va);
+      gl.enableVertexAttribArray(rigProg.a);
+      gl.vertexAttribPointer(rigProg.a, 3, gl.FLOAT, false, 0, 0);
+      gl.bindVertexArray(null);
+      return { vao: va, buf, n: data.length / 3 };
+    };
+    return { lines: partOf(lines), points: partOf(points) };
+  }
+  function freeRigid(rig) {
+    if (!rig) return;
+    for (const part of [rig.lines, rig.points]) if (part) { gl.deleteBuffer(part.buf); gl.deleteVertexArray(part.vao); }
+  }
   const vao = gl.createVertexArray();
 
   /* ------------------------------------------------------------- textures */
@@ -486,23 +591,46 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     return t;
   }
-  // 1 row x 256 color map used for scalar fields (viridis).
-  const VIRIDIS = ["#440154", "#482878", "#3e4989", "#31688e", "#26828e", "#1f9e89", "#35b779", "#6ece58", "#b5de2b", "#fde725"];
+  // Colour maps for scalar fields, from the lowest value to the highest. Viridis is the default.
+  const PALETTES = {
+    Viridis: ["#440154", "#482878", "#3e4989", "#31688e", "#26828e", "#1f9e89", "#35b779", "#6ece58", "#b5de2b", "#fde725"],
+    Rosso: ["#fff5f0", "#fee0d2", "#fcbba1", "#fc9272", "#fb6a4a", "#ef3b2c", "#cb181d", "#a50f15", "#67000d"],
+    Ocra: ["#ffffe5", "#fff7bc", "#fee391", "#fec44f", "#fe9929", "#ec7014", "#cc4c02", "#993404", "#662506"],
+    Blu: ["#f7fbff", "#deebf7", "#c6dbef", "#9ecae1", "#6baed6", "#4292c6", "#2171b5", "#08519c", "#08306b"],
+    Arcobaleno: ["#5e4fa2", "#3288bd", "#66c2a5", "#abdda4", "#e6f598", "#ffffbf", "#fee08b", "#fdae61", "#f46d43", "#d53e4f", "#9e0142"]
+  };
+  let activePalette = "Viridis";
   const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
-  function lutColor(t) {
-    const x = Math.min(Math.max(t, 0), 1) * (VIRIDIS.length - 1), i = Math.min(Math.floor(x), VIRIDIS.length - 2), f = x - i;
-    const a = hex(VIRIDIS[i]), b = hex(VIRIDIS[i + 1]);
+  function lutColor(t, colors) {
+    const x = Math.min(Math.max(t, 0), 1) * (colors.length - 1), i = Math.min(Math.floor(x), colors.length - 2), f = x - i;
+    const a = hex(colors[i]), b = hex(colors[i + 1]);
     return a.map((v, k) => Math.round(v + (b[k] - v) * f));
   }
-  const lutData = new Uint8Array(256 * 4);
-  for (let i = 0; i < 256; i++) lutData.set([...lutColor(i / 255), 255], i * 4);
   const lutTex = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D, lutTex);
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 256, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, lutData);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-  const gradient = "linear-gradient(90deg," + VIRIDIS.join(",") + ")";
-  $("bar").style.background = gradient;
+  /** Uploads the active colour map as a 256-texel row, read by the scalar shader. */
+  function uploadLut() {
+    const colors = PALETTES[activePalette], data = new Uint8Array(256 * 4);
+    for (let i = 0; i < 256; i++) data.set([...lutColor(i / 255, colors), 255], i * 4);
+    gl.bindTexture(gl.TEXTURE_2D, lutTex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 256, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
+  }
+  uploadLut();
+  /** CSS gradient of a colour map: 90deg runs left to right, 0deg runs from bottom to top. */
+  const gradientCss = (name, angle) => "linear-gradient(" + angle + "deg," + PALETTES[name].join(",") + ")";
+  $("bar").style.background = gradientCss(activePalette, 90);
+  /** Makes a colour map the active one for the scalar colouring and the colour bar; false for an unknown name. */
+  function applyPalette(name) {
+    if (!Object.prototype.hasOwnProperty.call(PALETTES, name)) return false;
+    activePalette = name; uploadLut();
+    $("bar").style.background = gradientCss(activePalette, 90);
+    S.dirty = true; updateColorbar();
+    return true;
+  }
+  /** Logarithmic colouring applies only to a positive range; otherwise the linear scale is used. */
+  function logActive() { return S.logScale && S.range[0] > 0 && S.range[1] > S.range[0]; }
 
   // Okabe-Ito based categorical palette, extended with lighter/darker variants.
   const CATEGORICAL = ["#56b4e9", "#e69f00", "#009e73", "#cc79a7", "#d55e00", "#0072b2", "#f0e442", "#8c8c8c",
@@ -513,9 +641,10 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
   const S = {
     model: null, tex: {}, count: {}, mode: "block", vis: null, palettes: {},
     wire: "skin", axes: true, consOn: true, consSize: 2.2, clipOn: false, clipAxis: 2, clipPos: 0.5, clipFlip: false,
-    fieldIndex: 0, range: [0, 1], dirty: true,
+    fieldIndex: 0, range: [0, 1], dirty: true, logScale: false,
     defOn: true, defFactor: 1, defSuggested: 1,
     modeIndex: 0, animate: false, phase: 0, lastTick: 0,
+    frameIndex: 0, framePlay: false, frameAcc: 0,
     pickMode: "off", pickAngle: 1, pickGrowth: "same-normal", pickHoles: true, pickHoleArc: 330, pickBox: false, sel: { node: new Set(), element: new Set(), face: new Set() },
     rot: [1, 0, 0, 0, 1, 0, 0, 0, 1], target: [0, 0, 0], dist: 3, radius: 1,
   };
@@ -564,7 +693,14 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
       })),
       // Optional vibration modes: 3 float32 per vertex each.
       modes: (meta.modes || []).map((m) => ({ label: m.label, frequency: m.frequency, max: m.max, disp: slice(Float32Array, m.offset, meta.counts.vertices * 3) })),
+      // Optional time history: 3 float32 per vertex per time step; `frame` is the step shown first (the last by default).
+      frames: (meta.frames || []).map((f) => ({ label: f.label, time: f.time, max: f.max, disp: slice(Float32Array, f.offset, meta.counts.vertices * 3) })),
+      frameIndex: 0,
     };
+    if (model.frames.length) {
+      model.frameIndex = Math.min(Number.isInteger(meta.frame) ? meta.frame : model.frames.length - 1, model.frames.length - 1);
+      model.disp = model.frames[model.frameIndex].disp;
+    }
     if (model.modes.length) {
       model.disp = model.modes[0].disp;
       // Dynamic field: displacement magnitude of the selected mode (recomputed when the mode changes).
@@ -633,6 +769,8 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     S.faceInfo = null; S.nodeVertex = null; S.holeCache = new Map();
     S.count = { tris: n.triangles, skinTris: n.boundaryTriangles, edges: n.edges, skinEdges: n.boundaryEdges,
                 cons: model.consVertex ? model.consVertex.length : 0 };
+    freeRigid(S.rig);
+    S.rig = buildRigid(model.meta);
   }
   function setField(i) {
     const f = S.model.fields[i];
@@ -704,6 +842,7 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
   };
   const rotX = (a) => [1, 0, 0, 0, Math.cos(a), -Math.sin(a), 0, Math.sin(a), Math.cos(a)];
   const rotY = (a) => [Math.cos(a), 0, Math.sin(a), 0, 1, 0, -Math.sin(a), 0, Math.cos(a)];
+  const rotZ = (a) => [Math.cos(a), -Math.sin(a), 0, Math.sin(a), Math.cos(a), 0, 0, 0, 1];
   function orthonormalize(m) {
     let x = [m[0], m[1], m[2]], y = [m[3], m[4], m[5]];
     const nrm = (v) => { const l = Math.hypot(...v) || 1; return v.map((q) => q / l); };
@@ -718,6 +857,13 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
   function bounds() {
     const b = S.model.meta.bbox, o = S.model.meta.origin;
     const lo = b.min.map((v, i) => v - o[i]), hi = b.max.map((v, i) => v - o[i]);
+    // The rigid links (RBE2) are framed too, so that their reference points can be seen after a fit. The stored
+    // bounding box (the Dimensions) stays the mesh's.
+    const grow = (p) => { for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], p[k]); hi[k] = Math.max(hi[k], p[k]); } };
+    for (const link of S.model.meta.rigidLinks || []) {
+      grow(link.reference);
+      for (let i = 0; i + 2 < link.nodes.length; i += 3) grow([link.nodes[i], link.nodes[i + 1], link.nodes[i + 2]]);
+    }
     return { lo, hi, center: lo.map((v, i) => (v + hi[i]) / 2), diag: Math.hypot(...hi.map((v, i) => v - lo[i])) };
   }
   const VIEWS = {
@@ -833,6 +979,7 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     gl.uniform1i(triProg.u.uHasDisp, S.model.disp ? 1 : 0); gl.uniform1f(triProg.u.uDispScale, dispScale);
     gl.uniform4fv(triProg.u.uClip, clip); gl.uniform1i(triProg.u.uClipOn, S.clipOn ? 1 : 0);
     gl.uniform2fv(triProg.u.uRange, S.range);
+    gl.uniform1i(triProg.u.uLog, logActive() ? 1 : 0);
     const T = S.tex;
     bindTex(triProg, "uPos", 0, T.pos); bindTex(triProg, "uIdx", 1, T.idx); bindTex(triProg, "uBlock", 2, T.block);
     bindTex(triProg, "uRegion", 3, T.region); bindTex(triProg, "uSurf", 4, T.surf); bindTex(triProg, "uVis", 5, T.vis);
@@ -869,6 +1016,16 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
       gl.uniform1i(consProg.u.uKind, 1); gl.drawArrays(gl.LINES, 0, nc * 96);
       gl.uniform1i(consProg.u.uKind, 2); gl.drawArrays(gl.POINTS, 0, nc);
     }
+    // Rigid links: drawn with the constraints (the "fixed dofs" switch).
+    if (S.consOn && S.rig && (S.rig.lines || S.rig.points)) {
+      gl.useProgram(rigProg.p);
+      gl.uniformMatrix4fv(rigProg.u.uMV, false, MV); gl.uniformMatrix4fv(rigProg.u.uP, false, P);
+      gl.uniform4fv(rigProg.u.uClip, clip); gl.uniform1i(rigProg.u.uClipOn, S.clipOn ? 1 : 0);
+      gl.uniform1f(rigProg.u.uPointSize, 9 * dpr);
+      if (S.rig.lines) { gl.uniform1i(rigProg.u.uDot, 0); gl.bindVertexArray(S.rig.lines.vao); gl.drawArrays(gl.LINES, 0, S.rig.lines.n); }
+      if (S.rig.points) { gl.uniform1i(rigProg.u.uDot, 1); gl.bindVertexArray(S.rig.points.vao); gl.drawArrays(gl.POINTS, 0, S.rig.points.n); }
+      gl.bindVertexArray(null);
+    }
     if (S.pickMode === "node" && S.sel.node.size > 0) {
       gl.useProgram(nodeProg.p);
       gl.uniformMatrix4fv(nodeProg.u.uMV, false, MV); gl.uniformMatrix4fv(nodeProg.u.uP, false, P);
@@ -882,10 +1039,14 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     gl.bindVertexArray(null);
   }
   function loop(now) {
+    const dt = S.lastTick ? Math.max(0, Math.min(0.1, (now - S.lastTick) / 1000)) : 0;
     if (S.animate) {
-      const dt = S.lastTick ? Math.max(0, Math.min(0.1, (now - S.lastTick) / 1000)) : 0;
       S.phase = (S.phase + 2 * Math.PI * 0.5 * dt) % (2 * Math.PI);   // one oscillation every 2 s
       S.dirty = true;
+    }
+    if (S.framePlay && S.model && S.model.frames.length > 1) {
+      S.frameAcc += 5 * dt;   // five time steps per second, wrapping to the first one
+      if (S.frameAcc >= 1) { S.frameAcc -= 1; setFrame((S.frameIndex + 1) % S.model.frames.length); }
     }
     S.lastTick = now;
     if (S.dirty) render();
@@ -957,16 +1118,30 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
   }
   /** Formats a value of the colour range for the colour bar; a non finite value is shown as a dash. */
   const fmtRange = (v) => (Number.isFinite(v) ? String(Number(v.toPrecision(4))) : "-");
-  /** Colour bar on the canvas: shown only for the scalar field colouring, with the range in use. */
+  /** Colour bar on the canvas: shown only for the scalar colouring, with palette, scale, range and ticks. */
   function updateColorbar() {
     const field = S.model && S.model.fields[S.fieldIndex];
     const on = S.mode === "scalar" && !!field;
     $("colorbar").hidden = !on;
     if (!on) return;
-    $("cbBar").style.background = $("bar").style.background;
+    const [lo, hi] = S.range, log = logActive();
+    $("cbBar").style.background = gradientCss(activePalette, 0);
     $("cbTitle").textContent = field.name;
-    $("cbMin").textContent = fmtRange(S.range[0]);
-    $("cbMax").textContent = fmtRange(S.range[1]);
+    $("palSel").value = activePalette;
+    $("scaleSel").value = S.logScale ? "log" : "lin";
+    $("cbMinIn").value = Number.isFinite(lo) ? String(lo) : "";
+    $("cbMaxIn").value = Number.isFinite(hi) ? String(hi) : "";
+    $("cbMin").textContent = fmtRange(lo);
+    $("cbMax").textContent = fmtRange(hi);
+    // Three ticks between the ends: evenly spaced in value, or in its logarithm on the logarithmic scale.
+    let mid = "";
+    for (let i = 1; i < 4; i++) {
+      const t = i / 4;
+      const v = log ? Math.exp(Math.log(lo) + t * (Math.log(hi) - Math.log(lo))) : lo + t * (hi - lo);
+      mid += `<span style="bottom:${t * 100}%">${fmtRange(v)}</span>`;
+    }
+    $("cbMid").innerHTML = mid;
+    $("cbNote").hidden = !(S.logScale && !log);
   }
   /** Brings the overlay in line with the sidebar inputs, which stay the single source of state. */
   function syncViewTools() {
@@ -1001,7 +1176,20 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     }));
   }
   /** Results card: the load case, the mode, the component coloured, and the scale of the deformed shape with its value. */
+  /** Results bar on the right: the fields and the modes of the model; the one in use is pressed. Hidden without results. */
+  function updateResultsBar() {
+    const model = S.model;
+    const fields = model ? model.fields : [], modes = model ? model.modes : [];
+    $("resultsBar").hidden = !model || (!fields.length && !modes.length);
+    $("rbFieldsGroup").hidden = !fields.length;
+    $("rbModesGroup").hidden = !modes.length;
+    $("rbFields").innerHTML = fields.map((f, i) =>
+      `<li><button type="button" data-rb-field="${i}" aria-pressed="${S.mode === "scalar" && S.fieldIndex === i}">${esc(f.name)}${f.element ? " [element]" : ""}</button></li>`).join("");
+    $("rbModes").innerHTML = modes.map((m, i) =>
+      `<li><button type="button" data-rb-mode="${i}" aria-pressed="${i === S.modeIndex}">${esc(modeText(m))}</button></li>`).join("");
+  }
   function updateResultsPanel() {
+    updateResultsBar();
     const model = S.model, meta = model && model.meta;
     const show = !!model && !!meta.results;
     $("resultsPanel").hidden = !show;
@@ -1011,6 +1199,7 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
       const m = model.modes[S.modeIndex];
       rows.push(["Mode", modeText(m)], ["Frequency", String(Number(m.frequency.toPrecision(6)))]);
     }
+    if (model.frames.length) rows.push(["Time", model.frames[S.frameIndex].label]);
     const field = model.fields[S.fieldIndex];
     if (S.mode === "scalar" && field) rows.push(["Component", field.name + (field.element ? " (per element)" : " (nodal)")]);
     if (model.disp && meta.deformation) {
@@ -1036,6 +1225,7 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     box.hidden = false;
   }
   function refreshUi() {
+    updateResultsBar();
     $("scalarBox").hidden = S.mode !== "scalar";
     $("clipBox").hidden = !S.clipOn;
     fillBlocks(); fillComponents(); fillLegend();
@@ -1051,6 +1241,7 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     const meta = model.meta, def = meta.deformation, has = !!model.disp && !!def;
     $("defSec").hidden = !has;
     setupModes(model);   // also resets the selector and the animation left over from a previously loaded file
+    setupFrames(model);
     if (!has) return;
     S.defOn = true; $("defOn").checked = true;
     S.defSuggested = def.max > 0 ? 0.1 * bounds().diag / def.max : 1;
@@ -1068,6 +1259,33 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     if (!has) return;
     $("modeSel").innerHTML = model.modes.map((m, i) => `<option value="${i}">${esc(modeText(m))}</option>`).join("");
     $("modeFreq").textContent = String(Number(model.modes[0].frequency.toPrecision(6)));
+  }
+  /** Text of the increment readout: its label and its position in the time history. */
+  const frameText = (model, i) => model.frames[i].label + "  (" + (i + 1) + " / " + model.frames.length + ")";
+  /** Time history controls: the slider runs over the frames; the frame in the model is the one shown. */
+  function setupFrames(model) {
+    const has = model.frames.length > 0;
+    $("frameBox").hidden = !has;
+    S.framePlay = false; S.frameAcc = 0; $("framePlay").checked = false;
+    if (!has) return;
+    $("frameSel").max = String(model.frames.length - 1);
+    $("frameSel").value = String(model.frameIndex);
+    $("frameVal").textContent = frameText(model, model.frameIndex);
+    S.frameIndex = model.frameIndex;
+  }
+  /** Shows frame i of the time history: its displacement drives the deformed shape (the texture is replaced). */
+  function setFrame(i) {
+    const model = S.model;
+    if (!model || !model.frames[i]) return;
+    const frame = model.frames[i];
+    S.frameIndex = i;
+    model.disp = frame.disp;
+    gl.deleteTexture(S.tex.disp);
+    S.tex.disp = dataTexture("f3", frame.disp, 3);
+    $("frameSel").value = String(i);
+    $("frameVal").textContent = frameText(model, i);
+    updateResultsPanel();
+    S.dirty = true;
   }
   function setMode(i) {
     const model = S.model;
@@ -1093,6 +1311,21 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     el.hidden = !meta.results; el.textContent = meta.results ? "Results: " + meta.results.label : "";
   }
   function showMessage(text) { const el = $("msg"); el.textContent = text; el.hidden = !text; }
+  /** Empties the viewer as at start: no model, no selection and no sections or colour bar, with the empty-state message back. */
+  function clearModel() {
+    freeModel();
+    freeRigid(S.rig); S.rig = null;
+    S.model = null; S.tex = {}; S.count = {}; S.vis = null; S.palettes = {};
+    S.clipOn = false; $("clipOn").checked = false;
+    S.pickMode = "off"; $("pickMode").value = "off"; canvas.style.cursor = "";
+    S.sel = { node: new Set(), element: new Set(), face: new Set() };
+    for (const id of ["blocksSec", "compSec", "defSec", "resultsInfo", "scalarBox", "clipBox", "legendBox", "resultsPanel", "pickSec", "consRows"]) $(id).hidden = true;
+    updateResultsBar();
+    $("blocks").innerHTML = ""; $("legend").innerHTML = ""; $("stats").innerHTML = ""; $("pickCount").textContent = "none";
+    $("fileName").textContent = "No file loaded";
+    $("drop").hidden = false; showMessage("");
+    updateColorbar(); syncViewTools(); S.dirty = true;
+  }
   function loadBuffer(buffer, name) {
     try {
       const t0 = performance.now();
@@ -1130,9 +1363,49 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
   $("fitBtn").addEventListener("click", fit);
   document.querySelectorAll("[data-view]").forEach((b) => b.addEventListener("click", () => setView(b.dataset.view)));
   $("colorMode").addEventListener("change", (e) => { S.mode = e.target.value; refreshUi(); });
-  $("fieldSel").addEventListener("change", (e) => setField(+e.target.value));
+  $("fieldSel").addEventListener("change", (e) => { setField(+e.target.value); updateResultsBar(); });
+  // Results bar: a field switches to the scalar colouring of that field; a mode is selected as in the Mode list.
+  $("resultsBar").addEventListener("click", (e) => {
+    const field = e.target.closest("[data-rb-field]"), mode = e.target.closest("[data-rb-mode]");
+    if (field) {
+      const i = +field.dataset.rbField;
+      $("fieldSel").value = i; setField(i);
+      S.mode = "scalar"; $("colorMode").value = "scalar"; refreshUi(); S.dirty = true;
+    } else if (mode) {
+      setMode(+mode.dataset.rbMode);
+    }
+  });
+  // The results bar can be folded to its title; the choice is kept between sessions.
+  function setResultsBarOpen(open) {
+    $("resultsBar").classList.toggle("collapsed", !open);
+    $("rbToggle").setAttribute("aria-expanded", String(open));
+    $("rbToggle").textContent = open ? "Hide" : "Show";
+    try { localStorage.setItem("openmodel.resultsBar", open ? "shown" : "hidden"); } catch (e) { /* storage unavailable */ }
+  }
+  setResultsBarOpen((() => { try { return localStorage.getItem("openmodel.resultsBar") !== "hidden"; } catch (e) { return true; } })());
+  $("rbToggle").addEventListener("click", () => setResultsBarOpen($("resultsBar").classList.contains("collapsed")));
   $("smin").addEventListener("input", (e) => { S.range[0] = +e.target.value; S.dirty = true; updateColorbar(); });
   $("smax").addEventListener("input", (e) => { S.range[1] = +e.target.value; S.dirty = true; updateColorbar(); });
+  // Colour bar controls: palette, scale type and the ends of the range (the sidebar Min/Max inputs follow).
+  for (const name of Object.keys(PALETTES)) $("palSel").add(new Option(name, name));
+  $("palSel").addEventListener("change", (e) => applyPalette(e.target.value));
+  // Hide or show the legend options (palette, scale, range); the choice is kept between sessions.
+  function setLegendOptions(shown) {
+    $("cbOptions").hidden = !shown;
+    $("cbOptsBtn").setAttribute("aria-expanded", String(shown));
+    $("cbOptsBtn").textContent = shown ? "Hide options" : "Show options";
+    try { localStorage.setItem("openmodel.legendOptions", shown ? "shown" : "hidden"); } catch (e) { /* storage unavailable */ }
+  }
+  setLegendOptions((() => { try { return localStorage.getItem("openmodel.legendOptions") !== "hidden"; } catch (e) { return true; } })());
+  $("cbOptsBtn").addEventListener("click", () => setLegendOptions($("cbOptions").hidden));
+  $("scaleSel").addEventListener("change", (e) => { S.logScale = e.target.value === "log"; S.dirty = true; updateColorbar(); });
+  const setRangeEnd = (k, text) => {
+    const v = text === "" ? NaN : Number(text);
+    if (Number.isFinite(v)) { S.range[k] = v; $(k ? "smax" : "smin").value = v; S.dirty = true; }
+    updateColorbar();
+  };
+  $("cbMinIn").addEventListener("change", (e) => setRangeEnd(0, e.target.value));
+  $("cbMaxIn").addEventListener("change", (e) => setRangeEnd(1, e.target.value));
   $("wire").addEventListener("change", (e) => { S.wire = e.target.value; S.dirty = true; syncViewTools(); });
   setupViewTools();
   $("axesOn").addEventListener("change", (e) => { S.axes = e.target.checked; S.dirty = true; });
@@ -1146,6 +1419,8 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
   });
   $("modeSel").addEventListener("change", (e) => setMode(+e.target.value));
   $("modeAnim").addEventListener("change", (e) => { S.animate = e.target.checked; S.lastTick = 0; S.dirty = true; });
+  $("frameSel").addEventListener("input", (e) => setFrame(+e.target.value));
+  $("framePlay").addEventListener("change", (e) => { S.framePlay = e.target.checked; S.frameAcc = 0; S.lastTick = 0; });
   $("clipOn").addEventListener("change", (e) => { S.clipOn = e.target.checked; refreshUi(); });
   $("clipAxis").addEventListener("change", (e) => { S.clipAxis = +e.target.value; S.dirty = true; });
   $("clipPos").addEventListener("input", (e) => { S.clipPos = e.target.value / 1000; S.dirty = true; });
@@ -1730,6 +2005,25 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     S.rot = orthonormalize(mat3mul(rotX(dy * k), mat3mul(rotY(dx * k), S.rot)));
     S.dirty = true;
   }
+  /**
+   * Rotation about one axis of the view, for the modifier keys of the left button:
+   * roll (Ctrl+Alt) about the view axis, pitch (Ctrl+Shift) about the horizontal axis, yaw (Shift+Alt) about the vertical one.
+   * Only the drag component that drives the axis is used: dx for roll and yaw, dy for pitch.
+   */
+  function rotateAxis(axis, dx, dy) {
+    const k = 0.006;
+    const m = axis === "roll" ? rotZ(dx * k) : axis === "pitch" ? rotX(dy * k) : rotY(dx * k);
+    S.rot = orthonormalize(mat3mul(m, S.rot));
+    S.dirty = true;
+  }
+  /** Axis of a rotation started with the left button and a modifier key, or null. */
+  function axisOfModifiers(e) {
+    if (e.button !== 0) return null;
+    if (e.ctrlKey && e.altKey && !e.shiftKey) return "roll";
+    if (e.ctrlKey && e.shiftKey && !e.altKey) return "pitch";
+    if (e.shiftKey && e.altKey && !e.ctrlKey) return "yaw";
+    return null;
+  }
   function pan(dx, dy) {
     const worldPerPx = (2 * S.dist * Math.tan(0.4)) / canvas.clientHeight;
     const R = S.rot, right = [R[0], R[1], R[2]], up = [R[3], R[4], R[5]];
@@ -1741,8 +2035,9 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
   const selBox = $("selBox");
   canvas.addEventListener("pointerdown", (e) => {
     canvas.setPointerCapture(e.pointerId);
-    const box = canSelect() && e.button === 0 && !e.shiftKey && (S.pickBox || e.altKey);
-    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, button: e.button, shift: e.shiftKey, x0: e.clientX, y0: e.clientY, moved: 0, box, ctrl: e.ctrlKey || e.metaKey });
+    const axis = axisOfModifiers(e);
+    const box = !axis && canSelect() && e.button === 0 && !e.shiftKey && (S.pickBox || e.altKey);
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, button: e.button, shift: e.shiftKey, x0: e.clientX, y0: e.clientY, moved: 0, box, axis, ctrl: e.ctrlKey || e.metaKey });
     canvas.classList.add("drag"); lastPinch = 0;
   });
   canvas.addEventListener("pointermove", (e) => {
@@ -1758,7 +2053,8 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
       return;
     }
     if (pointers.size === 1) {
-      if (p.button === 2 || p.button === 1 || p.shift) pan(dx, dy); else rotate(dx, dy);
+      if (p.axis) rotateAxis(p.axis, dx, dy);
+      else if (p.button === 2 || p.button === 1 || p.shift) pan(dx, dy); else rotate(dx, dy);
     } else if (pointers.size === 2) {
       const [a, b] = [...pointers.values()];
       const other = a === p ? b : a;
@@ -1771,7 +2067,7 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
   const release = (e) => { pointers.delete(e.pointerId); if (!pointers.size) canvas.classList.remove("drag"); selBox.hidden = true; };
   canvas.addEventListener("pointerup", (e) => {
     const p = pointers.get(e.pointerId);
-    if (p && canSelect() && p.button === 0 && !p.shift && pointers.size === 1) {
+    if (p && !p.axis && canSelect() && p.button === 0 && !p.shift && pointers.size === 1) {
       const additive = p.ctrl || e.ctrlKey || e.metaKey;
       if (p.box && p.moved > 3) {
         const [ax, ay] = toCanvasPx(p.x0, p.y0), [bx, by] = toCanvasPx(e.clientX, e.clientY);
@@ -1827,12 +2123,32 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     },
     load: loadBuffer,
     loadUrl,
+    /** Empties the viewer: the model, its selection and its sections go away. */
+    clear: clearModel,
+    /** Names of the colour maps of the Palette list, in its order. */
+    palettes() { return Object.keys(PALETTES); },
+    /** Name of the colour map in use. */
+    palette() { return activePalette; },
+    /** Makes a colour map active; false when the name is unknown. */
+    setPalette: applyPalette,
+    /** Shows (true) or hides (false) the palette, scale and range controls of the colour bar. */
+    setLegendOptions,
+    /** Folds (false) or unfolds (true) the results bar on the right. */
+    setResultsBarOpen,
     state: S,
     /**
      * The constraints drawn in the viewer: one entry per constrained node that is drawn.
      * @returns {{vertex:number, node:number, dofs:string[], prescribed:boolean}[]} `node` is the external node id (-1 when the
      *          file has no picking chunks); `dofs` lists the constrained degrees of freedom among ux, uy, uz, rx, ry, rz.
      */
+    /**
+     * The rigid links drawn in the viewer.
+     * @returns {{links:number, segments:number}} `links` reference points, `segments` links from a reference point to a node.
+     */
+    rigidLinks() {
+      const r = S.rig;
+      return { links: r && r.points ? r.points.n : 0, segments: r && r.lines ? r.lines.n / 2 : 0 };
+    },
     constraints() {
       const m = S.model;
       if (!m || !m.consVertex) return [];
@@ -1861,6 +2177,8 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
       if ("modeIndex" in options) setMode(options.modeIndex);
       if ("animate" in options) { S.animate = !!options.animate; $("modeAnim").checked = S.animate; S.lastTick = 0; }
       if ("phase" in options) S.phase = options.phase;
+      if ("frame" in options) setFrame(options.frame);
+      if ("framePlay" in options) { S.framePlay = !!options.framePlay; $("framePlay").checked = S.framePlay; S.frameAcc = 0; S.lastTick = 0; }
       if ("deform" in options) {
         if ("on" in options.deform) { S.defOn = !!options.deform.on; $("defOn").checked = S.defOn; }
         if ("factor" in options.deform) { S.defFactor = options.deform.factor; $("defFactor").value = trim(S.defFactor); }

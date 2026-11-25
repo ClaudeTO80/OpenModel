@@ -15,6 +15,9 @@
 html,body{height:100%;margin:0}
 body{background:var(--bg);color:var(--text);font:13px/1.45 system-ui,"Segoe UI",sans-serif;display:grid;grid-template-rows:auto minmax(0,1fr) auto;overflow:hidden}
 #shell{display:grid;grid-template-columns:minmax(300px,360px) minmax(0,1fr);min-height:0}
+#shell.sideCollapsed{grid-template-columns:minmax(0,1fr)}
+#shell.sideCollapsed aside{display:none}
+.sideBtn{margin-left:auto;align-self:center;font:inherit;font-size:12px;padding:3px 8px;margin-right:8px;white-space:nowrap}
 aside{overflow-y:auto;padding:12px;border-right:1px solid var(--line);display:grid;gap:10px;align-content:start}
 h1{margin:0;font-size:17px}
 .sub{color:var(--muted);margin:2px 0 4px}
@@ -162,9 +165,14 @@ details.node details.node{margin-top:8px;background:transparent}
     <button class="tab" role="tab" data-tab="view">View</button>
     <button class="tab" role="tab" data-tab="check">Check</button>
     <button class="tab" role="tab" data-tab="help">Help</button>
+    <button type="button" class="sideBtn" id="sideToggle" aria-expanded="true" aria-controls="shell" title="Show or hide the left panel">◀ Panel</button>
   </nav>
 
   <div class="panel" data-panel="file" role="tabpanel">
+    <div class="group"><div class="items">
+      <button class="rb" data-act="new-model" title="Close the current model and start an empty one"><span class="ic">🆕</span>New model</button>
+      <button class="rb" data-act="settings" title="Solver path, jobs folder and legend palette"><span class="ic">⚙</span>Settings…</button>
+    </div><div class="gname">Session</div></div>
     <div class="group"><div class="items">
       <button class="rb" data-act="cad" title="Choose a CAD file (STEP, IGES, BREP, OBJ, STL…) and triangulate it"><span class="ic">📐</span>Import CAD…</button>
       <button class="rb" data-act="mesh" title="Choose a .omb, .mgmb, .inp or .mail (code_aster) mesh"><span class="ic">📂</span>Open mesh…</button>
@@ -233,6 +241,8 @@ details.node details.node{margin-top:8px;background:transparent}
       <button class="rb" data-act="as-fix" data-need="sel" title="Create a node group and add 'fix' to the script (degrees of freedom: section 7)"><span class="ic">⚓</span>Fix</button>
       <button class="rb" data-act="as-force" data-need="sel" title="Create a node group and add 'force' to the script"><span class="ic">➡</span>Force</button>
       <button class="rb" data-act="as-press" data-need="selface" title="Create a face group and add 'pressure' to the script (only with faces selected)"><span class="ic">⬇</span>Pressure</button>
+      <button class="rb" data-act="as-dist" data-need="selface" title="Create a face group and add 'distributed' to the script: the total force is shared by the selected faces in proportion to their area (only with faces selected)"><span class="ic">▦</span>Distributed</button>
+      <button class="rb" data-act="as-rbe2" data-need="sel" title="Create a node group and add 'rbe2' to the script for each selected hole: the coupled nodes follow a reference node at the centre of the hole (faces of several holes: one rigid link per hole)"><span class="ic">◎</span>RBE2</button>
     </div><div class="gname">Groups and loads</div></div>
     <div class="group"><div class="items">
       <button class="rb" data-act="cd-apply" data-need="sel" title="Block the degrees of freedom ticked in the side panel (Mesh constraints) on the nodes of the selection"><span class="ic">🔒</span>Constrain</button>
@@ -612,44 +622,53 @@ details.node details.node{margin-top:8px;background:transparent}
       <input id="asPress" value="1">
       <label for="asAmp">Amplitude (optional name, see Time dependence)</label>
       <input id="asAmp" placeholder="empty = constant load">
-      <div class="grid2"><button id="btnAsForce" onclick="assign('force')">Force on nodes</button><button id="btnAsPress" onclick="assign('press')">Pressure on faces</button></div>
-      <p class="hint">Force acts on the selected nodes, pressure on the selected faces. Each assignment appends the line to the script. A load with an amplitude is multiplied by the factor of that amplitude at the time of the step.</p>
+      <div class="grid2"><button id="btnAsForce" onclick="assign('force')">Force on nodes</button><button id="btnAsPress" onclick="assign('press')">Pressure on faces</button><button id="btnAsDist" onclick="assign('dist')">Distributed on faces</button></div>
+      <p class="hint">Force acts on the selected nodes, pressure on the selected faces, distributed shares the total force over the selected faces in proportion to their area. Each assignment appends the line to the script. A load with an amplitude is multiplied by the factor of that amplitude at the time of the step.</p>
       <ul id="condLoads" class="conds"></ul>
     </details>
     <details class="node">
       <summary>Time dependence</summary>
       <label for="asAmpName">Amplitude name</label>
       <input id="asAmpName" placeholder="A1">
-      <label for="asAmpPoints">Time, factor pairs (first time 0, increasing times)</label>
-      <input id="asAmpPoints" placeholder="0,0,1,1,2,0.5">
+      <label for="asAmpPoints">Time, factor pairs (increasing times), or the name of a table</label>
+      <input id="asAmpPoints" placeholder="0,0,1,1,2,0.5 or T1">
       <button class="full" onclick="addAmplitude()">Add amplitude to script</button>
       <ul id="condAmplitude" class="conds"></ul>
+      <h4 style="margin:12px 0 4px">Tables</h4>
+      <p class="hint">A table is a named list of (time, factor) pairs. Amplitudes can take their points from it by name, and a job can use another table with <code>amp=A:T</code>. Tables are defined before use.</p>
+      <ul id="condTables" class="conds"></ul>
+      <button class="full" onclick="openTableDialog(null)">New table</button>
     </details>
     <details class="node">
       <summary>Step</summary>
       <label for="asStepKind">Analysis</label>
       <select id="asStepKind" onchange="stepKindChanged()">
         <option value="static">Static (loads ramped over the step)</option>
+        <option value="frequency">Frequency (natural modes, loads ignored)</option>
         <option value="dynamic">Dynamic (transient, implicit)</option>
       </select>
+      <div id="asModeFields" hidden>
+        <label for="asModes">Number of modes</label>
+        <input id="asModes" type="number" min="1" max="1000" step="1" value="6">
+      </div>
       <div id="asDynFields" class="grid2" hidden>
         <div><label for="asDt">Initial increment dt</label><input id="asDt" type="number" step="any" placeholder="0.01"></div>
         <div><label for="asPeriod">Step time period</label><input id="asPeriod" type="number" step="any" placeholder="1"></div>
       </div>
       <button class="full" onclick="setStep()">Set step in script</button>
-      <p class="hint">Replaces the step line of the script. A dynamic analysis needs the density (rho=) and supports (fix). Loads without amplitude act at full value from the start.</p>
+      <p class="hint">Replaces the step line of the script. A frequency analysis needs the density (rho=) and supports (fix), and returns the natural frequencies and mode shapes shown in Vibration modes. A dynamic analysis needs the density (rho=) and supports (fix). Loads without amplitude act at full value from the start.</p>
     </details>
     <details id="secSolve" class="node" open>
       <summary>Analysis and solver</summary>
     <label for="anScript">Analysis script (material, constraints, loads, step)</label>
     <textarea id="anScript" rows="9" spellcheck="false" style="width:100%;font-family:monospace;font-size:12px"></textarea>
     <p class="hint">Edit or remove individual materials, constraints, loads and steps. Changes update the script used by the solver directly.</p>
-    <label for="anJob">Job file (folder or .inp; empty = ./openmodel_job/job.inp; for code_aster the folder and the file name matter)</label>
+    <label for="anJob">Job file (folder or .inp; empty = openmodel_job in the jobs folder of Settings; a relative path is relative to that folder; for code_aster the folder and the file name matter)</label>
     <input id="anJob" placeholder="/path/work/job.inp">
-    <label for="anSolverKind">Solver</label>
-    <select id="anSolverKind"><option value="ccx">CalculiX</option><option value="aster">code_aster</option></select>
-    <label for="anSolver">Executable (empty = 'ccx' on PATH; code_aster: 'run_aster' or 'as_run', or the OPENMODEL_CODE_ASTER variable)</label>
-    <input id="anSolver" placeholder="/usr/bin/ccx">
+    <label for="anSolverId">Solver (empty = the job's own solver= in the script, else the default of its analysis type in Settings)</label>
+    <select id="anSolverId"><option value="">Job default</option></select>
+    <label for="anSolver">Executable (empty = the executable of the chosen solver in Settings; code_aster also takes the OPENMODEL_CODE_ASTER variable, Elmer the OPENMODEL_ELMER variable)</label>
+    <input id="anSolver" placeholder="from Settings">
     <div class="grid2"><button id="btnWrite" onclick="analysisWrite()">Write input</button><button id="btnRun" class="primary" onclick="analysisRun()">Run solver</button></div>
     <div class="grid2"><button id="btnCancel" onclick="analysisCancel()" disabled>Cancel</button><button onclick="analysisExample()">Example</button></div>
     <p class="hint">Commands: <code>material E= nu= rho=</code>, <code>fix plane:x=0 [dof=1,2,3]</code>, <code>force plane:x=10 F=fx,fy,fz</code>, <code>pressure group:NAME p=</code>, <code>gravity g=gx,gy,gz</code>, <code>step static</code> or <code>step frequency modes=N</code>. Selectors: <code>all</code>, <code>group:NAME</code>, <code>plane:x|y|z=VALUE</code>. Use consistent units of your choice. When the run finishes, the results are loaded automatically.</p>
@@ -670,6 +689,20 @@ details.node details.node{margin-top:8px;background:transparent}
       <h3 id="analysisEditTitle">Edit condition</h3>
       <div id="analysisEditFields" class="stack"></div>
       <div class="grid2" style="margin-top:12px"><button type="button" id="analysisEditCancel">Cancel</button><button type="submit" class="primary">Apply</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="tableDialog" style="max-width:520px;width:calc(100% - 32px);border:1px solid var(--border,#888);border-radius:8px;background:var(--panel,#fff);color:var(--text,inherit)">
+    <form id="tableForm">
+      <h3 id="tableTitle">New table</h3>
+      <label for="tableName">Table name</label>
+      <input id="tableName" required placeholder="T1" autocomplete="off">
+      <div class="grid2" style="grid-template-columns:1fr 1fr 32px;align-items:center;margin-top:8px"><span class="hint">Time</span><span class="hint">Factor</span><span></span></div>
+      <div id="tableRows" class="stack"></div>
+      <button type="button" id="tableAddRow" class="full" style="margin-top:6px">Add row</button>
+      <canvas id="tablePreview" width="460" height="180" role="img" aria-label="Preview of the table" style="width:100%;height:auto;margin-top:10px;border:1px solid var(--border,#bbb);border-radius:4px"></canvas>
+      <p id="tableStatus" class="hint" role="status"></p>
+      <div class="grid2" style="margin-top:12px"><button type="button" id="tableCancel">Cancel</button><button type="submit" id="tableApply" class="primary">Apply</button></div>
     </form>
   </dialog>
 
@@ -735,12 +768,33 @@ details.node details.node{margin-top:8px;background:transparent}
   <span id="statusVersion"></span>
 </footer>
 
+<div class="modal" id="settingsModal" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+    <h3 id="settingsTitle">Settings</h3>
+    <label>Solvers: id, kind and executable (empty executable = the default name of the kind on PATH). calculix, code_aster and elmer are always present.</label>
+    <div id="setSolvers"></div>
+    <div class="row"><button onclick="addSolverRow()">Add solver</button></div>
+    <label for="defStatic">Default solver of static analysis</label>
+    <select id="defStatic"></select>
+    <label for="defFrequency">Default solver of frequency analysis</label>
+    <select id="defFrequency"></select>
+    <label for="defDynamic">Default solver of dynamic analysis</label>
+    <select id="defDynamic"></select>
+    <label for="setJobDir">Jobs folder (base of the job files; empty = the folder the server runs in)</label>
+    <div class="row"><input id="setJobDir" placeholder="/path/work"><button onclick="browse('setJobDir','folder')">Browse…</button></div>
+    <label for="setPalette">Legend palette (colour bar of the viewer)</label>
+    <select id="setPalette"></select>
+    <p class="hint" id="setNote"></p>
+    <div class="row" style="justify-content:flex-end"><button onclick="closeSettings()">Cancel</button><button class="primary" onclick="saveSettings()">Save</button></div>
+  </div>
+</div>
+
 <div class="modal" id="modal" hidden>
   <div class="dialog" role="dialog" aria-modal="true" aria-label="Choose file">
     <h3>Choose a file</h3>
     <div class="row"><button onclick="goUp()">↑ Up</button><input id="dirPath" onkeydown="if(event.key==='Enter')window.list(this.value)"><button onclick="list(dirPath.value)">Go</button></div>
     <ul id="entries"></ul>
-    <div class="row" style="justify-content:flex-end"><button onclick="closeModal()">Cancel</button></div>
+    <div class="row" style="justify-content:flex-end"><button id="useFolder" onclick="pick($('dirPath').value)" hidden>Use this folder</button><button onclick="closeModal()">Cancel</button></div>
   </div>
 </div>
 
@@ -861,6 +915,7 @@ function loadView(label) {
 $("viewer").addEventListener("load", () => {
   // The viewer follows the workbench theme (light by default); the Viewer theme button toggles both.
   applyTheme(document.documentElement.dataset.theme || "light");
+  applyLegendPalette();
   // The viewer has its own theme button: mirror its choice on the workbench.
   const vw = $("viewer").contentWindow;
   if (vw && window.MutationObserver) new MutationObserver(() => {
@@ -1081,12 +1136,14 @@ function mesherChanged() {
 
 /* ---- server-side file browser (a web page cannot read local paths itself) ---- */
 let browseTarget = null, browseKind = "cad";
-const FILTERS = {cad: ".step,.stp,.iges,.igs,.brep,.brp,.obj,.stl,.ply,.fbx,.gltf,.glb,.dae,.3ds", mesh: ".omb,.mgmb,.inp,.mail", results: ".frd,.dat,.csv,.tsv,.txt,.tab"};
+// An empty filter lists every file. "folder" uses a filter no file name can match, so only the sub-folders are listed.
+const FILTERS = {cad: ".step,.stp,.iges,.igs,.brep,.brp,.obj,.stl,.ply,.fbx,.gltf,.glb,.dae,.3ds", mesh: ".omb,.mgmb,.inp,.mail", results: ".frd,.dat,.csv,.tsv,.txt,.tab", solver: "", folder: "-"};
 let afterPick = null;
 async function browse(inputId, kind, then) {
   browseTarget = inputId; browseKind = kind; afterPick = then || null;
   const current = $(inputId).value.trim();
-  const start = current ? current.replace(/[\\/][^\\/]*$/, "") : defaults.cwd;
+  const start = kind === "folder" ? (current || defaults.cwd) : (current ? current.replace(/[\\/][^\\/]*$/, "") : defaults.cwd);
+  $("useFolder").hidden = kind !== "folder";
   $("modal").hidden = false;
   await list(start || defaults.cwd);
 }
@@ -1419,7 +1476,7 @@ function syncConstraintSize() {
   const w = viewerApi(), el = $("cdSymbolSize");
   if (w && el && document.activeElement !== el) el.value = w.OpenModelViewer.state.consSize;
 }
-const ANALYSIS_COMMANDS = new Set(["material", "assign", "fix", "force", "pressure", "gravity", "amplitude", "job", "step", "output"]);
+const ANALYSIS_COMMANDS = new Set(["material", "assign", "fix", "force", "pressure", "distributed", "rbe2", "gravity", "amplitude", "table", "job", "step", "output"]);
 /** Gravity is a load every model has by default; it is switched off by commenting its line out of the script. */
 const DEFAULT_GRAVITY = "gravity g=0,0,-9810";
 /** Adds the default gravity line when the script has no gravity line, active or switched off. */
@@ -1512,7 +1569,7 @@ function renameLoadInScript(text, oldId, newId, index, newLine) {
 }
 /** Detail of one load, shown in the sidebar overlay: its values (editable), the part it applies to, and its actions. */
 function showLoadDetail(entry) {
-  const names = {gravity: "Gravity", force: "Force on nodes", pressure: "Pressure on faces"};
+  const names = {gravity: "Gravity", force: "Force on nodes", pressure: "Pressure on faces", distributed: "Distributed on faces"};
   const value = (re) => { const m = re.exec(entry.line); return m ? m[1] : ""; };
   const target = (/\bgroup:(\S+)/i.exec(entry.line) || [])[1] || "";
   const info = lastGroups.find((x) => x.name === target);
@@ -1526,7 +1583,7 @@ function showLoadDetail(entry) {
   const amp = value(/\bamp=(\S+)/i);
   let fields = "";
   rows.push(["Id", entry.id]);
-  if (entry.kind === "force") {
+  if (entry.kind === "force" || entry.kind === "distributed") {
     fields = field("ldF", "Total force Fx,Fy,Fz", value(/\bF=(\S+)/i) || "0,0,-100") + field("ldAmp", "Amplitude (empty = constant)", amp);
   } else if (entry.kind === "pressure") {
     fields = field("ldP", "Pressure (positive = toward the body)", value(/\bp=(\S+)/i) || "1") + field("ldAmp", "Amplitude (empty = constant)", amp);
@@ -1573,7 +1630,7 @@ function applyLoadEdit(entry) {
   const taken = parseScript($("anScript").value).loads.some((l) => l.id === name && l.id !== entry.id);
   if (taken) { show("A load named " + name + " already exists.", "bad"); return; }
   let line = entry.line;
-  if (entry.kind === "force") {
+  if (entry.kind === "force" || entry.kind === "distributed") {
     const F = numList($("ldF").value, 3);
     if (!F) { show("The total force requires three comma-separated numbers Fx,Fy,Fz.", "bad"); return; }
     line = setLineKey(line, "F", F.join(","));
@@ -1963,7 +2020,7 @@ function parseScript(text) {
       if (!job) { job = {name: "job", steps: []}; out.jobs.push(job); }
       const reset = positional.some((t) => t.toLowerCase() === "reset") || ["yes", "true", "1"].includes((keys.reset || "").toLowerCase());
       job.steps.push({kind: (positional[0] || "").toLowerCase(), loads: keys.loads ? keys.loads.split(",") : null, reset});
-    } else if (command === "force" || command === "pressure") {
+    } else if (command === "force" || command === "pressure" || command === "distributed") {
       out.loads.push({kind: command, id: idFor(command, keys.id)});
     } else if (command === "gravity") {
       out.loads.push({kind: command, id: keys.id || "gravity"});
@@ -2118,6 +2175,110 @@ renderTree();
 // The default gravity is added once the whole script has run (it uses constants declared further down).
 window.addEventListener("load", ensureGravityLine);
 setInterval(syncTree, 700);
+/* ---- session: new model and settings ----
+ * The settings are kept by the server (see openmodel_settings_get), so the solver path and the jobs folder apply to
+ * every run. The palette is a viewer setting: it is applied to the viewer when the viewer loads and when it is saved.
+ */
+let workbenchSettings = {jobDir: "", legendPalette: "Viridis"};
+const SOLVER_KINDS = [["calculix", "CalculiX"], ["code_aster", "code_aster"], ["elmer", "Elmer"]];
+/** Analysis types each kind can run (see Solvers.cpp). */
+const SOLVER_RUNS = {calculix: ["static", "frequency", "dynamic"], code_aster: ["static", "frequency"], elmer: ["static"]};
+const ANALYSIS_TYPES = [["static", "defStatic"], ["frequency", "defFrequency"], ["dynamic", "defDynamic"]];
+/** The solvers of a settings object, which holds flat keys solver.<id>.kind and solver.<id>.path. */
+function solversOf(s) {
+  return Object.keys(s).map((k) => /^solver\.(.+)\.kind$/.exec(k)).filter(Boolean)
+    .map((m) => ({id: m[1], kind: s[m[0]], path: s["solver." + m[1] + ".path"] || ""}))
+    .sort((a, b) => a.id.localeCompare(b.id));
+}
+// The viewer window, whether or not a model is loaded (viewerApi above returns it only with a model).
+const viewerWindow = () => { const w = $("viewer").contentWindow; return w && w.OpenModelViewer ? w : null; };
+function applyLegendPalette() {
+  const w = viewerWindow();
+  if (w) w.OpenModelViewer.setPalette(workbenchSettings.legendPalette);
+}
+/** Shows the settings where they are used: the placeholders of the Analysis fields and the viewer palette. */
+function applySettingsToPage() {
+  const current = $("anSolverId").value;
+  $("anSolverId").innerHTML = '<option value="">Job default</option>' +
+    solversOf(workbenchSettings).map((x) => `<option value="${esc2(x.id)}">${esc2(x.id)} (${esc2(x.kind)})</option>`).join("");
+  if ([...$("anSolverId").options].some((o) => o.value === current)) $("anSolverId").value = current;
+  $("anJob").placeholder = (workbenchSettings.jobDir || defaults.cwd || ".") + "/openmodel_job/job.inp";
+  applyLegendPalette();
+}
+async function loadSettings() {
+  const r = await call("openmodel_settings_get");
+  if (r.ok && r.settings) workbenchSettings = r.settings;
+  else show(r.message, "bad");
+  applySettingsToPage();
+}
+function openSettings() {
+  const names = viewerWindow() ? viewerWindow().OpenModelViewer.palettes() : ["Viridis", "Rosso", "Ocra", "Blu", "Arcobaleno"];
+  $("setPalette").innerHTML = names.map((n) => `<option value="${n}">${n}</option>`).join("");
+  $("setJobDir").value = workbenchSettings.jobDir || "";
+  $("setPalette").value = workbenchSettings.legendPalette;
+  $("setNote").textContent = "";
+  $("setSolvers").innerHTML = "";
+  for (const x of solversOf(workbenchSettings)) addSolverRow(x);
+  refreshDefaultOptions();
+  for (const [type, selId] of ANALYSIS_TYPES) $(selId).value = workbenchSettings["default." + type] || $(selId).value;
+  $("settingsModal").hidden = false;
+}
+let solverRowSeq = 0;
+/** One solver of the Settings table: id, kind, executable (with Browse and Remove). */
+function addSolverRow(x = {id: "", kind: "calculix", path: ""}) {
+  const n = ++solverRowSeq;
+  const row = document.createElement("div");
+  row.className = "row solverRow";
+  row.innerHTML = `<input class="sId" value="${esc2(x.id)}" placeholder="id" style="max-width:110px" oninput="refreshDefaultOptions()">` +
+    `<select class="sKind" onchange="refreshDefaultOptions()">${SOLVER_KINDS.map(([v, t]) => `<option value="${v}"${v === x.kind ? " selected" : ""}>${t}</option>`).join("")}</select>` +
+    `<input class="sPath" id="setSolverPath${n}" value="${esc2(x.path)}" placeholder="executable (empty = on PATH)">` +
+    `<button onclick="browse('setSolverPath${n}','solver')">Browse…</button>` +
+    `<button onclick="this.parentElement.remove();refreshDefaultOptions()">Remove</button>`;
+  $("setSolvers").appendChild(row);
+  refreshDefaultOptions();
+}
+function solverRowsNow() {
+  return [...document.querySelectorAll("#setSolvers .solverRow")]
+    .map((r) => ({id: r.querySelector(".sId").value.trim(), kind: r.querySelector(".sKind").value, path: r.querySelector(".sPath").value.trim()}))
+    .filter((x) => x.id);
+}
+/** Keeps the default selectors in line with the solvers listed: each offers only the solvers that can run its type. */
+function refreshDefaultOptions() {
+  const rows = solverRowsNow();
+  for (const [type, selId] of ANALYSIS_TYPES) {
+    const sel = $(selId), current = sel.value;
+    const usable = rows.filter((x) => (SOLVER_RUNS[x.kind] || []).includes(type));
+    sel.innerHTML = usable.map((x) => `<option value="${esc2(x.id)}">${esc2(x.id)}</option>`).join("");
+    if (usable.some((x) => x.id === current)) sel.value = current;
+  }
+}
+function closeSettings() { $("settingsModal").hidden = true; }
+async function saveSettings() {
+  const next = {jobDir: $("setJobDir").value.trim(), legendPalette: $("setPalette").value};
+  for (const x of solverRowsNow()) { next["solver." + x.id + ".kind"] = x.kind; next["solver." + x.id + ".path"] = x.path; }
+  for (const [type, selId] of ANALYSIS_TYPES) if ($(selId).value) next["default." + type] = $(selId).value;
+  const r = await call("openmodel_settings_set", JSON.stringify(next));
+  if (!r.ok) { $("setNote").textContent = r.message; return; }
+  workbenchSettings = r.settings;
+  applySettingsToPage();
+  closeSettings();
+  show(r.message, "good");
+}
+/** Closes the model on the server and empties the viewer and the model trees. Asks first: the work is not kept. */
+async function newModel() {
+  if (busy || solverRunning) return;
+  if (!confirm("Close the current model and start an empty one? Unsaved work on it is lost.")) return;
+  const r = await act("openmodel_close_model");
+  if (!r || !r.ok) return;
+  const w = viewerWindow();
+  if (w) w.OpenModelViewer.clear();
+  viewAvailable = false; viewEdges = "none"; selectedCadFaceIds = [];
+  $("cadFaceInfo").textContent = "CAD faces: none selected.";
+  $("anScript").value = ""; $("resPath").value = ""; $("resStep").value = "";
+  await Promise.all([refreshCadComponents(), refreshMeshRuns(), refreshConstraints(), refreshGroups(), refreshCADFaceGroups()]);
+  syncRibbon();
+}
+
 var RIBBON_EXTRA = {};
 RIBBON_EXTRA["pick-node"] = () => setPickMode("node");
 RIBBON_EXTRA["pick-element"] = () => setPickMode("element");
@@ -2130,7 +2291,11 @@ RIBBON_EXTRA["cd-apply"] = () => constraintApply();
 RIBBON_EXTRA["cd-clear"] = () => constraintClear();
 RIBBON_EXTRA["as-force"] = () => assign("force");
 RIBBON_EXTRA["as-press"] = () => assign("press");
+RIBBON_EXTRA["as-dist"] = () => assign("dist");
+RIBBON_EXTRA["as-rbe2"] = () => rbeApply();
 const RIBBON_ACTIONS = {
+  "new-model": newModel,
+  settings: openSettings,
   cad: () => browse("cadPath", "cad", importModel),
   mesh: () => browse("loadPath", "mesh", loadMesh),
   res: () => browse("resPath", "results", loadResults),
@@ -2184,11 +2349,11 @@ const analysisWrite = async () => {
   const synced = await act("openmodel_analysis_load", $("anScript").value);
   if (!synced || !synced.ok) return;
   $("anScript").value = synced.message;
-  await act("openmodel_write_input", $("anScript").value, $("anJob").value.trim(), $("anSolverKind").value);
+  await act("openmodel_write_input", $("anScript").value, $("anJob").value.trim(), $("anSolverId").value);
 };
 async function analysisRun() {
   if (busy || solverRunning) return;
-  const r = await act("openmodel_run_solver", $("anScript").value, $("anJob").value.trim(), $("anSolver").value.trim(), $("anSolverKind").value);
+  const r = await act("openmodel_run_solver", $("anScript").value, $("anJob").value.trim(), $("anSolver").value.trim(), $("anSolverId").value);
   if (!r || !r.ok) return;
   solverRunning = true;
   logLines(["— solver started —"], true);
@@ -2421,7 +2586,7 @@ function analysisCommand(line) {
 function analysisTokens(line, command) {
   const out = {};
   const tokens = line.trim().split(/\s+/);
-  if (["fix", "force", "pressure"].includes(command)) out._selector = tokens[1] || "";
+  if (["fix", "force", "pressure", "distributed"].includes(command)) out._selector = tokens[1] || "";
   for (let i = 1; i < tokens.length; ++i) {
     const eq = tokens[i].indexOf("=");
     if (eq > 0) out[tokens[i].slice(0, eq).toLowerCase()] = tokens[i].slice(eq + 1);
@@ -2455,11 +2620,11 @@ async function applyAnalysisEdit(replacement, id, originalLines, index) {
   return true;
 }
 async function editAnalysisCondition(command, line, id, lines, index) {
-  if (!["material", "fix", "force", "pressure"].includes(command)) return null;
+  if (!["material", "fix", "force", "pressure", "distributed"].includes(command)) return null;
   const values = analysisTokens(line, command);
   const dialog = $("analysisEditDialog"), fields = $("analysisEditFields");
   fields.replaceChildren();
-  $("analysisEditTitle").textContent = "Edit " + ({material:"material",fix:"constraint",force:"force",pressure:"pressure"}[command]);
+  $("analysisEditTitle").textContent = "Edit " + ({material:"material",fix:"constraint",force:"force",pressure:"pressure",distributed:"distributed"}[command]);
   const positional = values._selector || "";
   if (command === "material") {
     analysisField(fields, "Elastic modulus E", "E", values.e);
@@ -2475,6 +2640,10 @@ async function editAnalysisCondition(command, line, id, lines, index) {
     analysisField(fields, "Selector (all, group:NAME, plane:x=VALUE)", "selector", positional);
     analysisField(fields, "Total force Fx,Fy,Fz", "F", values.f || "0,0,0");
     analysisField(fields, "Tolerance (optional)", "tol", values.tol || "");
+  } else if (command === "distributed") {
+    analysisField(fields, "Surface group", "selector", positional);
+    analysisField(fields, "Total force Fx,Fy,Fz", "F", values.f || "0,0,0");
+    analysisField(fields, "Amplitude (optional)", "amp", values.amp || "");
   } else {
     analysisField(fields, "Surface group", "selector", positional);
     analysisField(fields, "Pressure", "p", values.p || "0");
@@ -2503,6 +2672,9 @@ async function editAnalysisCondition(command, line, id, lines, index) {
       } else if (command === "force") {
         parts.push(get("selector"), "F=" + get("F"));
         if (get("tol")) parts.push("tol=" + get("tol"));
+      } else if (command === "distributed") {
+        parts.push(get("selector"), "F=" + get("F"));
+        if (get("amp")) parts.push("amp=" + get("amp"));
       } else {
         parts.push(get("selector"), "p=" + get("p"));
       }
@@ -2519,9 +2691,9 @@ async function editAnalysisCondition(command, line, id, lines, index) {
     dialog.showModal();
   }).then(value => value === true ? false : value === false ? false : null);
 }
-const CONDITION_LIST = { material: "condMaterial", fix: "condFix", force: "condLoads", pressure: "condLoads", gravity: "condLoads", amplitude: "condAmplitude", job: "condLoads", step: "condLoads", output: "condLoads" };
+const CONDITION_LIST = { material: "condMaterial", fix: "condFix", force: "condLoads", pressure: "condLoads", distributed: "condLoads", gravity: "condLoads", amplitude: "condAmplitude", table: "condTables", job: "condLoads", step: "condLoads", output: "condLoads" };
 function renderAnalysisConditions() {
-  const lists = ["condMaterial", "condFix", "condLoads", "condAmplitude"].map((id) => $(id)).filter(Boolean);
+  const lists = ["condMaterial", "condFix", "condLoads", "condAmplitude", "condTables"].map((id) => $(id)).filter(Boolean);
   if (!lists.length) return;
   lists.forEach((l) => l.replaceChildren());
   const lines = $("anScript").value.split(/\r?\n/);
@@ -2540,6 +2712,7 @@ function renderAnalysisConditions() {
     const edit = document.createElement("button");
     edit.type = "button"; edit.textContent = "Edit";
     edit.addEventListener("click", async () => {
+      if (command === "table") { openTableDialog(index); return; }
       const structured = await editAnalysisCondition(command, line.trim(), idMatch && idMatch[1], lines, index);
       if (structured !== null) return;
       {
@@ -2559,6 +2732,11 @@ function renderAnalysisConditions() {
       // in the box, so deleting by id there failed without a message.
       const current = $("anScript").value.split(/\r?\n/);
       if (current[index] !== line) { show("The script changed: the list is out of date.", "bad"); renderAnalysisConditions(); return; }
+      if (command === "table") {
+        const name = analysisTokens(line, "table").name;
+        const users = tableUsers(name, $("anScript").value);
+        if (users.length) { show("Table " + name + " is used on line " + users.join(", ") + ": remove those lines first.", "bad"); return; }
+      }
       current.splice(index, 1);
       $("anScript").value = current.join("\n");
       const synced = await act("openmodel_analysis_load", $("anScript").value);
@@ -2653,28 +2831,242 @@ function setMaterial() {
   if (index >= 0) applyAnalysisEdit(line, idMatch && idMatch[1], lines, index);
   else appendScript(line);
 }
-/** Adds an amplitude (time, factor pairs) to the script; the name must not be used yet. */
+/** Name rule for tables, same as the parser: starts with a letter or _ (a leading digit reads as a number). */
+const TABLE_NAME = /^[A-Za-z_][A-Za-z0-9_.-]{0,63}$/;
+/**
+ * @brief Builds the script line of a table from its name and (time, factor) text rows. Pure: no DOM, no backend.
+ * @param name table name, checked against TABLE_NAME
+ * @param rows array of [timeText, factorText]
+ * @return {ok, line} with the table line, or {ok:false, error} with the first problem found
+ */
+function tableLineFromRows(name, rows) {
+  if (!TABLE_NAME.test(name)) return { ok: false, error: "The table name must start with a letter or _ and use only letters, digits, _ . - (max 64)." };
+  if (rows.length < 2) return { ok: false, error: "A table needs at least two (time, factor) rows." };
+  const values = [];
+  let previous = -Infinity;
+  for (let i = 0; i < rows.length; ++i) {
+    const tx = String(rows[i][0]).trim(), fx = String(rows[i][1]).trim();
+    const t = Number(tx), f = Number(fx);
+    if (tx === "" || fx === "" || !Number.isFinite(t) || !Number.isFinite(f)) return { ok: false, error: "Row " + (i + 1) + ": time and factor must be numbers." };
+    if (!(t > previous)) return { ok: false, error: "Row " + (i + 1) + ": the times must be strictly increasing." };
+    previous = t;
+    values.push(tx, fx);
+  }
+  return { ok: true, line: "table name=" + name + " t=" + values.join(",") };
+}
+/**
+ * @brief Lists the table lines of a script.
+ * @return array of {index, name, points} where points is an array of [time, factor] numbers
+ */
+function tableLines(script) {
+  const out = [];
+  script.split(/\r?\n/).forEach((line, index) => {
+    if (analysisCommand(line) !== "table") return;
+    const values = analysisTokens(line, "table");
+    const nums = (values.t || "").split(",").map(Number);
+    const points = [];
+    for (let i = 0; i + 1 < nums.length; i += 2) points.push([nums[i], nums[i + 1]]);
+    out.push({ index, name: values.name || "", points });
+  });
+  return out;
+}
+/**
+ * @brief Finds the script lines that use a table: amplitudes (t=NAME) and job overrides (amp=A:NAME).
+ * @return 1-based line numbers of the users, empty when the table is free
+ */
+function tableUsers(name, script) {
+  const users = [];
+  script.split(/\r?\n/).forEach((line, index) => {
+    const command = analysisCommand(line);
+    if (command === "amplitude") {
+      const m = /(?:^|\s)t=(\S+)/.exec(line);
+      if (m && m[1] === name) users.push(index + 1);
+    } else if (command === "job") {
+      const m = /(?:^|\s)amp=(\S+)/.exec(line);
+      if (m && m[1].split(",").some((pair) => pair.split(":")[1] === name)) users.push(index + 1);
+    }
+  });
+  return users;
+}
+/** Adds an amplitude to the script: its points are a list of (time, factor) pairs or the name of a table. */
 function addAmplitude() {
   const name = $("asAmpName").value.trim(), pts = $("asAmpPoints").value.trim();
   if (!/^[A-Za-z0-9_.-]+$/.test(name)) { show("The amplitude name may contain letters, digits, _ - .", "bad"); return; }
-  const values = pts.split(",").map((x) => x.trim());
-  if (values.length < 4 || values.length % 2 !== 0 || values.some((x) => x === "" || !Number.isFinite(Number(x)))) {
-    show("An amplitude needs at least two time, factor pairs of numbers, e.g. 0,0,1,1.", "bad"); return;
-  }
-  const times = values.filter((_, i) => i % 2 === 0).map(Number);
-  if (times.some((t, i) => i > 0 && !(t > times[i - 1]))) { show("The times of an amplitude must be strictly increasing.", "bad"); return; }
   const taken = new RegExp("(?:^|\\s)name=" + name + "(?:\\s|$)");
   if ($("anScript").value.split(/\r?\n/).some((l) => analysisCommand(l) === "amplitude" && taken.test(l))) {
     show("An amplitude named '" + name + "' already exists: remove it first.", "bad"); return;
   }
+  if (/^[A-Za-z_]/.test(pts)) {
+    // A table reference: the table must be defined before the amplitude that uses it.
+    if (!TABLE_NAME.test(pts)) { show("Table names start with a letter or _ and use only letters, digits, _ . -.", "bad"); return; }
+    if (!tableLines($("anScript").value).some((t) => t.name === pts)) { show("No table named '" + pts + "' is defined above: create it first.", "bad"); return; }
+    appendScript("amplitude name=" + name + " t=" + pts);
+    return;
+  }
+  const values = pts.split(",").map((x) => x.trim());
+  if (values.length < 4 || values.length % 2 !== 0 || values.some((x) => x === "" || !Number.isFinite(Number(x)))) {
+    show("An amplitude needs at least two time, factor pairs of numbers, e.g. 0,0,1,1, or the name of a table.", "bad"); return;
+  }
+  const times = values.filter((_, i) => i % 2 === 0).map(Number);
+  if (times.some((t, i) => i > 0 && !(t > times[i - 1]))) { show("The times of an amplitude must be strictly increasing.", "bad"); return; }
   appendScript("amplitude name=" + name + " t=" + values.join(","));
 }
-function stepKindChanged() { $("asDynFields").hidden = $("asStepKind").value !== "dynamic"; }
+/** Index of the table being edited in the script, or null for a new table. */
+let tableEditIndex = null;
+let tableEditOldName = "";
+let tableDialogWired = false;
+/** Adds a (time, factor) row to the table dialog; the inputs refresh the status and the preview. */
+/**
+ * @brief Splits pasted text into (time, factor) rows. Values are separated by blanks, tabs, line breaks, commas or
+ * semicolons, and come in pairs: time, factor, time, factor, ... (a line with two values is one row).
+ * The decimal separator is the dot, so a comma is always a separator.
+ * @return {ok, rows} with rows as [timeText, factorText] pairs, or {ok:false, error}
+ */
+function parseTableText(text) {
+  const tokens = String(text).trim().split(/[\s,;]+/).filter((x) => x !== "");
+  if (tokens.length % 2 !== 0) return { ok: false, error: "The pasted values come in pairs, but " + tokens.length + " were found: one value is missing or extra." };
+  if (tokens.length < 4) return { ok: false, error: "Paste at least two time, factor pairs." };
+  const rows = [];
+  for (let i = 0; i < tokens.length; i += 2) rows.push([tokens[i], tokens[i + 1]]);
+  return { ok: true, rows };
+}
+/** Replaces all rows of the table dialog with the pairs of a multi-value paste; a single value keeps the normal paste. */
+function pasteTableRows(event) {
+  const text = (event.clipboardData || window.clipboardData).getData("text");
+  if (!/[\s,;]/.test(String(text).trim())) return;
+  event.preventDefault();
+  const parsed = parseTableText(text);
+  if (!parsed.ok) { show(parsed.error, "bad"); return; }
+  $("tableRows").replaceChildren();
+  parsed.rows.forEach((r) => addTableRow(r[0], r[1]));
+  refreshTableDialog();
+}
+function addTableRow(time, factor) {
+  const row = document.createElement("div");
+  row.className = "grid2";
+  row.style.cssText = "grid-template-columns:1fr 1fr 32px;align-items:center";
+  const t = document.createElement("input"); t.type = "text"; t.inputMode = "decimal"; t.value = time; t.setAttribute("aria-label", "Time");
+  const f = document.createElement("input"); f.type = "text"; f.inputMode = "decimal"; f.value = factor; f.setAttribute("aria-label", "Factor");
+  const drop = document.createElement("button"); drop.type = "button"; drop.textContent = "×"; drop.title = "Remove row"; drop.setAttribute("aria-label", "Remove row");
+  [t, f].forEach((input) => {
+    input.addEventListener("input", refreshTableDialog);
+    input.addEventListener("paste", pasteTableRows);
+  });
+  drop.addEventListener("click", () => {
+    if ($("tableRows").children.length <= 2) { show("A table needs at least two rows.", "bad"); return; }
+    row.remove(); refreshTableDialog();
+  });
+  row.append(t, f, drop);
+  $("tableRows").append(row);
+}
+/** Reads the rows of the table dialog as [timeText, factorText] pairs. */
+function tableDialogRows() {
+  return Array.from($("tableRows").children).map((row) => [row.children[0].value, row.children[1].value]);
+}
+/** Recomputes the status line, the Apply button and the preview from the dialog contents. */
+function refreshTableDialog() {
+  const name = $("tableName").value.trim();
+  const rows = tableDialogRows();
+  const built = tableLineFromRows(name, rows);
+  let error = built.ok ? "" : built.error;
+  if (!error) {
+    const clash = tableLines($("anScript").value).find((t) => t.name === name && t.index !== tableEditIndex);
+    if (clash) error = "A table named '" + name + "' already exists: choose another name.";
+  }
+  if (!error && tableEditIndex !== null && name !== tableEditOldName) {
+    const users = tableUsers(tableEditOldName, $("anScript").value);
+    if (users.length) error = "Table " + tableEditOldName + " is used on line " + users.join(", ") + ": it cannot be renamed.";
+  }
+  $("tableStatus").textContent = error || "Ready to apply.";
+  $("tableApply").disabled = !!error;
+  const points = rows.map((r) => [Number(String(r[0]).trim()), Number(String(r[1]).trim())]).filter((p) => Number.isFinite(p[0]) && Number.isFinite(p[1]));
+  drawTablePreview(points);
+}
+/** Draws the (time, factor) points as a polyline with axes; the zero factor line is drawn when it is in range. */
+function drawTablePreview(points) {
+  const c = $("tablePreview"), g = c.getContext("2d");
+  const W = c.width, H = c.height, pad = 28;
+  const ink = getComputedStyle(c).color || "#333";
+  g.clearRect(0, 0, W, H);
+  g.strokeStyle = ink; g.fillStyle = ink; g.font = "12px sans-serif";
+  g.globalAlpha = 0.35; g.lineWidth = 1;
+  g.beginPath(); g.moveTo(pad, pad); g.lineTo(pad, H - pad); g.lineTo(W - pad, H - pad); g.stroke();
+  g.globalAlpha = 1;
+  if (points.length < 2) { g.fillText("Enter at least two rows to see the curve.", pad, H / 2); return; }
+  const tMin = Math.min(...points.map((p) => p[0])), tMax = Math.max(...points.map((p) => p[0]));
+  let fMin = Math.min(0, ...points.map((p) => p[1])), fMax = Math.max(0, ...points.map((p) => p[1]));
+  if (fMax === fMin) { fMax += 1; fMin -= 1; }
+  const x = (t) => pad + (tMax === tMin ? 0 : (t - tMin) / (tMax - tMin)) * (W - 2 * pad);
+  const y = (f) => H - pad - ((f - fMin) / (fMax - fMin)) * (H - 2 * pad);
+  g.globalAlpha = 0.35; g.setLineDash([4, 3]);
+  g.beginPath(); g.moveTo(pad, y(0)); g.lineTo(W - pad, y(0)); g.stroke();
+  g.setLineDash([]); g.globalAlpha = 1; g.lineWidth = 2;
+  g.beginPath(); points.forEach((p, i) => (i ? g.lineTo(x(p[0]), y(p[1])) : g.moveTo(x(p[0]), y(p[1])))); g.stroke();
+  g.fillText(String(tMin), pad, H - 8); g.fillText(String(tMax), W - pad - 30, H - 8);
+  g.fillText(String(fMax), 2, pad + 4); g.fillText(String(fMin), 2, H - pad);
+}
+/**
+ * @brief Opens the table dialog: a new table (index null) or the table on line index of the script.
+ * @param index script line of the table to edit, or null
+ */
+function openTableDialog(index) {
+  const lines = $("anScript").value.split(/\r?\n/);
+  tableEditIndex = null; tableEditOldName = "";
+  $("tableName").value = ""; $("tableName").disabled = false;
+  $("tableRows").replaceChildren();
+  let rows = [["0", "0"], ["1", "1"]];
+  if (index !== null) {
+    const table = tableLines($("anScript").value).find((t) => t.index === index);
+    if (!table) { show("The table is no longer in the script: the list is out of date.", "bad"); renderAnalysisConditions(); return; }
+    tableEditIndex = index; tableEditOldName = table.name;
+    $("tableName").value = table.name;
+    rows = table.points.map((p) => [String(p[0]), String(p[1])]);
+    $("tableTitle").textContent = "Edit table " + table.name;
+  } else {
+    $("tableTitle").textContent = "New table";
+  }
+  rows.forEach((r) => addTableRow(r[0], r[1]));
+  if (!tableDialogWired) {
+    tableDialogWired = true;
+    $("tableName").addEventListener("input", refreshTableDialog);
+    $("tableAddRow").addEventListener("click", () => { addTableRow("", ""); refreshTableDialog(); });
+    $("tableCancel").addEventListener("click", () => $("tableDialog").close());
+    $("tableForm").addEventListener("submit", (event) => { event.preventDefault(); applyTableDialog(); });
+  }
+  refreshTableDialog();
+  $("tableDialog").showModal();
+}
+/** Writes the table of the dialog into the script: replaces its line when editing, appends it when new. */
+async function applyTableDialog() {
+  const name = $("tableName").value.trim();
+  const built = tableLineFromRows(name, tableDialogRows());
+  if (!built.ok) { show(built.error, "bad"); return; }
+  const lines = $("anScript").value.split(/\r?\n/);
+  if (tableEditIndex === null) {
+    appendScript(built.line);
+  } else {
+    if (!await applyAnalysisEdit(built.line, null, lines, tableEditIndex)) return;
+  }
+  $("tableDialog").close();
+  show("Table " + name + " " + (tableEditIndex === null ? "added to the script." : "updated."), "good");
+}
+function stepKindChanged() {
+  const kind = $("asStepKind").value;
+  $("asDynFields").hidden = kind !== "dynamic";
+  $("asModeFields").hidden = kind !== "frequency";
+}
 /** Replaces the step line of the script with the chosen analysis type. */
 function setStep() {
   const kind = $("asStepKind").value;
   let line = "step static";
-  if (kind === "dynamic") {
+  if (kind === "frequency") {
+    // Same rule as the parser (AnalysisSetup.cpp, SCRIPT_BAD_MODES): an integer between 1 and 1000.
+    const raw = $("asModes").value.trim(), modes = Number(raw);
+    if (raw === "" || !Number.isInteger(modes) || modes < 1 || modes > 1000) {
+      show("The number of modes must be an integer between 1 and 1000.", "bad"); return;
+    }
+    line = "step frequency modes=" + modes;
+  } else if (kind === "dynamic") {
     const dt = Number($("asDt").value), period = Number($("asPeriod").value);
     if (!Number.isFinite(dt) || !Number.isFinite(period) || !(dt > 0) || !(period > 0) || dt > period) {
       show("A dynamic step needs 0 < dt <= period.", "bad"); return;
@@ -2706,6 +3098,14 @@ async function assign(type) {
     const amp = $("asAmp").value.trim();
     if (amp && !/^[A-Za-z0-9_.-]+$/.test(amp)) { show("The amplitude name may contain letters, digits, _ - .", "bad"); return; }
     line = (g) => "force group:" + g + " F=" + f.join(",") + (amp ? " amp=" + amp : "");
+  } else if (type === "dist") {
+    const f = numList($("asForce").value, 3);
+    if (!f) { show("The total force requires three comma-separated numbers Fx,Fy,Fz.", "bad"); return; }
+    if (sel.mode !== "face") { show("A distributed load acts on faces: select faces in the viewer.", "bad"); return; }
+    kind = "face";
+    const damp = $("asAmp").value.trim();
+    if (damp && !/^[A-Za-z0-9_.-]+$/.test(damp)) { show("The amplitude name may contain letters, digits, _ - .", "bad"); return; }
+    line = (g) => "distributed group:" + g + " F=" + f.join(",") + (damp ? " amp=" + damp : "");
   } else {
     const p = Number($("asPress").value);
     if (!Number.isFinite(p) || $("asPress").value.trim() === "") { show("The pressure must be a number.", "bad"); return; }
@@ -2715,11 +3115,42 @@ async function assign(type) {
     if (pampl && !/^[A-Za-z0-9_.-]+$/.test(pampl)) { show("The amplitude name may contain letters, digits, _ - .", "bad"); return; }
     line = (g) => "pressure group:" + g + " p=" + p + (pampl ? " amp=" + pampl : "");
   }
-  const prefix = { fix: "FIX", force: "FORCE", press: "PRESS" }[type];
+  const prefix = { fix: "FIX", force: "FORCE", press: "PRESS", dist: "DIST" }[type];
   const r = await makeGroup(kind, undefined, prefix);
   if (!r || !r.ok || !r.created) return;
   appendScript(line(r.created));
   show(r.message + "\nLine added to the script: " + line(r.created), "good");
+}
+/**
+ * RBE2 from the selection, one rigid link per hole: the selected faces are split into the holes they belong to (faces that
+ * share nodes), each hole gets a node group and an rbe2 line whose reference node is the centre of the hole (or the
+ * centroid of the nodes when they do not form a circle). Backend: openmodel_rbe2_reference, one line per hole.
+ */
+async function rbeApply() {
+  const sel = currentSelection();
+  if (!sel) { show("Select nodes or faces in the viewer first.", "bad"); return; }
+  const plan = await act("openmodel_rbe2_reference", sel.mode, selectionText(sel));
+  if (!plan || !plan.ok) return;
+  const holes = String(plan.message).split("\n").filter(Boolean).map((l) => {
+    const [how, text, payload] = l.split("|");
+    return {how, point: text.split(",").map(Number), payload};
+  });
+  if (holes.some((h) => h.point.length !== 3 || !h.point.every(Number.isFinite))) { show("The reference points could not be computed.", "bad"); return; }
+  const notes = [];
+  for (const h of holes) {
+    const g = await act("openmodel_create_group", "", "node", sel.mode, h.payload, "RBE2");
+    if (!g || !g.ok || !g.created) {
+      show("Stopped after " + notes.length + " of " + holes.length + " rigid links.\n" + (g && g.message ? g.message : ""), "bad");
+      break;
+    }
+    appendScript("rbe2 group:" + g.created + " ref=" + h.point.join(","));
+    notes.push(g.created + ": reference at the " + (h.how === "hole" ? "centre of the hole" : "centroid of the nodes"));
+  }
+  if (!notes.length) return;
+  // The server keeps the parsed model: sync it so that the viewer draws the new links now.
+  const synced = await act("openmodel_analysis_load", $("anScript").value);
+  if (synced && synced.ok) $("anScript").value = synced.message;
+  show(notes.length + " rigid link" + (notes.length === 1 ? "" : "s") + " (RBE2) added to the script.\n" + notes.join("\n"), "good");
 }
 function stepMode(delta) {
   const w = viewerApi(); if (!w) return;
@@ -2816,6 +3247,20 @@ setInterval(syncRibbon, 700);
   selectTab(tab);
 })();
 
+/* ---- left panel: can be folded away to give the whole window to the viewer ---- */
+function setSidebar(shown) {
+  $("shell").classList.toggle("sideCollapsed", !shown);
+  $("sideToggle").setAttribute("aria-expanded", String(shown));
+  $("sideToggle").textContent = shown ? "◀ Panel" : "▶ Panel";
+  try { localStorage.setItem("openmodel.sidebar", shown ? "shown" : "hidden"); } catch (e) { /* storage unavailable */ }
+}
+$("sideToggle").addEventListener("click", () => setSidebar($("shell").classList.contains("sideCollapsed")));
+{
+  let saved = "shown";
+  try { saved = localStorage.getItem("openmodel.sidebar") || "shown"; } catch (e) { /* storage unavailable */ }
+  setSidebar(saved !== "hidden");
+}
+
 (async () => {
   loadMaterialDb();
   const d = await call("openmodel_defaults");
@@ -2827,6 +3272,7 @@ setInterval(syncRibbon, 700);
     if (first) $("mesher").value = first.id; else { noMesher = true; $("btnMesh").disabled = true; }
     mesherChanged();
   } else show(d.message, "bad");
+  await loadSettings();
     })();
 </script>
 </body>

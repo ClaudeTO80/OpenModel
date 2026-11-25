@@ -280,6 +280,48 @@ void testFrdRealWorldLines() {
     CHECK(r.fields[2].name == "DOR1  Rx" && r.fields[2].components[1] == "RY" && near(r.fields[2].values[1], -2.0));
 }
 
+/**
+ * CalculiX 2.23 built on Windows prints %E with three-digit exponents ("2.5E+001"),
+ * so the fields overflow their 12 columns and touch each other. The lines are copied
+ * from a real run: nodes 1, 2, 7877, 7878, and a result record with the same layout.
+ */
+void testFrdThreeDigitExponents() {
+    const std::string text =
+        "    1C\n"
+        "    2C                          7878                                     1\n"
+        " -1         12.50000E+0015.00000E+0015.00000E+002\n"
+        " -1         2-2.50000E+0015.00000E+0015.00000E+002\n"
+        " -1      7877-8.53742E+0004.66066E+001-4.80000E+002\n"
+        " -1      7878-8.53742E+0004.66066E+001-4.90000E+002\n"
+        " -3\n"
+        "    3C                          5400                                     1\n"
+        " -1      7861    1    0    1\n"
+        " -3\n"
+        "  100CL  101 1.000000000         803                     0    1           1\n"
+        " -4  DISP        2    1\n"
+        " -5  D1          1    2    1    0\n"
+        " -5  D2          1    2    2    0\n"
+        " -5  D3          1    2    3    0\n"
+        " -1         1-1.00000E+001-2.00000E+0013.00000E+002\n"
+        " -1         2 5.00000E-001-1.00000E+0013.00000E+002\n"
+        " -3\n"
+        " 9999\n";
+    FemResults r;
+    const auto res = parseFrd(text, r);
+    CHECK(res);
+    CHECK(!hasCode(res.diagnostics, "FRD_BAD_NODE"));
+    CHECK(r.modelNodeIds.size() == 4);
+    if (r.modelNodeIds.size() != 4) return;
+    CHECK(r.modelNodeIds[0] == 1 && r.modelNodeIds[3] == 7878);
+    CHECK(near(r.modelCoordinates[0][0], 25.0) && near(r.modelCoordinates[0][1], 50.0) && near(r.modelCoordinates[0][2], 500.0));
+    CHECK(near(r.modelCoordinates[1][0], -25.0) && near(r.modelCoordinates[2][0], -8.53742));
+    CHECK(near(r.modelCoordinates[3][2], -490.0));
+    CHECK(r.fields.size() == 1 && r.fields[0].recordCount() == 2);
+    if (r.fields.size() != 1) return;
+    CHECK(near(r.fields[0].values[0], -10.0) && near(r.fields[0].values[1], -20.0) && near(r.fields[0].values[2], 300.0));
+    CHECK(near(r.fields[0].values[3], 0.5) && near(r.fields[0].values[4], -10.0) && near(r.fields[0].values[5], 300.0));
+}
+
 void testFrdErrors() {
     const MeshData mesh = makeMesh();
     FemResults r;
@@ -413,10 +455,36 @@ void testBinding() {
         CHECK(near(d1->values[10], ex, 1e-5));
         CHECK(near(magnitude->values[10], std::sqrt(ex * ex + ey * ey), 1e-5));
     }
-    CHECK(b.hasDisplacement && b.displacementName == "DISP" && view.displacement.size() == mesh.getNumNodes());
-    CHECK(near(view.displacement[10][0], 2 * 0.01 * mesh.nodeCoordinates(10)[0], 1e-5));
-    CHECK(view.displacement[10][2] == 0.0);
+    // Two time steps with DISP: they are bound as a time history, and the viewer's default deformed shape is the
+    // last frame (the selected step). Modes and the single displacement stay empty.
+    CHECK(b.hasDisplacement && b.displacementName == "DISP");
+    CHECK(view.displacement.empty() && view.modes.empty());
+    CHECK(b.framesBound == 2 && view.frames.size() == 2 && view.defaultFrame == 1);
+    CHECK(near(view.frames[0].time, 0.5) && near(view.frames[1].time, 1.0));
+    CHECK(near(view.frames[1].displacement[10][0], 2 * 0.01 * mesh.nodeCoordinates(10)[0], 1e-5));
+    CHECK(near(view.frames[0].displacement[10][0], 0.01 * mesh.nodeCoordinates(10)[0], 1e-5));
+    CHECK(view.frames[1].displacement[10][2] == 0.0);
     CHECK(view.resultsLabel.find("CalculiX FRD") != std::string::npos);
+    CHECK(view.resultsLabel.find("2 time frames") != std::string::npos);
+
+    // Without the time history the single selected step is bound as before.
+    WebViewOptions single;
+    BindOptions noHistory;
+    noHistory.timeHistory = false;
+    b = bindResults(mesh, r, noHistory, single);
+    CHECK(b.success && b.framesBound == 0 && single.frames.empty());
+    CHECK(b.hasDisplacement && single.displacement.size() == mesh.getNumNodes());
+    CHECK(near(single.displacement[10][0], 2 * 0.01 * mesh.nodeCoordinates(10)[0], 1e-5));
+
+    // A limit below the number of time steps samples them evenly and keeps the first and the last one.
+    WebViewOptions sampled;
+    BindOptions limited;
+    limited.maxFrames = 2;
+    CHECK(bindResults(mesh, r, limited, sampled).success && sampled.frames.size() == 2);
+    CHECK(near(sampled.frames[0].time, 0.5) && near(sampled.frames[1].time, 1.0));
+    limited.maxFrames = 1;
+    WebViewOptions none;
+    CHECK(bindResults(mesh, r, limited, none).success && none.frames.empty() && none.displacement.size() == mesh.getNumNodes());
 
     // First step, no derived fields, no displacement, custom source name.
     WebViewOptions plain;
@@ -502,7 +570,9 @@ void testWebViewIntegration() {
     FemResults r;
     CHECK(parseFrd(makeResultFile(mesh), r));
     WebViewOptions view;
-    CHECK(bindResults(mesh, r, BindOptions{}, view).success);
+    BindOptions noHistory;
+    noHistory.timeHistory = false;  // the single displacement chunk; the time history is checked below
+    CHECK(bindResults(mesh, r, noHistory, view).success);
     std::vector<unsigned char> image;
     const auto written = WebViewWriter::build(mesh, view, image);
     CHECK(written.success);
@@ -511,6 +581,7 @@ void testWebViewIntegration() {
     const std::string json(reinterpret_cast<const char*>(&image[24]), jsonSize);
     const unsigned char* bin = image.data() + 24 + jsonSize;
     CHECK(json.find("\"displacement\":{\"offset\":") != std::string::npos);
+    CHECK(json.find("\"frames\"") == std::string::npos);
     CHECK(json.find("\"deformation\":{\"name\":\"DISP\"") != std::string::npos);
     CHECK(json.find("\"results\":{\"label\":\"CalculiX FRD") != std::string::npos);
     CHECK(json.find("STRESS von Mises") != std::string::npos);
@@ -523,6 +594,34 @@ void testWebViewIntegration() {
     float first[3];
     std::memcpy(first, bin + offset, sizeof first);
     CHECK(first[0] > 0.1999f && first[0] < 0.2201f);  // 2 * 0.01 * x with x in [10, 11]
+
+    // Time history: one chunk per frame, the frame of the last step is the default one.
+    WebViewOptions framed;
+    CHECK(bindResults(mesh, r, BindOptions{}, framed).success);
+    std::vector<unsigned char> frameImage;
+    const auto framedWritten = WebViewWriter::build(mesh, framed, frameImage);
+    CHECK(framedWritten.success);
+    if (framedWritten.success) {
+        const std::size_t frameJsonSize = le32(&frameImage[12]);
+        const std::string frameJson(reinterpret_cast<const char*>(&frameImage[24]), frameJsonSize);
+        const unsigned char* frameBin = frameImage.data() + 24 + frameJsonSize;
+        CHECK(frameJson.find("\"displacement\":{") == std::string::npos);  // frames replace the single displacement
+        CHECK(frameJson.find("\"frames\":[{\"label\":\"time 0.5") != std::string::npos);
+        CHECK(frameJson.find("\"frame\":1") != std::string::npos);
+        // The offsets of the frames come after the "frames" key; the second frame (time 1.0) stores 2 * 0.01 * x.
+        const std::size_t framesKey = frameJson.find("\"frames\":[");
+        const std::size_t first = frameJson.find("\"offset\":", framesKey);
+        const std::size_t second = frameJson.find("\"offset\":", first + 1);
+        if (second != std::string::npos) {
+            const std::size_t secondOffset = std::stoul(frameJson.substr(second + 9));
+            float value[3];
+            std::memcpy(value, frameBin + secondOffset, sizeof value);
+            CHECK(value[0] > 0.1999f && value[0] < 0.2201f);
+        } else {
+            CHECK(false);
+        }
+    }
+
     // The original MGWV without displacement stays free of the new keys (format is backward compatible).
     std::vector<unsigned char> plain;
     CHECK(WebViewWriter::build(mesh, WebViewOptions{}, plain).success);
@@ -536,6 +635,22 @@ void testWebViewIntegration() {
     bad.displacement.assign(mesh.getNumNodes(), {0, 0, 0});
     bad.displacement[3][1] = std::nan("");
     CHECK(!WebViewWriter::build(mesh, bad, image).success);
+
+    // Frames: strictly increasing times, one displacement per node, not combined with a displacement or modes.
+    WebFrame f0{"time 1", 1.0, std::vector<std::array<double, 3>>(mesh.getNumNodes(), {0, 0, 0})};
+    WebFrame f1{"time 2", 2.0, f0.displacement};
+    WebViewOptions frames;
+    frames.frames = {f0, f1};
+    CHECK(WebViewWriter::build(mesh, frames, image).success);
+    WebViewOptions sameTime = frames;
+    sameTime.frames[1].time = 1.0;
+    CHECK(!WebViewWriter::build(mesh, sameTime, image).success);
+    WebViewOptions shortFrame = frames;
+    shortFrame.frames[1].displacement.pop_back();
+    CHECK(!WebViewWriter::build(mesh, shortFrame, image).success);
+    WebViewOptions mixed = frames;
+    mixed.displacement = f0.displacement;
+    CHECK(!WebViewWriter::build(mesh, mixed, image).success);
 }
 
 
@@ -846,20 +961,76 @@ void testDynamicIncrements() {
     WebViewOptions last;
     auto b = bindResults(mesh, r, BindOptions{}, last);
     CHECK(b.success && b.step == static_cast<std::size_t>(count - 1) && b.stepLabel.find("time") != std::string::npos);
-    if (b.success && !last.displacement.empty()) CHECK(near(last.displacement[10][0], count * 0.01 * (mesh.nodeCoordinates(10)[0] - 10.0), 1e-5));
+    // All 25 increments fit under the default limit: each one is a frame, the shown one is the last.
+    CHECK(b.framesBound == static_cast<std::size_t>(count) && last.frames.size() == static_cast<std::size_t>(count));
+    CHECK(last.displacement.empty() && last.defaultFrame == static_cast<std::size_t>(count - 1));
+    CHECK(near(last.frames[last.defaultFrame].displacement[10][0], count * 0.01 * (mesh.nodeCoordinates(10)[0] - 10.0), 1e-5));
 
+    // An explicit step is shown first, and every increment stays available as a frame.
     WebViewOptions middle;
     BindOptions pick;
     pick.step = 12;
     b = bindResults(mesh, r, pick, middle);
-    CHECK(b.success && b.step == 12);
-    if (b.success && !middle.displacement.empty()) CHECK(near(middle.displacement[10][0], 13 * 0.01 * (mesh.nodeCoordinates(10)[0] - 10.0), 1e-5));
+    CHECK(b.success && b.step == 12 && middle.frames.size() == static_cast<std::size_t>(count));
+    CHECK(middle.defaultFrame == 12 && near(middle.frames[middle.defaultFrame].time, 0.04 * 13));
+    CHECK(near(middle.frames[middle.defaultFrame].displacement[10][0], 13 * 0.01 * (mesh.nodeCoordinates(10)[0] - 10.0), 1e-5));
     CHECK(b.success && b.hasDisplacement);
 
     WebViewOptions outside;
     BindOptions bad;
     bad.step = static_cast<std::size_t>(count);
     CHECK(!bindResults(mesh, r, bad, outside).success);
+}
+
+/** Seven time steps with a displacement each, built by hand: exercises the frame sampling and the time order. */
+FemResults makeTimeSteps(const MeshData& mesh, std::size_t count) {
+    FemResults r;
+    for (std::size_t k = 0; k < count; ++k) {
+        ResultStep step;
+        step.kind = StepKind::Time;
+        step.value = 0.1 * static_cast<double>(k + 1);
+        step.label = "time " + std::to_string(step.value);
+        r.steps.push_back(step);
+        ResultField f;
+        f.name = "DISP";
+        f.components = {"D1", "D2", "D3"};
+        f.step = k;
+        for (std::size_t n = 0; n < mesh.getNumNodes(); ++n) {
+            f.ids.push_back(static_cast<std::uint64_t>(mesh.nodeId(n)));
+            const auto c = mesh.nodeCoordinates(n);
+            f.values.insert(f.values.end(), {0.01 * static_cast<double>(k + 1) * c[0], 0.0, 0.0});
+        }
+        r.fields.push_back(std::move(f));
+    }
+    return r;
+}
+
+void testTimeHistorySampling() {
+    const MeshData mesh = makeMesh();
+    FemResults r = makeTimeSteps(mesh, 7);
+
+    // Seven steps, at most four frames: evenly sampled steps 0, 2, 4, 6; the first and the last are kept.
+    BindOptions options;
+    options.maxFrames = 4;
+    WebViewOptions view;
+    auto b = bindResults(mesh, r, options, view);
+    CHECK(b.success && b.framesBound == 4 && view.frames.size() == 4);
+    if (view.frames.size() == 4) {
+        CHECK(near(view.frames[0].time, 0.1) && near(view.frames[1].time, 0.3));
+        CHECK(near(view.frames[2].time, 0.5) && near(view.frames[3].time, 0.7));
+        CHECK(near(view.frames[3].displacement[5][0], 0.07 * mesh.nodeCoordinates(5)[0], 1e-5));
+    }
+    CHECK(view.defaultFrame == 3);  // the selected step (the last one) is the last sampled frame
+    CHECK(hasCode(b.diagnostics, "BIND_FRAMES_SAMPLED"));
+    CHECK(b.frameTimes.size() == 4 && near(b.frameTimes[1], 0.3));
+
+    // Times that do not increase: no time history, the selected step is bound as a single displacement.
+    FemResults unordered = makeTimeSteps(mesh, 3);
+    unordered.steps[2].value = 0.05;
+    WebViewOptions fallback;
+    b = bindResults(mesh, unordered, BindOptions{}, fallback);
+    CHECK(b.success && fallback.frames.empty() && fallback.displacement.size() == mesh.getNumNodes());
+    CHECK(hasCode(b.diagnostics, "BIND_FRAMES_UNORDERED"));
 }
 
 void testModes() {
@@ -1095,19 +1266,55 @@ void testDatBindingAndMerge() {
 
 } // namespace
 
+/**
+ * A coordinate that is zero in the mesh may come back from the solver with a wrong magnitude (see ResultBinding.cpp).
+ * A small difference there is accepted with a warning; a large one still rejects the results.
+ */
+void testZeroCoordinateArtefacts() {
+    const MeshData mesh = makeMesh();
+    std::size_t target = mesh.getNumNodes();
+    for (std::size_t i = 0; i < mesh.getNumNodes() && target == mesh.getNumNodes(); ++i)
+        if (mesh.nodeCoordinates(static_cast<NodeIndex>(i))[1] == 0.0) target = i;
+    CHECK(target < mesh.getNumNodes());
+    if (target == mesh.getNumNodes()) return;
+    const NodeId id = mesh.nodeId(static_cast<NodeIndex>(target));
+
+    auto resultWithY = [&](double y) {
+        FemResults out;
+        CHECK(parseFrd(makeResultFile(mesh), out));
+        for (std::size_t i = 0; i < out.modelNodeIds.size(); ++i)
+            if (out.modelNodeIds[i] == id) out.modelCoordinates[i][1] = y;
+        return out;
+    };
+
+    const FemResults artefact = resultWithY(0.05);   // about 0.5% of the model size, not zero
+    WebViewOptions view;
+    auto b = bindResults(mesh, artefact, BindOptions{}, view);
+    CHECK(b.success && hasCode(b.diagnostics, "BIND_ZERO_COORDINATES") && !hasCode(b.diagnostics, "BIND_COORDINATES"));
+    CHECK(!view.fields.empty());
+
+    const FemResults real = resultWithY(0.5);        // about 5% of the model size: a different mesh
+    WebViewOptions untouched;
+    b = bindResults(mesh, real, BindOptions{}, untouched);
+    CHECK(!b.success && b.error.find("different mesh") != std::string::npos && untouched.fields.empty());
+}
+
 int main() {
     testFrdParsing();
     testFrdNumbersAndContinuation();
     testFrdRealWorldLines();
+    testFrdThreeDigitExponents();
     testFrdErrors();
     testCsv();
     testBinding();
     testBindingPartialData();
+    testZeroCoordinateArtefacts();
     testWebViewIntegration();
     testTensorInvariants();
     testElementResults();
     testModes();
     testDynamicIncrements();
+    testTimeHistorySampling();
     testDatImporter();
     testDatBindingAndMerge();
     if (g_failures) {

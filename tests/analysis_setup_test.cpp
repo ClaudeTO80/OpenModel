@@ -2,6 +2,7 @@
  * @file analysis_setup_test.cpp
  * @brief Tests of the analysis script parser, node selectors, CalculiX input writer and the process runner.
  */
+#include <cctype>
 #include <OpenModel/AnalysisSetup.hpp>
 #include <OpenModel/CodeAster.hpp>
 #include <OpenModel/ProcessRunner.hpp>
@@ -13,6 +14,7 @@
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include <set>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -355,6 +357,13 @@ void testWriterStatic() {
     CHECK(contains(t, "MG_EALL, GRAV, 10, 0, 0, -1"));
     CHECK(contains(t, "*NODE FILE\nU, S, E"));
     CHECK(contains(t, "*EL PRINT, ELSET=MG_EALL\nS, E"));
+    {
+        // MG_EALL lists element ids; a set name there is rejected by the importers.
+        const std::string head = "*ELSET, ELSET=MG_EALL\n";
+        const auto at = t.find(head);
+        CHECK(at != std::string::npos && at + head.size() < t.size() &&
+              std::isdigit(static_cast<unsigned char>(t[at + head.size()])) != 0);
+    }
     CHECK(t.find("*END STEP") != std::string::npos);
     // Order: the keyword data of the step comes after *STEP.
     CHECK(t.find("*STEP") < t.find("*STATIC") && t.find("*STATIC") < t.find("*NODE FILE"));
@@ -530,6 +539,76 @@ void testPrescribedDisplacementTracker() {
 } // namespace
 
 
+/** Named tables of (time, factor) pairs: an amplitude takes one (t=TABLE), and a job can give another (job NAME amp=A:T). */
+void testTables() {
+    const std::string base = "material E=210000 nu=0.3 rho=7.85e-9\n";
+    auto fails = [](const std::string& text) { return !parseAnalysisScript(text).success; };
+
+    const std::string script = base +
+                               "table name=T1 t=0,0,1,1,2,0.5\n"
+                               "table name=T2 t=0,0,2,1\n"
+                               "amplitude name=A1 t=T1\n"
+                               "amplitude name=A2 t=0,1,1,0\n"
+                               "fix group:Bottom\n"
+                               "force group:Top F=0,0,-10 amp=A1\n"
+                               "pressure group:Right p=2 amp=A2\n"
+                               "job SETTLE\n"
+                               "step dynamic dt=0.01 period=1\n"
+                               "job IMPACT amp=A1:T2\n"
+                               "step dynamic dt=0.01 period=1\n";
+    const auto r = parseAnalysisScript(script);
+    CHECK(r.success);
+    if (!r.success) return;
+    CHECK(r.model.tables.size() == 2 && r.model.tables[0].points.size() == 3);
+    CHECK(r.model.amplitudes.size() == 2 && r.model.amplitudes[0].table == "T1");
+    CHECK(r.model.amplitudes[0].points.size() == 3 && r.model.amplitudes[0].points[2][0] == 2.0);  // copied from T1
+    CHECK(r.model.amplitudes[1].table.empty() && r.model.amplitudes[1].points.size() == 2);       // given as a list
+    CHECK(r.model.jobs.size() == 2 && r.model.jobs[0].amplitudeOverrides.empty());
+    CHECK(r.model.jobs[1].amplitudeOverrides.size() == 1 && r.model.jobs[1].amplitudeOverrides[0].amplitude == "A1");
+    CHECK(r.model.jobs[1].amplitudeOverrides[0].table == "T2" && r.model.jobs[1].amplitudeOverrides[0].points.size() == 2);
+    // The model's own amplitude is not changed by the override of one job.
+    CHECK(r.model.amplitudes[0].points.size() == 3);
+
+    // Round trip: the tables, the table references and the overrides are written back.
+    const std::string text = serializeAnalysisScript(r.model);
+    CHECK(contains(text, "table name=T1 t=0,0,1,1,2,0.5"));
+    CHECK(contains(text, "amplitude name=A1 t=T1"));
+    CHECK(contains(text, "job IMPACT amp=A1:T2"));
+    const auto back = parseAnalysisScript(text);
+    CHECK(back.success && back.model.tables.size() == 2 && back.model.amplitudes[0].table == "T1");
+    CHECK(back.success && back.model.jobs[1].amplitudeOverrides.size() == 1 && back.model.jobs[1].amplitudeOverrides[0].table == "T2");
+
+    // The deck: each job writes the points it uses; the amplitude keeps its name for the loads.
+    {
+        const fs::path dir = tempDir();
+        MeshData hex = makeHex();
+        const auto settle = writeSolverInput(hex, r.model, dir / "settle.inp", "SETTLE");
+        const auto impact = writeSolverInput(hex, r.model, dir / "impact.inp", "IMPACT");
+        CHECK(settle.success && impact.success);
+        const std::string s = slurp(dir / "settle.inp");
+        const std::string i = slurp(dir / "impact.inp");
+        CHECK(contains(s, "*AMPLITUDE, NAME=A1\n0, 0, 1, 1, 2, 0.5\n"));
+        CHECK(contains(i, "*AMPLITUDE, NAME=A1\n0, 0, 2, 1\n"));   // T2 in this job
+        CHECK(contains(i, "*AMPLITUDE, NAME=A2\n0, 1, 1, 0\n"));   // not overridden: the model's points
+        CHECK(contains(i, "*CLOAD, AMPLITUDE=A1") && contains(i, "*DLOAD, AMPLITUDE=A2"));  // loads unchanged
+    }
+
+    // Refusals.
+    CHECK(fails(base + "amplitude name=A t=NOPE\n"));                                      // unknown table
+    CHECK(fails(base + "table name=T t=T2\n"));                                            // a table takes numbers
+    CHECK(fails(base + "table name=T t=0,0,1\n"));                                         // odd count
+    CHECK(fails(base + "table name=T t=0,0,0,1\n"));                                       // times not increasing
+    CHECK(fails(base + "table name=T t=0,0,1,1\ntable name=T t=0,0,2,1\n"));              // duplicate table
+    CHECK(fails(base + "table name=T t=0,0,1,1\namplitude name=T t=0,0,1,1\n") == false); // table and amplitude may share a name
+    CHECK(fails(base + "table name=T t=0,0,1,1\namplitude name=A t=T\namplitude name=A t=0,0,1,1\n"));  // duplicate amplitude
+    CHECK(fails(base + "amplitude name=A t=T\ntable name=T t=0,0,1,1\n"));                 // table must be defined before use
+    CHECK(fails(base + "table name=T t=0,0,1,1\namplitude name=A t=T\njob J amp=NOPE:T\n"));  // unknown amplitude
+    CHECK(fails(base + "table name=T t=0,0,1,1\namplitude name=A t=T\njob J amp=A:NOPE\n"));  // unknown table
+    CHECK(fails(base + "table name=T t=0,0,1,1\namplitude name=A t=T\njob J amp=A\n"));       // missing :TABLE
+    CHECK(fails(base + "table name=T t=0,0,1,1\namplitude name=A t=T\njob J amp=A:T,A:T\n")); // twice in one job
+    CHECK(fails(base + "job J amp=A:T\ntable name=T t=0,0,1,1\namplitude name=A t=T\n"));    // amplitude not yet defined
+}
+
 /** Time-dependent loads and the dynamic step: parser, serializer, deck text and the refusals of the code_aster writer. */
 void testTimeLoadsAndDynamic() {
     // Amplitudes and the amp= option on forces and pressures.
@@ -625,6 +704,156 @@ void testTimeLoadsAndDynamic() {
         CHECK(!writeCodeAsterCase(hex, timed, dir, options).success);
         fs::remove_all(dir);
     }
+}
+
+/** Totals of the numeric rows of the *CLOAD cards of a deck (`node, dof, value`), the nodes they touch and the card count. */
+struct CloadTotals {
+    std::array<double, 3> total{{0.0, 0.0, 0.0}};
+    std::set<long> nodes;
+    int cards = 0;
+};
+
+CloadTotals sumCloads(const std::string& text) {
+    CloadTotals out;
+    std::istringstream in(text);
+    std::string line;
+    bool inCload = false;
+    while (std::getline(in, line)) {
+        if (!line.empty() && line[0] == '*') {
+            inCload = line.rfind("*CLOAD", 0) == 0;
+            if (inCload) ++out.cards;
+            continue;
+        }
+        if (!inCload || line.empty() || !std::isdigit(static_cast<unsigned char>(line[0]))) continue;
+        std::istringstream row(line);
+        std::string node, dof, value;
+        std::getline(row, node, ',');
+        std::getline(row, dof, ',');
+        std::getline(row, value, ',');
+        out.nodes.insert(std::stol(node));
+        out.total[static_cast<std::size_t>(std::stoi(dof) - 1)] += std::stod(value);
+    }
+    return out;
+}
+
+bool near(double a, double b) { return std::fabs(a - b) < 1e-9; }
+
+void testOutputRequests() {
+    const fs::path dir = tempDir();
+    const std::string base = "material E=210000 nu=0.3\nfix group:Bottom\nforce group:Top F=0,0,-40\nstep static\n";
+    MeshData hex = makeHex();
+
+    // Parser: the two requests are read independently, and the defaults keep the previous behaviour.
+    const auto defaults = parseOk(base);
+    CHECK(defaults.nodalPrint && defaults.elementPrint == -1);
+    const auto nodalOff = parseOk("output nodal=off\n" + base);
+    CHECK(!nodalOff.nodalPrint && nodalOff.elementPrint == -1);
+    const auto elementOn = parseOk(base + "output element=on\n");
+    CHECK(elementOn.nodalPrint && elementOn.elementPrint == 1);
+    CHECK(!parseAnalysisScript(base + "output nodal=maybe\n").success);
+
+    // Writer: nodal off removes *NODE FILE and keeps *EL PRINT, and says so; element off keeps *NODE FILE.
+    const auto rNodal = writeSolverInput(hex, nodalOff, dir / "nodal-off.inp");
+    CHECK(rNodal.success);
+    const std::string tNodal = slurp(dir / "nodal-off.inp");
+    CHECK(!contains(tNodal, "*NODE FILE"));
+    CHECK(hasCode(rNodal.diagnostics, "ANALYSIS_NO_NODAL_OUTPUT"));
+    CHECK(contains(tNodal, "*EL PRINT, ELSET=MG_EALL\nS, E"));   // element output is independent: auto keeps it on a small mesh
+
+    AnalysisModel elementOff = defaults;
+    elementOff.elementPrint = 0;
+    const auto rEl = writeSolverInput(hex, elementOff, dir / "element-off.inp");
+    CHECK(rEl.success);
+    const std::string tEl = slurp(dir / "element-off.inp");
+    CHECK(contains(tEl, "*NODE FILE\nU, S, E"));
+    CHECK(!contains(tEl, "*EL PRINT"));
+    CHECK(!hasCode(rEl.diagnostics, "ANALYSIS_NO_NODAL_OUTPUT"));
+
+    // Round trip keeps both flags.
+    const auto again = parseAnalysisScript(serializeAnalysisScript(nodalOff));
+    CHECK(again.success && !again.model.nodalPrint && again.model.elementPrint == -1);
+    const auto againOn = parseAnalysisScript(serializeAnalysisScript(elementOn));
+    CHECK(againOn.success && againOn.model.nodalPrint && againOn.model.elementPrint == 1);
+    fs::remove_all(dir);
+}
+
+void testDistributedLoads() {
+    const fs::path dir = tempDir();
+    const std::string base = "material E=210000 nu=0.3\nfix group:Bottom\n";
+
+    // Parser: ids, group, total force and amplitude; the generated id follows the other kinds.
+    const auto parsed = parseOk("amplitude name=A1 t=0,0,1,1\n" + base +
+                                "distributed id=shear group:Top F=10,0,-40 amp=A1\n"
+                                "distributed group:Right F=0,5,0\n"
+                                "step static loads=shear\n");
+    CHECK(parsed.distributed.size() == 2);
+    CHECK(parsed.distributed.size() == 2 && parsed.distributed[0].id == "shear" && parsed.distributed[0].group == "Top");
+    CHECK(parsed.distributed.size() == 2 && near(parsed.distributed[0].total[0], 10.0) && near(parsed.distributed[0].total[2], -40.0));
+    CHECK(parsed.distributed.size() == 2 && parsed.distributed[0].amplitude == "A1");
+    CHECK(parsed.distributed.size() == 2 && parsed.distributed[1].id == "distributed-1" && near(parsed.distributed[1].total[1], 5.0));
+
+    // Round trip through the script, with the ids kept.
+    const auto again = parseAnalysisScript(serializeAnalysisScript(parsed));
+    CHECK(again.success);
+    CHECK(again.model.distributed.size() == 2 && again.model.distributed[0].id == "shear" &&
+          again.model.distributed[0].amplitude == "A1" && near(again.model.distributed[0].total[2], -40.0));
+
+    // Writer: the force of a two-face group is shared by area (equal faces here) and the total is exact.
+    MeshData hex = makeHex();
+    hex.addPhysicalGroup("Both", 2, 5, {102, 103});   // Top (z=1) and Right (x=1), both of area 1
+    const auto both = parseOk(base + "distributed group:Both F=12,-6,-30\nstep static\n");
+    const auto rBoth = writeSolverInput(hex, both, dir / "both.inp");
+    CHECK(rBoth.success);
+    if (!rBoth.success) std::cerr << rBoth.error << "\n";
+    const std::string tBoth = slurp(dir / "both.inp");
+    const auto sumBoth = sumCloads(tBoth);
+    CHECK(sumBoth.cards == 1);                                   // one *CLOAD card, no amplitude
+    CHECK(contains(tBoth, "*CLOAD\n"));
+    CHECK(sumBoth.nodes.size() == 6);                            // Top 15-18 and Right 12, 13 (16, 17 shared)
+    CHECK(near(sumBoth.total[0], 12.0) && near(sumBoth.total[1], -6.0) && near(sumBoth.total[2], -30.0));
+    CHECK(contains(tBoth, "15, 3, -3.75\n"));                    // (1/2 of the face) / 4 corners of -30 = -3.75
+    CHECK(contains(tBoth, "16, 3, -7.5\n"));                     // shared by Top and Right: twice -3.75
+
+    // Amplitude: the card carries the amplitude name; the total is still exact.
+    const auto timed = parseOk("amplitude name=A1 t=0,0,1,1\n" + base + "distributed group:Top F=0,0,-40 amp=A1\nstep static\n");
+    const auto rTimed = writeSolverInput(hex, timed, dir / "timed.inp");
+    CHECK(rTimed.success);
+    const std::string tTimed = slurp(dir / "timed.inp");
+    CHECK(contains(tTimed, "*CLOAD, AMPLITUDE=A1\n"));
+    const auto sumTimed = sumCloads(tTimed);
+    CHECK(near(sumTimed.total[0], 0.0) && near(sumTimed.total[1], 0.0) && near(sumTimed.total[2], -40.0));
+    CHECK(sumTimed.nodes.size() == 4);
+
+    // Triangles: a tetrahedron with two faces of area 0.5 each; the total stays exact.
+    MeshData tet = makeTet();
+    tet.addPhysicalGroup("T12", 2, 5, {11, 12});
+    const auto tetLoad = parseOk("material E=210000 nu=0.3\nfix all dof=1,2,3\ndistributed group:T12 F=0,0,-1\nstep static\n");
+    const auto rTet = writeSolverInput(tet, tetLoad, dir / "tet.inp");
+    CHECK(rTet.success);
+    const auto sumTet = sumCloads(slurp(dir / "tet.inp"));
+    CHECK(near(sumTet.total[0], 0.0) && near(sumTet.total[1], 0.0) && near(sumTet.total[2], -1.0));
+
+    // Frequency steps ignore it, and a step names it like any other load.
+    const auto unknownLoad = parseAnalysisScript(base + "distributed group:Top F=1,0,0\nstep static loads=missing\n");
+    CHECK(!unknownLoad.success && hasCode(unknownLoad.diagnostics, "SCRIPT_UNKNOWN_LOAD"));
+    const auto undefinedAmp = parseAnalysisScript(base + "distributed group:Top F=1,0,0 amp=Z\n");
+    CHECK(!undefinedAmp.success && hasCode(undefinedAmp.diagnostics, "SCRIPT_UNKNOWN_AMPLITUDE"));
+    CHECK(!parseAnalysisScript(base + "distributed all F=1,0,0\n").success);
+    CHECK(!parseAnalysisScript(base + "distributed group:Top\n").success);     // no force
+
+    // Writer errors: a volume group, an unknown group, an undefined amplitude (checked by the writer too).
+    CHECK(contains(writeSolverInput(hex, parseOk(base + "distributed group:Body F=1,0,0\nstep static\n"), dir / "x.inp").error,
+                   "not a surface group"));
+    CHECK(contains(writeSolverInput(hex, parseOk(base + "distributed group:Nope F=1,0,0\nstep static\n"), dir / "x.inp").error,
+                   "unknown surface group"));
+
+    // code_aster does not write distributed loads yet: it refuses them instead of dropping them.
+    CodeAsterOptions options;
+    options.jobName = "dist";
+    CHECK(!writeCodeAsterCase(hex, both, dir, options).success);
+    CHECK(contains(writeCodeAsterCase(hex, both, dir, options).error, "Distributed loads"));
+
+    fs::remove_all(dir);
 }
 
 void testJobsStepsAndLoads() {
@@ -855,8 +1084,11 @@ int main() {
     testTetFaces();
     testWriterFrequencyAndValidation();
     testTimeLoadsAndDynamic();
+    testTables();
     testPartMaterials();
     testJobsStepsAndLoads();
+    testDistributedLoads();
+    testOutputRequests();
     testRunner();
     if (g_failures) {
         std::cerr << g_failures << " check(s) failed\n";

@@ -29,8 +29,9 @@
  * fix group:BladeRoot_NODES dof=1,2,3           # Node Set generated from a CAD face group
  * force plane:x=10 F=0,-100,0                   # total force, shared equally by the selected nodes
  * pressure group:Top p=2.5                      # on a dimension-2 surface group; positive = pushing into the body
+ * distributed group:Top F=0,0,-40 [amp=NAME]    # total force of a dimension-2 group, shared by its faces in proportion to area
  * gravity g=0,0,-9810                           # acceleration vector (needs rho)
- * job SETTLE                                    # starts a job (one solver session); steps below belong to it
+ * job SETTLE [solver=ID]                      # starts a job (one solver session); steps below belong to it
  * step static loads=F1,P1                       # only the listed loads are active; ids come from the lines above
  * step static loads=F2 reset                    # F1 and P1 of the previous steps are set to zero here
  * step frequency modes=6                        # or: step dynamic dt=0.01 period=1
@@ -87,6 +88,9 @@ struct RigidLink {
     std::string id;                    ///< Stable condition identifier (generated for holes: "rbe2-N").
     std::array<double, 3> reference{{0.0, 0.0, 0.0}}; ///< Position of the reference node, model length units.
     std::vector<NodeIndex> slaves;     ///< Mesh nodes coupled to the reference node.
+    /// Node group the slaves come from (script `rbe2 group:NAME ref=...`). When set, the slaves are resolved from the
+    /// group when the deck is written, and the script form is written; a link without a group keeps its slaves only in memory.
+    std::string group;
 };
 
 /**
@@ -106,7 +110,19 @@ struct HoleFit {
  */
 struct AnalysisAmplitude {
     std::string name;                                ///< Identifier used by the loads (amp=NAME).
-    std::vector<std::array<double, 2>> points;       ///< (time, factor), strictly increasing in time.
+    std::vector<std::array<double, 2>> points;       ///< (time, factor), strictly increasing in time (copied from the table when `table` is set).
+    std::string table;                               ///< Name of the table this amplitude was given by (t=TABLE); empty when given by a list.
+};
+
+/**
+ * @brief Points of one amplitude for one job. Tables are kept in AnalysisModel::tables (name and points, written as
+ * `table name=T t=...`); an amplitude takes its points from one with `amplitude name=A t=T`, and a job can give
+ * another table to an amplitude with `job NAME amp=A:T2`. Only the resolved points reach the solver deck.
+ */
+struct AmplitudeOverride {
+    std::string amplitude;                           ///< Amplitude name in the model (the loads keep using it).
+    std::string table;                               ///< Table name the points come from.
+    std::vector<std::array<double, 2>> points;       ///< Resolved points, strictly increasing in time.
 };
 
 struct NodalForce {
@@ -121,6 +137,20 @@ struct SurfacePressure {
     std::string group;         ///< Physical group of surface elements (dimension 2).
     double pressure = 0.0;     ///< Positive acts into the body (compressive), as in Abaqus and CalculiX.
     std::string amplitude;     ///< Optional amplitude name (empty = constant load).
+};
+
+/**
+ * @brief A total force distributed over a set of boundary faces.
+ *
+ * The faces of `group` (dimension 2) share the force in proportion to their area, so the traction is uniform over the
+ * set (total / area). Each face hands its share to its corner nodes. The force is in global axes; the units are the
+ * model's own, and keeping them consistent is up to whoever builds the model.
+ */
+struct DistributedLoad {
+    std::string id;                               ///< Stable condition identifier.
+    std::string group;                            ///< Physical group of surface elements (dimension 2): the faces.
+    std::array<double, 3> total{{0.0, 0.0, 0.0}}; ///< Whole force of the set.
+    std::string amplitude;                        ///< Optional amplitude name (empty = constant load).
 };
 
 enum class StepType {
@@ -150,7 +180,7 @@ struct AnalysisStep {
     double dynamicMaxIncrement = 0.0;
     /** True: every load of the model is active in the step (the default). False: only `loads` are active. */
     bool allLoads = true;
-    std::vector<std::string> loads;   ///< Ids of the active loads (forces, pressures, kGravityLoadId) when !allLoads.
+    std::vector<std::string> loads;   ///< Ids of the active loads (forces, pressures, distributed, kGravityLoadId) when !allLoads.
     bool resetLoads = false;          ///< Set the loads of previous steps that are not active here to zero.
 };
 
@@ -161,6 +191,10 @@ struct AnalysisStep {
 struct AnalysisJob {
     std::string id;                     ///< Stable name; it names the solver input and the output of the job.
     std::vector<AnalysisStep> steps;    ///< At least one step.
+    /** Amplitudes this job takes from another table (`job NAME amp=A:T`); the others keep their model points. */
+    std::vector<AmplitudeOverride> amplitudeOverrides;
+    /** Id of the solver of this job (`job NAME solver=ID`, see Solvers.hpp); empty = the default of the analysis type. */
+    std::string solver;
 };
 
 /** @brief Material of one volume part of the mesh (a mesh element block), set by an `assign` line. */
@@ -176,12 +210,18 @@ struct AnalysisModel {
     std::vector<FixedSupport> supports;
     std::vector<NodalForce> forces;
     std::vector<SurfacePressure> pressures;
+    std::vector<DistributedLoad> distributed;   ///< `distributed` lines: a total force over a face group.
     std::vector<RigidLink> rigidLinks; ///< Written after the supports; shared by all jobs.
     bool hasGravity = false;
     std::array<double, 3> gravity{{0.0, 0.0, 0.0}};
     std::vector<AnalysisAmplitude> amplitudes;
+    /** Named tables of (time, factor) pairs; an amplitude or a job refers to them by name (name and points only). */
+    std::vector<AnalysisAmplitude> tables;
     /** Print element stresses/strains to the `.dat` (per-element results). Large for big meshes; -1 = automatic (<= 200000 elements). */
     int elementPrint = -1;
+    /** Request the nodal results (`*NODE FILE`: displacements, and stresses and strains in a static step) for the `.frd`.
+     *  Independent of elementPrint. Off: the solver writes no nodal results, and the viewer has nothing to show. */
+    bool nodalPrint = true;
     /** The solver sessions. Empty only in a model built in code before the first job is added. */
     std::vector<AnalysisJob> jobs;
 };
@@ -321,6 +361,13 @@ void applySupports(MeshData& mesh, const AnalysisModel& model, std::vector<Impor
  * an approximation and `maxDeviation` shows how far the nodes are from a circle.
  */
 bool fitHoleCircle(const MeshData& mesh, const std::vector<NodeIndex>& edge, HoleFit& fit);
+
+/**
+ * @brief Splits a selection into clusters, one per hole: items (faces) that share a token (a node reference) belong to
+ * the same cluster, transitively. Returns the clusters as lists of item indices, in order of first appearance; every
+ * item is in exactly one cluster. Items without tokens form clusters of their own.
+ */
+std::vector<std::vector<std::size_t>> sharedTokenClusters(const std::vector<std::vector<std::string>>& itemTokens);
 
 /**
  * @brief One RigidLink per hole: each hole edge is fitted with fitHoleCircle() and coupled to `reference`.

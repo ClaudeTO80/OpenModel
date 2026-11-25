@@ -381,6 +381,9 @@ CodeAsterExportResult writeCodeAsterCase(const MeshData& mesh, const AnalysisMod
     model.jobs.clear();
     model.forces.erase(std::remove_if(model.forces.begin(), model.forces.end(), [&](const NodalForce& f) { return !isActive(f.id); }), model.forces.end());
     model.pressures.erase(std::remove_if(model.pressures.begin(), model.pressures.end(), [&](const SurfacePressure& p) { return !isActive(p.id); }), model.pressures.end());
+    model.distributed.erase(std::remove_if(model.distributed.begin(), model.distributed.end(), [&](const DistributedLoad& d) { return !isActive(d.id); }), model.distributed.end());
+    if (!model.distributed.empty())
+        return fail(r, "Distributed loads are not written to the code_aster case yet: use the CalculiX solver");
     model.hasGravity = model.hasGravity && isActive(kGravityLoadId);
 
     if (!model.materials.empty() || !model.partMaterials.empty())

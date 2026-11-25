@@ -3,6 +3,7 @@
 ## Codice
 
 - **Standard**: C++17 (`cxx_std_17` in CMake). Non usare funzionalità C++20 o C++23 (per esempio `std::map::contains`, `std::expected`) finché il progetto non alza lo standard: CONTRIBUTING.md lo dice esplicitamente. Le preferenze personali di chi sviluppa indicano C++23 con `std::expected`: quando le due cose non coincidono, vale il progetto, e la scelta va dichiarata nella descrizione della modifica.
+- **Nota TK4CPP**: con `OPENMODEL_TK4CPP_SOURCE` (FETCH o INSTALLED) il core è compilato come C++23, perché i target TK4CPP richiedono C++23 e CMake ne propaga il requisito (OpenModel non lo imposta esplicitamente). La regola sopra resta valida finché il maintainer non decide di alzare lo standard.
 - **Lingua**: codice, commenti e messaggi di log in inglese; commenti in stile Doxygen (`/** ... */`, `@param`, `@return`, `@brief`).
 - **Header pubblici** in `include/OpenModel/`, implementazioni in `src/`. Un backend opzionale resta dietro la sua opzione `OPENMODEL_BUILD_*_BACKEND`.
 - **Errori**: le funzioni di meshatura riportano l'errore con `lastError()` e `fail(...)`, non con eccezioni verso la GUI. La GUI risponde sempre con `reply(e, false, msg)`.

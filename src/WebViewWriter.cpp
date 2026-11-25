@@ -228,6 +228,19 @@ WebViewResult WebViewWriter::build(const MeshData& mesh, const WebViewOptions& o
         for (const auto& d : options.displacement)
             if (!std::isfinite(d[0]) || !std::isfinite(d[1]) || !std::isfinite(d[2])) return fail("displacement contains a non-finite value");
     }
+    if (!options.frames.empty()) {
+        if (!options.modes.empty() || !options.displacement.empty())
+            return fail("frames are mutually exclusive with modes and displacement");
+        for (std::size_t f = 0; f < options.frames.size(); ++f) {
+            const auto& frame = options.frames[f];
+            if (!std::isfinite(frame.time)) return fail("frame '" + frame.label + "' has a non-finite time");
+            if (f > 0 && !(frame.time > options.frames[f - 1].time)) return fail("frame times must be strictly increasing");
+            if (frame.displacement.size() != nodeCount) return fail("frame '" + frame.label + "' must have one displacement per node");
+            for (const auto& d : frame.displacement)
+                if (!std::isfinite(d[0]) || !std::isfinite(d[1]) || !std::isfinite(d[2]))
+                    return fail("frame '" + frame.label + "' contains a non-finite displacement");
+        }
+    }
 
     const auto& blocks = mesh.getElementBlocks();
     const auto& groups = mesh.getPhysicalGroups();
@@ -572,11 +585,14 @@ WebViewResult WebViewWriter::build(const MeshData& mesh, const WebViewOptions& o
         return c;
     };
     const bool hasModes = !options.modes.empty();
-    const bool hasDisplacement = !options.displacement.empty() || hasModes;
+    const bool hasFrames = !options.frames.empty();
+    const bool hasDisplacement = !options.displacement.empty() || hasModes || hasFrames;
     Chunk cDisp{0, 0};
     double maxDisplacement = 0.0;
     struct ModeInfo { std::string label; double frequency, max; Chunk chunk; };
     std::vector<ModeInfo> modes;
+    struct FrameInfo { std::string label; double time, max; Chunk chunk; };
+    std::vector<FrameInfo> frames;
     if (!options.displacement.empty()) cDisp = packDisplacement(options.displacement, maxDisplacement);
     for (const auto& mode : options.modes) {
         double modeMax = 0.0;
@@ -584,9 +600,27 @@ WebViewResult WebViewWriter::build(const MeshData& mesh, const WebViewOptions& o
         maxDisplacement = std::max(maxDisplacement, modeMax);
         modes.push_back({mode.label, mode.frequency, modeMax, c});
     }
+    for (const auto& frame : options.frames) {
+        double frameMax = 0.0;
+        const Chunk c = packDisplacement(frame.displacement, frameMax);
+        maxDisplacement = std::max(maxDisplacement, frameMax);
+        frames.push_back({frame.label, frame.time, frameMax, c});
+    }
 
     // 7. JSON descriptor.
     std::string json = "{\"format\":\"MGWV\",\"version\":" + std::to_string(kVersion);
+    // Rigid links, with the coordinates moved to the origin of the file as the positions are (see step 2).
+    std::string rigid;
+    for (const auto& link : options.rigidLinks) {
+        if (!rigid.empty()) rigid += ",";
+        rigid += "{\"reference\":[" + num(link.reference[0] - origin[0]) + "," + num(link.reference[1] - origin[1]) + "," +
+                 num(link.reference[2] - origin[2]) + "],\"nodes\":[";
+        for (std::size_t i = 0; i < link.nodes.size(); ++i) {
+            if (i) rigid += ",";
+            rigid += num(link.nodes[i][0] - origin[0]) + "," + num(link.nodes[i][1] - origin[1]) + "," + num(link.nodes[i][2] - origin[2]);
+        }
+        rigid += "]}";
+    }
     json += ",\"origin\":[" + num(origin[0]) + "," + num(origin[1]) + "," + num(origin[2]) + "]";
     json += ",\"bbox\":{\"min\":[" + num(lo[0]) + "," + num(lo[1]) + "," + num(lo[2]) + "],\"max\":[" +
             num(hi[0]) + "," + num(hi[1]) + "," + num(hi[2]) + "]}";
@@ -595,6 +629,7 @@ WebViewResult WebViewWriter::build(const MeshData& mesh, const WebViewOptions& o
             ",\"boundaryTriangles\":" + std::to_string(boundaryTriangles) + ",\"edges\":" + std::to_string(edges.size()) +
             ",\"boundaryEdges\":" + std::to_string(boundaryEdges) +
             ",\"constrainedNodes\":" + std::to_string(constrainedNodes) + ",\"constraintVertices\":" + std::to_string(constraintWords.size() / 2) + "}";
+    json += ",\"rigidLinks\":[" + rigid + "]";
     json += ",\"blocks\":[";
     for (std::size_t b = 0; b < blocks.size(); ++b) {
         if (b) json += ",";
@@ -649,6 +684,17 @@ WebViewResult WebViewWriter::build(const MeshData& mesh, const WebViewOptions& o
                     ",\"max\":" + num(modes[m].max) + ",\"offset\":" + std::to_string(modes[m].chunk.offset) + "}";
         }
         json += "]";
+    }
+    if (hasFrames) {
+        json += ",\"frames\":[";
+        for (std::size_t f = 0; f < frames.size(); ++f) {
+            if (f) json += ",";
+            json += "{\"label\":\"" + jsonEscape(frames[f].label) + "\",\"time\":" + num(frames[f].time) +
+                    ",\"max\":" + num(frames[f].max) + ",\"offset\":" + std::to_string(frames[f].chunk.offset) + "}";
+        }
+        json += "]";
+        const std::size_t shown = options.defaultFrame < frames.size() ? options.defaultFrame : frames.size() - 1;
+        json += ",\"frame\":" + std::to_string(shown);
     }
     if (!options.resultsLabel.empty()) json += ",\"results\":{\"label\":\"" + jsonEscape(options.resultsLabel) + "\"}";
     json += "}";

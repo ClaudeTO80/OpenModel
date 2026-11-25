@@ -20,14 +20,14 @@ where you can also pick nodes, elements and faces to build groups, supports and 
 | FEM results | CalculiX `.frd`, `.dat`, code_aster `.tab` tables and CSV readers: displacements, stresses, strains, principal and von Mises values, modal frequencies and mode shapes |
 | Viewer | Single-file WebGL viewer (**MGWV**): colour fields, deformed shape, modal animation, section plane, GPU picking of nodes / elements / faces |
 | Pre-processing | Selection → node / element / face groups → `fix`, `force`, `pressure` lines in an analysis script |
-| Solver | Analysis script → complete CalculiX input → `ccx` run in the background with live log and cancel → results loaded back into the viewer; the same script can also write and run a **code_aster** case ([`docs/CODE_ASTER.md`](docs/CODE_ASTER.md)) |
+| Solver | Analysis script → complete CalculiX input → `ccx` run in the background with live log and cancel → results loaded back into the viewer; the same script can also write and run a **code_aster** case ([`docs/CODE_ASTER.md`](docs/CODE_ASTER.md)) or an **Elmer** static case (see [`docs/SOLVER.md`](docs/SOLVER.md#several-solvers-and-elmer)) |
 | Fatigue *(library and tool)* | `OpenModel::Fatigue` (shared library `OpenModelFatigue`): stress history from FEM results, Rainflow counting, S–N and strain-life damage, Palmgren–Miner and Wang–Brown, mean-stress corrections, operating spectra, reports and damage maps for the viewer ([manual](docs/fatigue/index.html)). The `openmodel-fatigue` tool runs single-position analyses and spectra from JSON files (see below). Not in the workbench yet |
 | Project manifest *(library)* | `OpenModelProject`: an `.omproj` document that indexes CAD, mesh, analysis and result files with relative paths, SHA-256 and size checks ([`docs/PROJECT_PERSISTENCE.md`](docs/PROJECT_PERSISTENCE.md)). Not used by the CLI or the workbench yet |
 | Interfaces | C++ library (`OpenModel::Core`), CLI (`openmodel`), desktop workbench (`openmodel-webui`, **English user interface**) |
 
 ## Quick start
 
-Requirements: a C++17 compiler (developed with GCC 14.2; also built with GCC 13.3), CMake ≥ 3.20, POSIX threads. Python 3 and Node.js are only needed by some optional tests.
+Requirements: CMake ≥ 3.20, POSIX threads, and a C++17 compiler (developed with GCC 14.2; also built with GCC 13.3). The default TK4CPP build (see [TK4CPP](#tk4cpp)) needs CMake ≥ 3.23 and a C++23 compiler, because TK4CPP requires C++23; with it the core is compiled as C++23, the standard being raised by the TK4CPP targets and not set by OpenModel's CMake. Python 3 and Node.js are only needed by some optional tests.
 
 ```bash
 git clone https://github.com/ClaudeTO80/OpenModel.git
@@ -60,7 +60,8 @@ openmodel export-web <input.omb|input.mgmb|input.inp|input.mail> <output.mgwv> [
                      [--engineering-strain] [--no-derived] [--no-coordinate-check]
 openmodel results-info <file.frd|file.dat|file.csv> [more files, merged]
 openmodel write-input <mesh.mgmb|mesh.inp> <analysis.txt> <job.inp>
-openmodel solve <mesh.mgmb|mesh.inp> <analysis.txt> <workdir> [--solver ccx-path] [--web out.mgwv]
+openmodel solve <mesh.mgmb|mesh.inp> <analysis.txt> <workdir> [--solver ccx-path] [--elmer ElmerSolver-path] [--web out.mgwv]
+openmodel export-elmer <mesh.mgmb|mesh.inp> <analysis.txt> <dir> [--job NAME]
 openmodel export-aster <mesh> <analysis.txt> <dir> [--job NAME] [--solver MUMPS] [--cpus N] [--memory MB] [--time S]
 openmodel solve-aster <mesh> <analysis.txt> <dir> [--launcher run_aster] [--web out.mgwv]
 openmodel export-mail <mesh> <out.mail>
@@ -176,6 +177,16 @@ Each backend is off by default and needs its native library to be found by CMake
 General options: `OPENMODEL_VERSION` (`0.1.5`, see [Version](#version)), `OPENMODEL_BUILD_TESTS` (ON), `OPENMODEL_BUILD_CLI` (ON), `OPENMODEL_BUILD_SHARED` (ON), `OPENMODEL_BUILD_BENCHMARKS` (OFF),
 `OPENMODEL_BUILD_WEBUI` (OFF), `OPENMODEL_TEST_WEBGL_VIEWER` (OFF, needs Node.js with Playwright).
 
+### TK4CPP
+
+OpenModel runs the solvers with `TK4CPP::Process`, decodes dropped files with `TK4CPP::Encode` and converts UTF-8 paths and makes unique temporary names with `TK4CPP::Utility`, from the
+[TK4CPP](https://github.com/ClaudeTO80/TK4CPP) framework. It needs CMake 3.23 or newer and a C++23 compiler, since TK4CPP requires C++23. Choose where TK4CPP comes from with `OPENMODEL_TK4CPP_SOURCE`:
+
+- `FETCH` (default): TK4CPP is downloaded from `OPENMODEL_TK4CPP_GIT_REPOSITORY` at `OPENMODEL_TK4CPP_GIT_TAG` (default `main`) during configure and only the modules OpenModel uses are built (Process, Encode, Utility and Thread). Needs git and network access. An installed OpenModel package built this way does not contain TK4CPP.
+- `INSTALLED`: an installed TK4CPP is used (CMake package `TK4CPP`, components `Process`, `Encode` and `Utility`), found in `OPENMODEL_TK4CPP_DIR` (its install prefix) or in `CMAKE_PREFIX_PATH`. The installed OpenModel package then finds it too.
+
+`3dParty/TK4CPP` is a submodule pointing to the TK4CPP commit this version was tested with. To build TK4CPP from it, run `cmake -S 3dParty/TK4CPP -B build-tk4cpp -DTK4CPP_BUILD_TESTS=OFF -DTK4CPP_BUILD_SHARED=OFF -DCMAKE_INSTALL_PREFIX=/opt/tk4cpp`, install it, and configure OpenModel with `-DOPENMODEL_TK4CPP_SOURCE=INSTALLED -DOPENMODEL_TK4CPP_DIR=/opt/tk4cpp`. Initialise the submodule first with `git submodule update --init 3dParty/TK4CPP`.
+
 ### Gmsh meshing controls
 
 `MeshingOptions` (Gmsh backend) controls, besides the element sizes and the order:
@@ -263,14 +274,14 @@ What is **not** verified:
 
 - The generated CalculiX input has never been run through a real `ccx`; the tests use a stand-in (`tests/support/fake_ccx.py`) and check the plumbing, not the physics.
 - The code_aster export has never been run through a real code_aster (stand-in `tests/support/fake_aster.py`); MED files are not supported. See [`docs/CODE_ASTER.md`](docs/CODE_ASTER.md).
-- The solver runner is POSIX only (Linux, macOS); on Windows it returns an error. The CI workflow also builds the core on Windows (MSVC) and skips the solver tests there; locally only Linux has been built and tested.
+- The solver runner goes through `TK4CPP::Process`, which has a Windows implementation (Job Object). It has not been built or run on Windows yet, and `process_runner_test` runs on POSIX only. The CI workflow also builds the core on Windows (MSVC) and skips the solver tests there; locally only Linux has been built and tested.
 - Gmsh, Open CASCADE, TetGen, Netgen and MFEM backends were not compiled in the latest test environment; the Assimp backend is built by a separate CI job on Linux and Windows.
 - The fatigue module has no workbench panel. Its tool `openmodel-fatigue` (`analyze`, `spectrum`) takes JSON material and spectrum files; it was tested with the analytic beam fixture only, not against measured or solver-validated fatigue data. The material unit must equal the unit of the results exactly (no conversion), and CalculiX result files need `--unit SYMBOL:SCALE` (or `resultUnit`) because they do not declare one. It is covered by unit tests but was not validated against test data of a real component; it applies no safety, size, surface or notch factors, and multiaxial cycle counting is only a contract, not an implementation ([`docs/fatigue/methods.html`](docs/fatigue/methods.html)).
 - `OpenModelProject` is a library API only; neither the CLI nor the workbench reads or writes `.omproj` files yet.
 - The workbench CAD face groups need the Open CASCADE backend, and Gmsh for the volume mesh; only face groups are editable (named CAD groups of other dimensions are shown read-only).
 - Nodal forces are shared equally among the selected nodes (not consistent for quadratic elements; use `pressure`); one step per analysis; per-part materials (`assign`) are CalculiX only; no contact or nonlinear materials.
 - Groups cannot yet be deleted or renamed; picking performance with very large selections and touch input are untested.
-- The code base is C++17; migration to C++23 (`std::expected`) is not done.
+- With TK4CPP the core is compiled as C++23, because the TK4CPP targets require it. The code base is still written in the C++17 style: the migration of the code to C++23 (`std::expected`) is not done.
 
 ## License
 

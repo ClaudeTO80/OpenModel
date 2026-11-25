@@ -223,6 +223,33 @@ struct Parser {
             p.id = conditionId("pressure", keys);
             leftovers();
             if (result.diagnostics.size() == errorsBefore) result.model.pressures.push_back(p);
+        } else if (command == "distributed") {
+            DistributedLoad d;
+            NodeSelector sel;
+            if (positional.size() != 1 || !selector(positional[0], sel) || sel.kind != SelectorKind::Group) {
+                error("SCRIPT_SELECTOR", "distributed needs a surface group: distributed group:NAME F=fx,fy,fz");
+                return;
+            }
+            d.group = sel.name;
+            vector3("f", d.total);
+            take("amp", d.amplitude);
+            d.id = conditionId("distributed", keys);
+            leftovers();
+            if (result.diagnostics.size() == errorsBefore) result.model.distributed.push_back(d);
+        } else if (command == "rbe2") {
+            RigidLink link;
+            NodeSelector sel;
+            if (positional.size() != 1 || !selector(positional[0], sel) || sel.kind != SelectorKind::Group) {
+                error("SCRIPT_SELECTOR", "rbe2 needs a node group: rbe2 group:NAME ref=x,y,z");
+                return;
+            }
+            link.group = sel.name;
+            std::string ref;
+            if (!take("ref", ref)) error("SCRIPT_RBE2", "rbe2 needs the reference point: ref=x,y,z");
+            else if (!parseVector3(ref, link.reference)) error("SCRIPT_BAD_VECTOR", "'" + ref + "' is not three comma separated coordinates (ref)");
+            link.id = conditionId("rbe2", keys);
+            leftovers();
+            if (result.diagnostics.size() == errorsBefore) result.model.rigidLinks.push_back(link);
         } else if (command == "gravity") {
             std::array<double, 3> g{};
             if (!positional.empty()) error("SCRIPT_UNEXPECTED", "Unexpected '" + positional[0] + "' after gravity");
@@ -236,8 +263,36 @@ struct Parser {
         } else if (command == "job") {
             if (positional.size() != 1 || !validConditionId(positional[0])) { error("SCRIPT_BAD_JOB", "job needs an id: job NAME (letters, digits, _ - .)"); return; }
             if (!jobIds.insert(positional[0]).second) { error("SCRIPT_DUPLICATE", "Job '" + positional[0] + "' is defined twice"); return; }
+            // amp=A1:T2,A2:T3 gives, for this job only, another table to each named amplitude; the loads are unchanged.
+            std::vector<AmplitudeOverride> overrides;
+            std::string amp;
+            if (take("amp", amp)) {
+                std::istringstream list(amp);
+                std::string pair;
+                while (std::getline(list, pair, ',')) {
+                    const auto colon = pair.find(':');
+                    const std::string amplitudeName = colon == std::string::npos ? std::string() : pair.substr(0, colon);
+                    const std::string tableName = colon == std::string::npos ? std::string() : pair.substr(colon + 1);
+                    if (!validConditionId(amplitudeName) || !validConditionId(tableName)) {
+                        error("SCRIPT_BAD_OVERRIDE", "job amp= takes AMPLITUDE:TABLE pairs, got '" + pair + "'"); return;
+                    }
+                    const auto amplitude = std::find_if(result.model.amplitudes.begin(), result.model.amplitudes.end(),
+                                                        [&](const AnalysisAmplitude& a) { return a.name == amplitudeName; });
+                    if (amplitude == result.model.amplitudes.end()) { error("SCRIPT_UNKNOWN_AMPLITUDE", "job " + positional[0] + " overrides amplitude '" + amplitudeName + "' that is not defined before it"); return; }
+                    const auto table = std::find_if(result.model.tables.begin(), result.model.tables.end(),
+                                                    [&](const AnalysisAmplitude& t) { return t.name == tableName; });
+                    if (table == result.model.tables.end()) { error("SCRIPT_UNKNOWN_TABLE", "job " + positional[0] + " uses table '" + tableName + "' that is not defined before it"); return; }
+                    for (const auto& o : overrides)
+                        if (o.amplitude == amplitudeName) { error("SCRIPT_DUPLICATE", "job " + positional[0] + " overrides amplitude '" + amplitudeName + "' twice"); return; }
+                    overrides.push_back(AmplitudeOverride{amplitudeName, tableName, table->points});
+                }
+            }
+            // solver=ID names the solver of this job (see Solvers.hpp); the id is checked against the settings when the job runs.
+            std::string solverId;
+            take("solver", solverId);
+            if (!solverId.empty() && !validConditionId(solverId)) { error("SCRIPT_BAD_JOB", "job solver= takes a solver id (letters, digits, _ - .), got '" + solverId + "'"); return; }
             leftovers();
-            if (result.diagnostics.size() == errorsBefore) result.model.jobs.push_back(AnalysisJob{positional[0], {}});
+            if (result.diagnostics.size() == errorsBefore) result.model.jobs.push_back(AnalysisJob{positional[0], {}, overrides, solverId});
         } else if (command == "step") {
             AnalysisStep step;
             if (positional.empty()) { error("SCRIPT_STEP", "step needs 'static', 'frequency' or 'dynamic'"); return; }
@@ -302,14 +357,25 @@ struct Parser {
                 result.model.jobs.back().steps.push_back(step);
                 haveStep = true;
             }
-        } else if (command == "amplitude") {
+        } else if (command == "amplitude" || command == "table") {
+            // A table is a named list of (time, factor) pairs. An amplitude gives its points either as a list
+            // (t=0,0,1,1,...) or as the name of a table defined before it (t=T1).
+            const bool isTable = command == "table";
             AnalysisAmplitude a;
             std::string name, values;
-            if (!positional.empty()) { error("SCRIPT_UNEXPECTED", "Unexpected '" + positional[0] + "' after amplitude"); return; }
-            if (!take("name", name) || !validConditionId(name)) { error("SCRIPT_BAD_NAME", "amplitude needs name=NAME (letters, digits, _ - .)"); return; }
-            if (!take("t", values)) { error("SCRIPT_MISSING_KEY", "amplitude needs t=time,factor,time,factor,..."); return; }
-            std::vector<double> numbers;
-            {
+            if (!positional.empty()) { error("SCRIPT_UNEXPECTED", "Unexpected '" + positional[0] + "' after " + command); return; }
+            if (!take("name", name) || !validConditionId(name)) { error("SCRIPT_BAD_NAME", command + " needs name=NAME (letters, digits, _ - .)"); return; }
+            if (!take("t", values)) { error("SCRIPT_MISSING_KEY", command + " needs t=time,factor,time,factor,... (or t=TABLE for an amplitude)"); return; }
+            const bool byName = !values.empty() && (std::isalpha(static_cast<unsigned char>(values[0])) || values[0] == '_');
+            if (byName) {
+                if (isTable) { error("SCRIPT_BAD_TABLE", "a table takes t=time,factor,... (numbers), not a table name"); return; }
+                const auto table = std::find_if(result.model.tables.begin(), result.model.tables.end(),
+                                                [&](const AnalysisAmplitude& t) { return t.name == values; });
+                if (table == result.model.tables.end()) { error("SCRIPT_UNKNOWN_TABLE", "amplitude '" + name + "' uses table '" + values + "' that is not defined before it"); return; }
+                a.points = table->points;
+                a.table = values;
+            } else {
+                std::vector<double> numbers;
                 std::istringstream in(values);
                 std::string cell;
                 while (std::getline(in, cell, ',')) {
@@ -317,18 +383,26 @@ struct Parser {
                     if (!parseNumber(cell, v)) { error("SCRIPT_BAD_NUMBER", "'" + cell + "' is not a number (t)"); return; }
                     numbers.push_back(v);
                 }
+                if (numbers.size() < 4 || numbers.size() % 2 != 0) { error("SCRIPT_BAD_AMPLITUDE", command + " needs at least two (time, factor) pairs"); return; }
+                for (std::size_t i = 0; i < numbers.size(); i += 2) a.points.push_back({numbers[i], numbers[i + 1]});
             }
-            if (numbers.size() < 4 || numbers.size() % 2 != 0) { error("SCRIPT_BAD_AMPLITUDE", "amplitude needs at least two (time, factor) pairs"); return; }
-            for (std::size_t i = 0; i < numbers.size(); i += 2) a.points.push_back({numbers[i], numbers[i + 1]});
             for (std::size_t i = 1; i < a.points.size(); ++i)
-                if (!(a.points[i][0] > a.points[i - 1][0])) { error("SCRIPT_BAD_AMPLITUDE", "amplitude times must be strictly increasing"); return; }
-            for (const auto& existing : result.model.amplitudes)
-                if (existing.name == name) { error("SCRIPT_DUPLICATE", "amplitude '" + name + "' is defined twice"); return; }
+                if (!(a.points[i][0] > a.points[i - 1][0])) { error("SCRIPT_BAD_AMPLITUDE", command + " times must be strictly increasing"); return; }
+            auto& target = isTable ? result.model.tables : result.model.amplitudes;
+            for (const auto& existing : target)
+                if (existing.name == name) { error("SCRIPT_DUPLICATE", command + " '" + name + "' is defined twice"); return; }
             a.name = name;
             leftovers();
-            if (result.diagnostics.size() == errorsBefore) result.model.amplitudes.push_back(a);
+            if (result.diagnostics.size() == errorsBefore) target.push_back(a);
         } else if (command == "output") {
-            std::string element;
+            // Two independent requests: nodal results (.frd) and element results (.dat).
+            std::string nodal, element;
+            if (take("nodal", nodal)) {
+                const std::string v = lowered(nodal);
+                if (v == "on") result.model.nodalPrint = true;
+                else if (v == "off") result.model.nodalPrint = false;
+                else error("SCRIPT_BAD_OUTPUT", "output nodal= takes on or off");
+            }
             if (take("element", element)) {
                 const std::string v = lowered(element);
                 if (v == "on") result.model.elementPrint = 1;
@@ -370,6 +444,7 @@ AnalysisParseResult parseAnalysisScript(const std::string& text) {
         std::set<std::string> loadIds;
         for (const auto& f : p.result.model.forces) loadIds.insert(f.id);
         for (const auto& q : p.result.model.pressures) loadIds.insert(q.id);
+        for (const auto& d : p.result.model.distributed) loadIds.insert(d.id);
         if (p.result.model.hasGravity) loadIds.insert(kGravityLoadId);
         for (const auto& job : p.result.model.jobs)
             for (const auto& step : job.steps)
@@ -384,6 +459,8 @@ AnalysisParseResult parseAnalysisScript(const std::string& text) {
         if (!known(f.amplitude)) p.error("SCRIPT_UNKNOWN_AMPLITUDE", "force uses amplitude '" + f.amplitude + "' that is not defined");
     for (const auto& q : p.result.model.pressures)
         if (!known(q.amplitude)) p.error("SCRIPT_UNKNOWN_AMPLITUDE", "pressure uses amplitude '" + q.amplitude + "' that is not defined");
+    for (const auto& d : p.result.model.distributed)
+        if (!known(d.amplitude)) p.error("SCRIPT_UNKNOWN_AMPLITUDE", "distributed uses amplitude '" + d.amplitude + "' that is not defined");
     p.result.success = std::none_of(p.result.diagnostics.begin(), p.result.diagnostics.end(),
                                     [](const ImportDiagnostic& d) { return d.level == ImportDiagnosticLevel::Error; });
     return std::move(p.result);
@@ -430,9 +507,15 @@ std::string serializeAnalysisScript(const AnalysisModel& model) {
         if (support.where.tolerance >= 0.0) out << " tol=" << support.where.tolerance;
         out << '\n';
     }
+    for (const auto& t : model.tables) {
+        out << "table name=" << t.name << " t=";
+        for (std::size_t i = 0; i < t.points.size(); ++i) out << (i ? "," : "") << t.points[i][0] << ',' << t.points[i][1];
+        out << '\n';
+    }
     for (const auto& a : model.amplitudes) {
         out << "amplitude name=" << a.name << " t=";
-        for (std::size_t i = 0; i < a.points.size(); ++i) out << (i ? "," : "") << a.points[i][0] << ',' << a.points[i][1];
+        if (!a.table.empty()) out << a.table;   // given by a table: the table line above holds the points
+        else for (std::size_t i = 0; i < a.points.size(); ++i) out << (i ? "," : "") << a.points[i][0] << ',' << a.points[i][1];
         out << '\n';
     }
     for (const auto& force : model.forces) {
@@ -450,10 +533,28 @@ std::string serializeAnalysisScript(const AnalysisModel& model) {
         if (!pressure.amplitude.empty()) out << " amp=" << pressure.amplitude;
         out << '\n';
     }
+    for (const auto& d : model.distributed) {
+        out << "distributed";
+        if (!d.id.empty()) out << " id=" << d.id;
+        out << " group:" << d.group << " F=" << d.total[0] << ',' << d.total[1] << ',' << d.total[2];
+        if (!d.amplitude.empty()) out << " amp=" << d.amplitude;
+        out << '\n';
+    }
+    for (const auto& link : model.rigidLinks) {
+        // Only the links given by group have a script form: the others are not written (see RigidLink::group).
+        if (link.group.empty()) continue;
+        out << "rbe2";
+        if (!link.id.empty()) out << " id=" << link.id;
+        out << " group:" << link.group << " ref=" << link.reference[0] << ',' << link.reference[1] << ',' << link.reference[2] << '\n';
+    }
     if (model.hasGravity)
-        out << "gravity g=" << model.gravity[0] << ',' << model.gravity[1] << ',' << model.gravity[2] << '\n';
+        out << "gravity g="<< model.gravity[0] << ',' << model.gravity[1] << ',' << model.gravity[2] << '\n';
     for (const auto& job : model.jobs) {
-        out << "job " << job.id << '\n';
+        out << "job " << job.id;
+        for (std::size_t i = 0; i < job.amplitudeOverrides.size(); ++i)
+            out << (i ? "," : " amp=") << job.amplitudeOverrides[i].amplitude << ':' << job.amplitudeOverrides[i].table;
+        if (!job.solver.empty()) out << " solver=" << job.solver;
+        out << '\n';
         for (const auto& step : job.steps) {
             out << "step " << (step.type == StepType::Static ? "static" : step.type == StepType::Frequency ? "frequency" : "dynamic");
             if (step.type == StepType::Frequency) out << " modes=" << step.modes;
@@ -471,7 +572,8 @@ std::string serializeAnalysisScript(const AnalysisModel& model) {
             out << '\n';
         }
     }
-    out << "output element=" << (model.elementPrint > 0 ? "on" : model.elementPrint == 0 ? "off" : "auto") << '\n';
+    out << "output nodal=" << (model.nodalPrint ? "on" : "off")
+        << " element=" << (model.elementPrint > 0 ? "on" : model.elementPrint == 0 ? "off" : "auto") << '\n';
     return out.str();
 }
 
@@ -530,6 +632,7 @@ std::vector<std::string> activeLoadIds(const AnalysisModel& m, const AnalysisSte
     if (step.allLoads) {
         for (const auto& f : m.forces) all.push_back(f.id);
         for (const auto& p : m.pressures) all.push_back(p.id);
+        for (const auto& d : m.distributed) all.push_back(d.id);
         if (m.hasGravity) all.push_back(kGravityLoadId);
         return all;
     }
@@ -766,6 +869,33 @@ bool fitHoleCircle(const MeshData& mesh, const std::vector<NodeIndex>& edge, Hol
     return true;
 }
 
+std::vector<std::vector<std::size_t>> sharedTokenClusters(const std::vector<std::vector<std::string>>& itemTokens) {
+    // Union-find over the items: an item joins the first item that uses each of its tokens.
+    std::vector<std::size_t> parent(itemTokens.size());
+    for (std::size_t i = 0; i < parent.size(); ++i) parent[i] = i;
+    auto root = [&parent](std::size_t i) {
+        while (parent[i] != i) { parent[i] = parent[parent[i]]; i = parent[i]; }
+        return i;
+    };
+    std::map<std::string, std::size_t> firstUser;
+    for (std::size_t i = 0; i < itemTokens.size(); ++i) {
+        for (const std::string& token : itemTokens[i]) {
+            const auto [it, inserted] = firstUser.emplace(token, i);
+            if (!inserted) parent[root(i)] = root(it->second);
+        }
+    }
+    // Clusters in order of their first item.
+    std::vector<std::vector<std::size_t>> clusters;
+    std::map<std::size_t, std::size_t> clusterOf;   // root -> cluster index
+    for (std::size_t i = 0; i < itemTokens.size(); ++i) {
+        const std::size_t r = root(i);
+        const auto [it, inserted] = clusterOf.emplace(r, clusters.size());
+        if (inserted) clusters.emplace_back();
+        clusters[it->second].push_back(i);
+    }
+    return clusters;
+}
+
 std::vector<RigidLink> holeRigidLinks(const MeshData& mesh, const std::vector<std::vector<NodeIndex>>& holes,
                                       const std::array<double, 3>& reference, std::vector<ImportDiagnostic>& diagnostics,
                                       std::string& error) {
@@ -914,12 +1044,118 @@ int surfaceCorners(ElementType type) {
     }
 }
 
+/** A boundary face of the solid: volume element, CalculiX face number (1-based) and its corner nodes in CalculiX order. */
+struct BoundaryFace {
+    ElementId element = 0;
+    int face = 0;
+    std::vector<NodeIndex> corners;
+};
+
+/** Area of a face given by its corners: a fan of triangles from the first corner (exact for triangles, planar quads). */
+double faceArea(const MeshData& mesh, const std::vector<NodeIndex>& corners) {
+    double area = 0.0;
+    const auto p0 = mesh.nodeCoordinates(corners[0]);
+    for (std::size_t k = 1; k + 1 < corners.size(); ++k) {
+        const auto p1 = mesh.nodeCoordinates(corners[k]);
+        const auto p2 = mesh.nodeCoordinates(corners[k + 1]);
+        const double ux = p1[0] - p0[0], uy = p1[1] - p0[1], uz = p1[2] - p0[2];
+        const double vx = p2[0] - p0[0], vy = p2[1] - p0[1], vz = p2[2] - p0[2];
+        const double cx = uy * vz - uz * vy, cy = uz * vx - ux * vz, cz = ux * vy - uy * vx;
+        area += 0.5 * std::sqrt(cx * cx + cy * cy + cz * cz);
+    }
+    return area;
+}
+
+/**
+ * Boundary faces of the volume elements that coincide with the surface elements of the physical group `name` (or of a
+ * generic mesh group of dimension 2). Same matching as the pressure loads; each face is listed with its element and its
+ * corner nodes, so that its area can be computed.
+ */
+bool resolveSurfaceFaces(const MeshData& mesh, const MeshData& solid, const std::string& name, std::vector<BoundaryFace>& out, std::string& error) {
+    const std::vector<ElementId>* members = nullptr;
+    int dimension = -1;
+    for (const auto& g : mesh.getPhysicalGroups())
+        if (g.name == name) { members = &g.elementIds; dimension = g.dimension; break; }
+    if (!members)
+        for (const auto& g : mesh.getPhysicalGroups())
+            if (lowered(g.name) == lowered(name)) { members = &g.elementIds; dimension = g.dimension; break; }
+    if (!members) {
+        const MeshGroup* generic = mesh.getMeshGroupRegistry().find(name);
+        if (!generic)
+            for (const auto& g : mesh.getMeshGroupRegistry().groups())
+                if (lowered(g.name) == lowered(name)) { generic = &g; break; }
+        if (generic) { members = &generic->elementIds; dimension = generic->dimension; }
+    }
+    if (!members) { error = "unknown surface group '" + name + "'"; return false; }
+    if (dimension != 2) { error = "group '" + name + "' is not a surface group (dimension " + std::to_string(dimension) + ")"; return false; }
+    if (members->empty()) { error = "surface group '" + name + "' has no surface elements"; return false; }
+
+    struct Record { ElementId element; int face; std::vector<NodeIndex> corners; };
+    std::map<std::array<NodeIndex, 4>, std::vector<Record>> faces;
+    for (const auto& block : solid.getElementBlocks()) {
+        const auto table = faceTable(block.type);
+        if (table.empty()) continue;
+        for (std::size_t e = 0; e < block.size(); ++e)
+            for (std::size_t f = 0; f < table.size(); ++f) {
+                std::array<NodeIndex, 4> key{{~NodeIndex(0), ~NodeIndex(0), ~NodeIndex(0), ~NodeIndex(0)}};
+                Record record{block.ids[e], static_cast<int>(f) + 1, {}};
+                for (std::size_t k = 0; k < table[f].size(); ++k) {
+                    const NodeIndex n = block.connectivity[e * block.nodesPerElement + static_cast<std::size_t>(table[f][k])];
+                    key[k] = n;
+                    record.corners.push_back(n);
+                }
+                std::sort(key.begin(), key.begin() + static_cast<std::ptrdiff_t>(table[f].size()));
+                faces[key].push_back(std::move(record));
+            }
+    }
+    std::unordered_map<ElementId, std::pair<const ElementBlock*, std::size_t>> location;
+    for (const auto& block : mesh.getElementBlocks())
+        for (std::size_t e = 0; e < block.size(); ++e) location.emplace(block.ids[e], std::make_pair(&block, e));
+
+    std::size_t unmatched = 0, shared = 0;
+    for (const ElementId id : *members) {
+        const auto at = location.find(id);
+        const int corners = at == location.end() ? 0 : surfaceCorners(at->second.first->type);
+        if (corners == 0) { ++unmatched; continue; }
+        const auto& block = *at->second.first;
+        std::array<NodeIndex, 4> key{{~NodeIndex(0), ~NodeIndex(0), ~NodeIndex(0), ~NodeIndex(0)}};
+        for (int k = 0; k < corners; ++k) key[static_cast<std::size_t>(k)] = block.connectivity[at->second.second * block.nodesPerElement + static_cast<std::size_t>(k)];
+        std::sort(key.begin(), key.begin() + corners);
+        const auto hit = faces.find(key);
+        if (hit == faces.end()) { ++unmatched; continue; }
+        if (hit->second.size() != 1) { ++shared; continue; }
+        out.push_back(BoundaryFace{hit->second[0].element, hit->second[0].face, hit->second[0].corners});
+    }
+    if (unmatched) {
+        error = std::to_string(unmatched) + " surface element(s) of '" + name + "' are not faces of a tetrahedron/hexahedron";
+        return false;
+    }
+    if (shared) {
+        error = std::to_string(shared) + " surface element(s) of '" + name + "' lie between two volume elements; a load needs a boundary surface";
+        return false;
+    }
+    return true;
+}
+
 std::string idList(const MeshData& mesh, const std::vector<NodeIndex>& nodes) {
     std::ostringstream out;
     std::size_t count = 0;
     for (const NodeIndex n : nodes) {
         if (count) out << ", ";
         out << mesh.nodeId(n);
+        if (++count == 16) { out << "\n"; count = 0; }
+    }
+    if (count) out << "\n";
+    return out.str();
+}
+
+/** Element ids, sixteen per line, in the layout of idList. */
+std::string elementIdList(const std::vector<ElementId>& ids) {
+    std::ostringstream out;
+    std::size_t count = 0;
+    for (const ElementId id : ids) {
+        if (count) out << ", ";
+        out << id;
         if (++count == 16) { out << "\n"; count = 0; }
     }
     if (count) out << "\n";
@@ -941,7 +1177,17 @@ SolverInputResult failed(SolverInputResult r, std::string message) {
 SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& scriptModel, const std::filesystem::path& path,
                                    const std::string& jobId) {
     SolverInputResult r;
-    const AnalysisModel model = withMeshConstraints(mesh, scriptModel, r.diagnostics);
+    AnalysisModel model = withMeshConstraints(mesh, scriptModel, r.diagnostics);
+    // A rigid link given by group takes its slaves from the group now that the mesh is known.
+    for (RigidLink& link : model.rigidLinks) {
+        if (link.group.empty()) continue;
+        NodeSelector sel;
+        sel.kind = SelectorKind::Group;
+        sel.name = link.group;
+        std::string selectError;
+        link.slaves = selectNodes(mesh, sel, selectError);
+        if (!selectError.empty()) return failed(r, "Rigid link " + link.id + ": " + selectError);
+    }
     const AnalysisJob* job = findJob(model, jobId);
     if (!job) {
         if (jobId.empty() && model.jobs.size() > 1) return failed(r, "The model has several jobs: name the job to write");
@@ -969,6 +1215,9 @@ SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& sc
     for (const auto& p : model.pressures)
         if (!p.amplitude.empty() && !std::any_of(model.amplitudes.begin(), model.amplitudes.end(), [&](const AnalysisAmplitude& a) { return a.name == p.amplitude; }))
             return failed(r, "pressure uses the undefined amplitude '" + p.amplitude + "'");
+    for (const auto& d : model.distributed)
+        if (!d.amplitude.empty() && !std::any_of(model.amplitudes.begin(), model.amplitudes.end(), [&](const AnalysisAmplitude& a) { return a.name == d.amplitude; }))
+            return failed(r, "distributed uses the undefined amplitude '" + d.amplitude + "'");
     bool anyNonFrequency = false;
     for (std::size_t s = 0; s < job->steps.size(); ++s) {
         const auto& step = job->steps[s];
@@ -978,8 +1227,8 @@ SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& sc
         if (step.type != StepType::Frequency) anyNonFrequency = true;
         if (step.type == StepType::Frequency && gravityActive)
             note(r, ImportDiagnosticLevel::Warning, "ANALYSIS_GRAVITY_IGNORED", label + ": loads (gravity included) have no effect in a frequency step");
-        if (step.type == StepType::Frequency && (!model.forces.empty() || !model.pressures.empty()) && !active.empty())
-            note(r, ImportDiagnosticLevel::Warning, "ANALYSIS_LOADS_IGNORED", label + ": forces and pressures have no effect in a frequency step");
+        if (step.type == StepType::Frequency && (!model.forces.empty() || !model.pressures.empty() || !model.distributed.empty()) && !active.empty())
+            note(r, ImportDiagnosticLevel::Warning, "ANALYSIS_LOADS_IGNORED", label + ": forces, pressures and distributed loads have no effect in a frequency step");
         if (step.type == StepType::Static && active.empty())
             note(r, ImportDiagnosticLevel::Warning, "ANALYSIS_NO_LOAD", label + " has no active load: its results will be zero (apart from the carried loads)");
         if (step.type == StepType::Frequency && model.supports.empty())
@@ -1183,6 +1432,32 @@ SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& sc
         r.pressureFaces = faceLoads.size();
     }
 
+    // Distributed loads: the force of a set of faces is shared in proportion to the area of each face, so the traction is
+    // uniform over the set. Each face gives its share to its corner nodes. The total is exact; the split among the nodes
+    // is the consistent one for linear faces only (a quadratic mesh still receives the total, on its corner nodes).
+    std::vector<std::vector<std::pair<NodeIndex, std::array<double, 3>>>> distributedNodal(model.distributed.size());
+    for (std::size_t j = 0; j < model.distributed.size(); ++j) {
+        const auto& d = model.distributed[j];
+        std::vector<BoundaryFace> faces;
+        std::string why;
+        if (!resolveSurfaceFaces(mesh, solid, d.group, faces, why)) return failed(r, "distributed: " + why);
+        std::vector<double> areas;
+        double total = 0.0;
+        for (const auto& f : faces) { areas.push_back(faceArea(mesh, f.corners)); total += areas.back(); }
+        if (!(total > 0.0)) return failed(r, "distributed: surface group '" + d.group + "' has no area");
+        std::map<NodeIndex, std::array<double, 3>> share;
+        for (std::size_t i = 0; i < faces.size(); ++i) {
+            const auto& corners = faces[i].corners;
+            const double fraction = areas[i] / total / static_cast<double>(corners.size());
+            for (const NodeIndex n : corners)
+                for (std::size_t k = 0; k < 3; ++k) share[n][k] += d.total[k] * fraction;
+        }
+        distributedNodal[j].assign(share.begin(), share.end());
+    }
+    if (quadratic && !model.distributed.empty())
+        note(r, ImportDiagnosticLevel::Warning, "ANALYSIS_DISTRIBUTED_QUADRATIC",
+             "Distributed loads on a quadratic mesh: the total is exact, but it is shared by the corner nodes only (mid-side nodes get nothing)");
+
     // Write: the mesh through the existing writer, then the model.
     {
         AbaqusWriteOptions options;
@@ -1199,8 +1474,8 @@ SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& sc
         for (std::size_t i = 0; i < all.size(); ++i) all[i] = static_cast<NodeIndex>(i);
         out << idList(mesh, all);
     }
-    out << "*ELSET, ELSET=MG_EALL\n";
-    for (std::size_t i = 0; i < volumeSets.size(); ++i) out << volumeSets[i] << (i + 1 < volumeSets.size() ? ",\n" : "\n");
+    // The set lists element ids: a set name in a data line is not an id, and the importers reject it.
+    out << "*ELSET, ELSET=MG_EALL\n" << elementIdList(volumeIds);
     for (const AnalysisMaterial* mat : allMaterials) {
         out << "*MATERIAL, NAME=" << materialName(*mat) << "\n*ELASTIC\n" << mat->youngModulus << ", " << mat->poisson << "\n";
         if (mat->density > 0.0) out << "*DENSITY\n" << mat->density << "\n";
@@ -1226,16 +1501,21 @@ SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& sc
     for (std::size_t i = 0; i < model.rigidLinks.size(); ++i)
         out << "** " << model.rigidLinks[i].id << "\n*RIGID BODY, NSET=MG_RBS" << i + 1
             << ", REF NODE=" << rigidMasterIds[i] << "\n";
-    // Amplitudes are model data: they must precede the steps.
+    // Amplitudes must precede the steps. A job uses its own points for the amplitudes it overrides (job amp=A:T).
     for (const auto& a : model.amplitudes) {
+        const AmplitudeOverride* override = nullptr;
+        for (const auto& o : job->amplitudeOverrides)
+            if (o.amplitude == a.name) override = &o;
+        const auto& points = override ? override->points : a.points;
         out << "*AMPLITUDE, NAME=" << a.name << "\n";
-        for (std::size_t i = 0; i < a.points.size(); ++i)
-            out << a.points[i][0] << ", " << a.points[i][1] << (i % 4 == 3 || i + 1 == a.points.size() ? "\n" : ", ");
+        for (std::size_t i = 0; i < points.size(); ++i)
+            out << points[i][0] << ", " << points[i][1] << (i % 4 == 3 || i + 1 == points.size() ? "\n" : ", ");
     }
 
     // Loads that acted in the earlier steps of this job (their last written value is non-zero).
     std::set<std::string> applied;
     bool printedNote = false;
+    bool printedNodalNote = false;
     for (std::size_t s = 0; s < job->steps.size(); ++s) {
         const auto& step = job->steps[s];
         const auto active = activeLoadIds(model, step);
@@ -1262,6 +1542,8 @@ SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& sc
             std::vector<std::string> amplitudeNames{""};
             for (const auto& f : model.forces)
                 if (std::find(amplitudeNames.begin(), amplitudeNames.end(), f.amplitude) == amplitudeNames.end()) amplitudeNames.push_back(f.amplitude);
+            for (const auto& d : model.distributed)
+                if (std::find(amplitudeNames.begin(), amplitudeNames.end(), d.amplitude) == amplitudeNames.end()) amplitudeNames.push_back(d.amplitude);
             for (const auto& name : amplitudeNames) {
                 std::ostringstream lines;
                 for (std::size_t i = 0; i < model.forces.size(); ++i) {
@@ -1275,6 +1557,16 @@ SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& sc
                     } else if (isZeroed(f.id)) {
                         for (int d = 0; d < 3; ++d) lines << "MG_LOAD" << i + 1 << ", " << d + 1 << ", 0\n";
                     }
+                }
+                for (std::size_t j = 0; j < model.distributed.size(); ++j) {
+                    const auto& d = model.distributed[j];
+                    if (d.amplitude != name) continue;
+                    for (const auto& [node, value] : distributedNodal[j])
+                        for (int k = 0; k < 3; ++k) {
+                            const double v = value[static_cast<std::size_t>(k)];
+                            if (isWritten(d.id)) { if (v != 0.0) lines << mesh.nodeId(node) << ", " << k + 1 << ", " << v << "\n"; }
+                            else if (isZeroed(d.id)) lines << mesh.nodeId(node) << ", " << k + 1 << ", 0\n";
+                        }
                 }
                 if (lines.str().empty()) continue;
                 out << "*CLOAD" << (name.empty() ? "" : ", AMPLITUDE=" + name) << "\n" << lines.str();
@@ -1305,7 +1597,12 @@ SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& sc
                 out << "*DLOAD" << (name.empty() ? "" : ", AMPLITUDE=" + name) << "\n" << lines.str();
             }
         }
-        out << "*NODE FILE\nU" << (step.type != StepType::Frequency ? ", S, E" : "") << "\n";
+        if (model.nodalPrint) out << "*NODE FILE\nU" << (step.type != StepType::Frequency ? ", S, E" : "") << "\n";
+        else if (!printedNodalNote) {
+            printedNodalNote = true;
+            note(r, ImportDiagnosticLevel::Warning, "ANALYSIS_NO_NODAL_OUTPUT",
+                 "output nodal=off: the solver writes no nodal results, so the .frd (and the viewer) has nothing to show");
+        }
         const bool print = step.type == StepType::Static && (model.elementPrint == 1 || (model.elementPrint < 0 && volumeIds.size() <= 200000));
         if (step.type == StepType::Static && !print && !printedNote) {
             printedNote = true;
@@ -1337,6 +1634,7 @@ SolverInputResult writeSolverInput(const MeshData& mesh, const AnalysisModel& sc
     if (r.fixedNodes) summary << "; " << r.fixedNodes << " constrained nodes";
     if (r.loadedNodes) summary << "; force on " << r.loadedNodes << " nodes";
     if (r.pressureFaces) summary << "; pressure on " << r.pressureFaces << " faces";
+    if (!model.distributed.empty()) summary << "; " << model.distributed.size() << " distributed load(s)";
     if (model.hasGravity) summary << "; gravity";
     if (!model.amplitudes.empty()) summary << "; " << model.amplitudes.size() << " amplitude(s)";
     r.summary = summary.str();

@@ -237,20 +237,33 @@ BindResult bindResults(const MeshData& mesh, const FemResults& results, const Bi
                                           (hi[2] - lo[2]) * (hi[2] - lo[2]));
         scale = std::max(scale, diagonal);
         const double tolerance = options.coordinateTolerance * scale;
-        std::size_t compared = 0, mismatched = 0;
+        // A component that is zero in the mesh may come back from the solver as a value of the wrong magnitude
+        // (for example -2.84217E+000 for -2.8E-14): such a component is accepted when it stays under the same
+        // share of the model size that rejects a different mesh. Any other difference still counts as a mismatch.
+        const double zeroTolerance = 1e-9 * scale;
+        const double artefactTolerance = 0.01 * scale;
+        std::size_t compared = 0, mismatched = 0, zeroArtefacts = 0;
         NodeId firstBad = 0;
         for (std::size_t i = 0; i < results.modelNodeIds.size(); ++i) {
             if (!mesh.hasNodeId(results.modelNodeIds[i])) continue;
             ++compared;
             const auto c = mesh.nodeCoordinates(mesh.nodeIndex(results.modelNodeIds[i]));
             const auto& m = results.modelCoordinates[i];
-            if (std::fabs(c[0] - m[0]) > tolerance || std::fabs(c[1] - m[1]) > tolerance || std::fabs(c[2] - m[2]) > tolerance) {
-                if (mismatched++ == 0) firstBad = results.modelNodeIds[i];
+            bool bad = false, artefact = false;
+            for (int k = 0; k < 3; ++k) {
+                const double d = std::fabs(c[k] - m[k]);
+                if (d <= tolerance) continue;
+                if (std::fabs(c[k]) <= zeroTolerance && d <= artefactTolerance) artefact = true;
+                else bad = true;
             }
+            if (artefact && !bad) ++zeroArtefacts;
+            if (bad && mismatched++ == 0) firstBad = results.modelNodeIds[i];
         }
         if (compared == 0)
             return failure(r, "none of the " + std::to_string(results.modelNodeIds.size()) +
                               " nodes of the result file exists in the mesh: the results belong to a different model");
+        if (zeroArtefacts > 0)
+            warn(r, "BIND_ZERO_COORDINATES", std::to_string(zeroArtefacts) + " shared node(s) have a value of zero in the mesh and a different value in the result file: accepted as solver output artefacts");
         if (mismatched > 0) {
             std::ostringstream text;
             text << mismatched << " of " << compared << " shared nodes have different coordinates in the result file (first: node "
@@ -393,6 +406,61 @@ BindResult bindResults(const MeshData& mesh, const FemResults& results, const Bi
             warn(r, "BIND_MODES_LIMITED", "only the first " + std::to_string(taken) + " of " + std::to_string(modeSteps.size()) + " modes are bound");
     }
 
+    // 4b. Time history: the displacement of every transient (time) step, sampled when there are too many.
+    std::vector<WebFrame> frames;
+    std::string frameDisplacementName;
+    std::size_t frameDefault = kNone;   ///< Frame of the selected step (or the nearest sampled one) shown first.
+    if (options.timeHistory && !useModes && wanted != "none" && options.maxFrames >= 2) {
+        std::vector<std::size_t> timeSteps;
+        for (std::size_t s = 0; s < results.steps.size(); ++s) {
+            if (results.steps[s].kind != StepKind::Time) continue;
+            std::vector<const ResultField*> stepFields;
+            for (const auto& f : results.fields)
+                if (f.step == s) stepFields.push_back(&f);
+            if (findDisplacement(stepFields, wanted)) timeSteps.push_back(s);
+        }
+        bool ordered = true;
+        for (std::size_t i = 1; i < timeSteps.size(); ++i)
+            ordered = ordered && results.steps[timeSteps[i]].value > results.steps[timeSteps[i - 1]].value;
+        if (timeSteps.size() >= 2 && !ordered)
+            warn(r, "BIND_FRAMES_UNORDERED", "the time steps are not in increasing time order: no time history is bound");
+        else if (timeSteps.size() >= 2) {
+            std::vector<std::size_t> chosen = timeSteps;
+            if (timeSteps.size() > options.maxFrames) {
+                chosen.clear();
+                for (std::size_t k = 0; k < options.maxFrames; ++k)
+                    chosen.push_back(timeSteps[(k * (timeSteps.size() - 1) + (options.maxFrames - 1) / 2) / (options.maxFrames - 1)]);
+                warn(r, "BIND_FRAMES_SAMPLED", std::to_string(timeSteps.size()) + " time steps: " + std::to_string(chosen.size()) +
+                                               " are bound as frames (evenly sampled, first and last kept)");
+            }
+            for (const std::size_t stepIndex : chosen) {
+                std::vector<const ResultField*> stepFields;
+                for (const auto& f : results.fields)
+                    if (f.step == stepIndex) stepFields.push_back(&f);
+                const ResultField* source = findDisplacement(stepFields, wanted);
+                frameDisplacementName = source->name;
+                std::vector<std::size_t> target(source->recordCount(), kNone);
+                for (std::size_t i = 0; i < target.size(); ++i)
+                    if (mesh.hasNodeId(static_cast<NodeId>(source->ids[i]))) target[i] = mesh.nodeIndex(static_cast<NodeId>(source->ids[i]));
+                const std::vector<Column> column = scatter(*source, target, nodeCount);
+                WebFrame frame;
+                frame.label = results.steps[stepIndex].label;
+                frame.time = results.steps[stepIndex].value;
+                frame.displacement.assign(nodeCount, {0.0, 0.0, 0.0});
+                for (std::size_t n = 0; n < nodeCount; ++n)
+                    for (std::size_t k = 0; k < 3; ++k)
+                        if (std::isfinite(column[k][n])) frame.displacement[n][k] = column[k][n];
+                frames.push_back(std::move(frame));
+            }
+            // The frame shown first is the one of the selected step; when sampling skipped it, the nearest one.
+            std::size_t bestDistance = kNone;
+            for (std::size_t k = 0; k < chosen.size(); ++k) {
+                const std::size_t distance = chosen[k] > r.step ? chosen[k] - r.step : r.step - chosen[k];
+                if (distance < bestDistance) { bestDistance = distance; frameDefault = k; }
+            }
+        }
+    }
+
     r.unmatchedRecords = unmatched;
     r.nodesWithoutData = worstMissing;
     r.unmatchedElementRecords = unmatchedElements;
@@ -415,19 +483,33 @@ BindResult bindResults(const MeshData& mesh, const FemResults& results, const Bi
         r.modesBound = modes.size();
         for (const auto& m : modes) r.modeFrequencies.push_back(m.frequency);
         view.displacement.clear();
+        view.frames.clear();
         view.modes = std::move(modes);
         view.displacementName = "mode shape";
         r.hasDisplacement = true;
         r.displacementName = "mode shape";
+    } else if (!frames.empty()) {
+        view.modes.clear();
+        view.displacement.clear();
+        r.framesBound = frames.size();
+        for (const auto& f : frames) r.frameTimes.push_back(f.time);
+        view.frames = std::move(frames);
+        view.defaultFrame = frameDefault;
+        view.displacementName = frameDisplacementName;
+        r.hasDisplacement = true;
+        r.displacementName = frameDisplacementName;
     } else if (displacementSource && !displacement.empty()) {
         view.modes.clear();
+        view.frames.clear();
         view.displacement = std::move(displacement);
         view.displacementName = displacementSource->name;
         r.hasDisplacement = true;
         r.displacementName = displacementSource->name;
     }
     view.resultsLabel = (options.sourceName.empty() ? results.format : options.sourceName) + " - " +
-                        (useModes ? std::to_string(r.modesBound) + " modes" : r.stepLabel);
+                        (useModes ? std::to_string(r.modesBound) + " modes"
+                                  : r.framesBound > 0 ? r.stepLabel + ", " + std::to_string(r.framesBound) + " time frames"
+                                                      : r.stepLabel);
     r.success = true;
     return r;
 }

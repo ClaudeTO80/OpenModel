@@ -8,6 +8,14 @@ Loads an `.mgwv` file in `examples/webgl-fem-viewer` and checks, on real pixels,
 the section plane and block visibility. Enable it in CTest with `-DOPENMODEL_TEST_WEBGL_VIEWER=ON`
 (`openmodel-cli demo-web` generates the input).
 
+## Rotation axes test (`viewer_rotation_axes_smoke.js`)
+Checks the left-button rotations of the viewer: Ctrl+Alt roll, Ctrl+Shift pitch, Shift+Alt yaw, and that plain drag and Shift+drag are unchanged. The oracle is the view matrix: each rotation keeps the matching axis row and stays orthonormal.
+Usage: `node viewer_rotation_axes_smoke.js <index.html> <file.mgwv>`.
+
+## Colour bar test (`viewer_colorbar_smoke.js`)
+Checks the results colour bar of the viewer: its place on the left, the palette and scale selectors, the editable Min and Max and the ticks.
+Usage: `node viewer_colorbar_smoke.js <index.html> <file.mgwv> [screenshot-dir]`.
+
 ## GUI end-to-end test (`gui_e2e.js`)
 Drives the real `openmodel-webui` on the real WebUI runtime: import a STEP file, select a rendered surface triangle and verify
 that the viewer reports its original OCC `sourceFaceId`; create a `BladeRoot` CAD face group, verify its sidecar persistence
@@ -129,3 +137,20 @@ colour bar stay hidden and that the page reports no errors; the full run needs a
 ```bash
 NODE_PATH=... node tests/webgl/viewer_section_smoke.js examples/webgl-fem-viewer/index.html [file.mgwv]
 ```
+
+## Colour bar options and viewer session API (`viewer_legend_smoke.js`)
+Checks that the palette, scale and range controls of the colour bar can be hidden and shown (and that the choice is kept), the viewer's
+`palettes()` / `palette()` / `setPalette()` API, and `clear()`, which empties the viewer so that a new model can be loaded.
+Usage: `node viewer_legend_smoke.js <index.html> <results.mgwv> [screenshot-dir]`, with a file that carries results, for example
+`openmodel demo-web out.mgwv` (scalar colouring).
+
+## Session and Settings in the GUI (`gui_session_smoke.js`)
+Checks the Settings dialog (solver path, jobs folder chosen with the folder chooser, legend palette, refused save), that the saved palette
+reaches the viewer, and New model (declined confirmation keeps the model; accepted confirmation asks the server to close the model and
+empties the viewer and the Analysis script). The WebUI bridge is a stub that records the calls, so it needs no running `openmodel-webui`:
+`node gui_session_smoke.js <gui.html> <viewer.html> <results.mgwv>`.
+
+## Results bar on the right (`viewer_results_bar_smoke.js`)
+Checks the results bar of the viewer: the fields and modes it lists, the click on a field (scalar colouring) and on a mode, folding and
+its persistence, the transparent colour bar and `clear()`. Usage: `node viewer_results_bar_smoke.js <index.html> <results.mgwv> [dir]`.
+Checks on modes run only when the file has them: export with `openmodel export-web beam.inp out.mgwv --results beam_modal.frd --modes 5`.

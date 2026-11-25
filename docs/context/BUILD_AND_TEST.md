@@ -10,6 +10,10 @@ ctest --test-dir build --output-on-failure
 
 I test C++ usano `assert` e sono compilati senza `NDEBUG` anche in Release (`-UNDEBUG`).
 
+## TK4CPP
+
+Con `OPENMODEL_TK4CPP_SOURCE=FETCH` (default) CMake scarica TK4CPP da `OPENMODEL_TK4CPP_GIT_REPOSITORY` al tag `OPENMODEL_TK4CPP_GIT_TAG` e compila solo Process, Encode, Utility e Thread, in versione statica. Con `OPENMODEL_TK4CPP_SOURCE=INSTALLED` si usa un TK4CPP già installato, cercato in `OPENMODEL_TK4CPP_DIR` o in `CMAKE_PREFIX_PATH`. `process_runner_test` e `web_base64_test` usano TK4CPP: vanno eseguiti in entrambe le modalità. Istruzioni complete nel README, sezione TK4CPP.
+
 Opzioni CMake principali (default tra parentesi):
 
 - `OPENMODEL_BUILD_TESTS` (ON), `OPENMODEL_BUILD_CLI` (ON), `OPENMODEL_BUILD_SHARED` (ON), `OPENMODEL_BUILD_FATIGUE` (ON), `OPENMODEL_BUILD_BENCHMARKS` (OFF).

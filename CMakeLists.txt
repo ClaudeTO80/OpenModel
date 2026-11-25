@@ -93,7 +93,9 @@ set(OPENMODEL_CORE_SOURCES
     src/FemResults.cpp
     src/ResultBinding.cpp
     src/CodeAster.cpp
-    src/CodeAsterResults.cpp)
+    src/CodeAsterResults.cpp
+    src/Solvers.cpp
+    src/ElmerSolver.cpp)
 
 function(openmodel_configure_core_target target export_name)
     target_include_directories(${target} PUBLIC
@@ -109,9 +111,85 @@ function(openmodel_configure_core_target target export_name)
         EXPORT_NAME ${export_name})
 endfunction()
 
+# ── TK4CPP ─────────────────────────────────────────────────────────────────
+# OpenModel runs the solvers with TK4CPP::Process, decodes the base64 of dropped files with TK4CPP::Encode and
+# uses TK4CPP::Utility for UTF-8 paths and unique temporary file names.
+# OPENMODEL_TK4CPP_SOURCE chooses where TK4CPP comes from:
+#   FETCH     download TK4CPP from OPENMODEL_TK4CPP_GIT_REPOSITORY at OPENMODEL_TK4CPP_GIT_TAG during configure and build
+#             only the modules OpenModel uses (Process, Encode, Utility and Thread), as static libraries. Needs git and network access at configure time.
+#   INSTALLED use a TK4CPP that is already installed (CMake package TK4CPP with the components Process, Encode and Utility).
+#             It is searched in OPENMODEL_TK4CPP_DIR (install prefix) and in CMAKE_PREFIX_PATH.
+# TK4CPP requires CMake 3.23 or newer. The submodule 3dParty/TK4CPP points to the TK4CPP commit this version was tested with.
+set(OPENMODEL_TK4CPP_SOURCE "FETCH" CACHE STRING "Where TK4CPP comes from: FETCH (download and build) or INSTALLED (installed package)")
+set_property(CACHE OPENMODEL_TK4CPP_SOURCE PROPERTY STRINGS FETCH INSTALLED)
+set(OPENMODEL_TK4CPP_GIT_REPOSITORY "https://github.com/ClaudeTO80/TK4CPP.git" CACHE STRING "TK4CPP repository used when OPENMODEL_TK4CPP_SOURCE is FETCH")
+set(OPENMODEL_TK4CPP_GIT_TAG "main" CACHE STRING "Branch, tag or commit of TK4CPP used when OPENMODEL_TK4CPP_SOURCE is FETCH")
+set(OPENMODEL_TK4CPP_DIR "" CACHE PATH "Install prefix of an installed TK4CPP, used when OPENMODEL_TK4CPP_SOURCE is INSTALLED")
+
+# Set to ON when the package configuration must find TK4CPP (see cmake/OpenModelConfig.cmake.in).
+set(OPENMODEL_USES_INSTALLED_TK4CPP OFF)
+if(OPENMODEL_TK4CPP_SOURCE STREQUAL "FETCH")
+    include(FetchContent)
+    # TK4CPP is configured as a sub-project: only Process and Encode are built, statically.
+    set(TK4CPP_BUILD_TESTS  OFF)
+    set(TK4CPP_BUILD_SHARED OFF)
+    set(TK4CPP_BUILD_STATIC ON)
+    set(TK4CPP_INSTALL      OFF)
+    # Utility needs Thread, so both are built; the other modules are not used.
+    set(TK4CPP_BUILD_UTILITY ON)
+    set(TK4CPP_BUILD_THREAD  ON)
+    foreach(_openmodel_unused_tk4cpp_module Logging JWT XML Zip)
+        string(TOUPPER "${_openmodel_unused_tk4cpp_module}" _openmodel_unused_tk4cpp_module_upper)
+        set(TK4CPP_BUILD_${_openmodel_unused_tk4cpp_module_upper} OFF)
+    endforeach()
+    unset(_openmodel_unused_tk4cpp_module)
+    unset(_openmodel_unused_tk4cpp_module_upper)
+    FetchContent_Declare(TK4CPP
+        GIT_REPOSITORY ${OPENMODEL_TK4CPP_GIT_REPOSITORY}
+        GIT_TAG        ${OPENMODEL_TK4CPP_GIT_TAG}
+        GIT_SHALLOW    TRUE)
+    FetchContent_MakeAvailable(TK4CPP)
+    message(STATUS "OpenModel: TK4CPP ${OPENMODEL_TK4CPP_GIT_TAG} downloaded from ${OPENMODEL_TK4CPP_GIT_REPOSITORY}")
+elseif(OPENMODEL_TK4CPP_SOURCE STREQUAL "INSTALLED")
+    set(_openmodel_tk4cpp_hints "")
+    if(OPENMODEL_TK4CPP_DIR)
+        set(_openmodel_tk4cpp_hints HINTS "${OPENMODEL_TK4CPP_DIR}")
+    endif()
+    find_package(TK4CPP 0.1 CONFIG REQUIRED COMPONENTS Process Encode Utility ${_openmodel_tk4cpp_hints})
+    unset(_openmodel_tk4cpp_hints)
+    set(OPENMODEL_USES_INSTALLED_TK4CPP ON)
+    message(STATUS "OpenModel: using the installed TK4CPP ${TK4CPP_VERSION}")
+else()
+    message(FATAL_ERROR "OPENMODEL_TK4CPP_SOURCE must be FETCH or INSTALLED (got '${OPENMODEL_TK4CPP_SOURCE}')")
+endif()
+
+# The static library when both variants exist, the only variant otherwise (the same rule as the TK4CPP package).
+set(OPENMODEL_TK4CPP_LIBRARIES "")
+foreach(_openmodel_tk4cpp_component Process Encode Utility)
+    if(TARGET TK4CPP::${_openmodel_tk4cpp_component}_static)
+        list(APPEND OPENMODEL_TK4CPP_LIBRARIES TK4CPP::${_openmodel_tk4cpp_component}_static)
+    elseif(TARGET TK4CPP::${_openmodel_tk4cpp_component})
+        list(APPEND OPENMODEL_TK4CPP_LIBRARIES TK4CPP::${_openmodel_tk4cpp_component})
+    else()
+        message(FATAL_ERROR "OpenModel: TK4CPP::${_openmodel_tk4cpp_component} is not available")
+    endif()
+endforeach()
+unset(_openmodel_tk4cpp_component)
+
+# Link interface of the OpenModel libraries. A TK4CPP built from source (FETCH) is a build-tree target that cannot
+# be exported, so the link is kept to the build tree: the build works, but an installed OpenModel does not carry
+# TK4CPP. With INSTALLED the targets are imported and the link is exported; the package then finds TK4CPP itself.
+if(OPENMODEL_USES_INSTALLED_TK4CPP)
+    set(OPENMODEL_TK4CPP_LINK_INTERFACE ${OPENMODEL_TK4CPP_LIBRARIES})
+else()
+    set(OPENMODEL_TK4CPP_LINK_INTERFACE "$<BUILD_INTERFACE:${OPENMODEL_TK4CPP_LIBRARIES}>")
+    message(STATUS "OpenModel: TK4CPP is built from source; the installed package will not contain it "
+                   "(configure with OPENMODEL_TK4CPP_SOURCE=INSTALLED to install a package that uses an installed TK4CPP)")
+endif()
+
 find_package(Threads REQUIRED)
 add_library(openmodel_core STATIC ${OPENMODEL_CORE_SOURCES})
-target_link_libraries(openmodel_core PRIVATE Threads::Threads)
+target_link_libraries(openmodel_core PRIVATE Threads::Threads ${OPENMODEL_TK4CPP_LINK_INTERFACE})
 add_library(OpenModel::Core ALIAS openmodel_core)
 set_target_properties(openmodel_core PROPERTIES OUTPUT_NAME OpenModelCore)
 openmodel_configure_core_target(openmodel_core Core)
@@ -119,7 +197,7 @@ openmodel_configure_core_target(openmodel_core Core)
 if(OPENMODEL_BUILD_SHARED)
     add_library(openmodel_shared SHARED ${OPENMODEL_CORE_SOURCES})
     add_library(OpenModel::Shared ALIAS openmodel_shared)
-    target_link_libraries(openmodel_shared PRIVATE Threads::Threads)
+    target_link_libraries(openmodel_shared PRIVATE Threads::Threads ${OPENMODEL_TK4CPP_LINK_INTERFACE})
     set_target_properties(openmodel_shared PROPERTIES
         OUTPUT_NAME OpenModel
         WINDOWS_EXPORT_ALL_SYMBOLS ON)
@@ -216,6 +294,7 @@ if(OPENMODEL_BUILD_TESTS)
     openmodel_add_test(core_smoke_test tests/core_smoke_test.cpp)
     openmodel_add_test(version_test tests/version_test.cpp)
     openmodel_add_test(progress_log_test tests/progress_log_test.cpp)
+    openmodel_add_test(workbench_settings_test tests/workbench_settings_test.cpp)
     # The version CMake was configured with, to be compared with what the macros and the library report.
     target_compile_definitions(version_test PRIVATE OPENMODEL_EXPECTED_VERSION="${PROJECT_VERSION}")
     openmodel_add_test(build_info_test tests/build_info_test.cpp)
@@ -246,10 +325,14 @@ if(OPENMODEL_BUILD_TESTS)
     openmodel_add_test(mesh_bodies_test tests/mesh_bodies_test.cpp)
     openmodel_add_test(mesh_runs_test tests/mesh_runs_test.cpp)
     openmodel_add_test(rigid_link_test tests/rigid_link_test.cpp)
+    openmodel_add_test(solvers_test tests/solvers_test.cpp)
     openmodel_add_test(gmsh_settings_test tests/gmsh_settings_test.cpp)
+    openmodel_add_test(process_runner_test tests/process_runner_test.cpp)
+    openmodel_add_test(web_base64_test tests/web_base64_test.cpp)
+    target_link_libraries(web_base64_test PRIVATE ${OPENMODEL_TK4CPP_LIBRARIES})
     set(_openmodel_core_test_names core_smoke_test mesh_validation_test abaqus_writer_test physical_groups_test
         mesh_topology_test surface_mesher_test gltf_writer_test surface_refiner_test
-        web_view_writer_test mesh_binary_io_test model_binary_io_test openmodel_project_test mesh_importer_test fem_results_test analysis_setup_test mesh_selection_test mesh_constraints_test material_database_test material_library_test code_aster_test mesh_quality_test cad_face_mapper_test mesh_bodies_test mesh_runs_test rigid_link_test gmsh_settings_test)
+        web_view_writer_test mesh_binary_io_test model_binary_io_test openmodel_project_test mesh_importer_test fem_results_test analysis_setup_test mesh_selection_test mesh_constraints_test material_database_test material_library_test code_aster_test mesh_quality_test cad_face_mapper_test mesh_bodies_test mesh_runs_test rigid_link_test gmsh_settings_test process_runner_test web_base64_test)
     if(OPENMODEL_BUILD_CLI)
         list(APPEND _openmodel_core_test_names openmodel_cli_info openmodel_cli_validate_demo)
     endif()
@@ -313,6 +396,16 @@ if(OPENMODEL_BUILD_TESTS AND OPENMODEL_BUILD_CLI AND Python3_FOUND)
     add_test(NAME solver_cli_modal
         COMMAND ${_solve_env} $<TARGET_FILE:openmodel-cli> solve "${_beam_dir}/beam.inp" "${_support}/beam_analysis_modal.txt"
                 "${_beam_dir}/solve_modal" --solver "${_fake_ccx}" --web "${_beam_dir}/solve_modal/out.mgwv")
+    # Transient run: the stand-in writes the beam's two increments, which the MGWV must hold as time-history frames.
+    add_test(NAME solver_cli_dynamic
+        COMMAND ${_solve_env} $<TARGET_FILE:openmodel-cli> solve "${_beam_dir}/beam.inp" "${_support}/beam_analysis_dynamic.txt"
+                "${_beam_dir}/solve_dynamic" --solver "${_fake_ccx}" --web "${_beam_dir}/solve_dynamic/out.mgwv")
+    set_tests_properties(solver_cli_dynamic PROPERTIES FIXTURES_REQUIRED beam_fixture LABELS "core;solver")
+    if(Python3_FOUND)
+        add_test(NAME solver_cli_dynamic_frames
+            COMMAND "${Python3_EXECUTABLE}" "${_support}/check_mgwv_frames.py" "${_beam_dir}/solve_dynamic/out.mgwv" 2 1)
+        set_tests_properties(solver_cli_dynamic_frames PROPERTIES DEPENDS solver_cli_dynamic LABELS "core;solver")
+    endif()
     add_test(NAME solver_cli_failure
         COMMAND ${_solve_env} FAKE_CCX_FAIL=1 $<TARGET_FILE:openmodel-cli> solve "${_beam_dir}/beam.inp" "${_support}/beam_analysis.txt"
                 "${_beam_dir}/solve_fail" --solver "${_fake_ccx}")
@@ -375,6 +468,13 @@ if(OPENMODEL_BUILD_TESTS AND OPENMODEL_TEST_WEBGL_VIEWER AND OPENMODEL_BUILD_CLI
                     "${CMAKE_CURRENT_SOURCE_DIR}/examples/webgl-fem-viewer/index.html"
                     "${CMAKE_CURRENT_BINARY_DIR}/beam_fixture/beam.mgwv" "${_viewer_data}")
         set_tests_properties(webgl_results_smoke PROPERTIES
+            FIXTURES_REQUIRED "viewer_data;beam_fixture" LABELS "webgl;results" TIMEOUT 180)
+        # Time-history controls: the beam's two load increments as frames (exported with the default binding).
+        add_test(NAME webgl_frames_smoke
+            COMMAND "${OPENMODEL_NODE_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/webgl/viewer_frames_smoke.js"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/examples/webgl-fem-viewer/index.html"
+                    "${CMAKE_CURRENT_BINARY_DIR}/beam_fixture/beam.mgwv" "${_viewer_data}")
+        set_tests_properties(webgl_frames_smoke PROPERTIES
             FIXTURES_REQUIRED "viewer_data;beam_fixture" LABELS "webgl;results" TIMEOUT 180)
         add_test(NAME webgl_pick_data
             COMMAND openmodel-cli export-web "${CMAKE_CURRENT_BINARY_DIR}/beam_fixture/beam.inp"

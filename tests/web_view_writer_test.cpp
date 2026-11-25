@@ -4,6 +4,7 @@
 #include <map>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <iostream>
 #include <string>
@@ -238,6 +239,38 @@ int main() {
 
         MeshData empty;
         assert(!WebViewWriter::build(empty, {}, image).success);
+    }
+    // Rigid links: the reference and the coupled nodes are written in the frame of the file, like the positions.
+    {
+        const auto mesh = makeGrid(2, false);
+        WebViewOptions o;
+        WebRigidLink link;
+        link.reference = {1.0, 2.0, 3.0};
+        link.nodes = {{0.5, 0.5, 0.5}, {1.5, 2.5, 3.5}};
+        o.rigidLinks.push_back(link);
+        std::vector<unsigned char> image;
+        const auto r = WebViewWriter::build(mesh, o, image);
+        assert(r.success);
+        const auto p = parse(image);
+        double origin[3] = {0.0, 0.0, 0.0};
+        const auto at = p.json.find("\"origin\":[");
+        assert(at != std::string::npos);
+        assert(std::sscanf(p.json.c_str() + at, "\"origin\":[%lf,%lf,%lf]", &origin[0], &origin[1], &origin[2]) == 3);
+        const auto rl = p.json.find("\"rigidLinks\":[{\"reference\":[");
+        assert(rl != std::string::npos);
+        double ref[3] = {0.0, 0.0, 0.0}, nodes[6] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+        assert(std::sscanf(p.json.c_str() + rl,
+                           "\"rigidLinks\":[{\"reference\":[%lf,%lf,%lf],\"nodes\":[%lf,%lf,%lf,%lf,%lf,%lf]",
+                           &ref[0], &ref[1], &ref[2], &nodes[0], &nodes[1], &nodes[2], &nodes[3], &nodes[4], &nodes[5]) == 9);
+        for (std::size_t k = 0; k < 3; ++k) {
+            assert(std::fabs(ref[k] - (link.reference[k] - origin[k])) < 1e-6);
+            assert(std::fabs(nodes[k] - (link.nodes[0][k] - origin[k])) < 1e-6);
+            assert(std::fabs(nodes[3 + k] - (link.nodes[1][k] - origin[k])) < 1e-6);
+        }
+        // Without links the descriptor has an empty list.
+        std::vector<unsigned char> none;
+        const auto plain = WebViewWriter::build(mesh, {}, none);
+        assert(plain.success && parse(none).json.find("\"rigidLinks\":[]") != std::string::npos);
     }
     std::cout << "web_view_writer_test passed\n";
     return 0;
