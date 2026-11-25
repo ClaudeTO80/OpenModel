@@ -8,7 +8,7 @@ if(NOT OPENMODEL_VERSION MATCHES "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]?)\\.(0|[1-9][
     message(FATAL_ERROR "OPENMODEL_VERSION must look like MAJOR.MINOR.PATCH with minor and patch between 0 and 99, no leading zeros (got '${OPENMODEL_VERSION}')")
 endif()
 
-project(OpenModel VERSION ${OPENMODEL_VERSION} LANGUAGES CXX)
+project(OpenModel VERSION ${OPENMODEL_VERSION} LANGUAGES C CXX)
 
 include(CTest)
 include(GNUInstallDirs)
@@ -80,6 +80,7 @@ set(OPENMODEL_CORE_SOURCES
     src/AnalysisSetup.cpp
     src/MeshSelection.cpp
     src/MaterialDatabase.cpp
+    src/MaterialStore.cpp
     src/ProcessRunner.cpp
     src/CADModel.cpp
     src/SurfaceMesh.cpp
@@ -188,8 +189,20 @@ else()
 endif()
 
 find_package(Threads REQUIRED)
+
+# Embedded SQLite (public domain), used by the material store. Built as a C library and compiled as
+# position-independent code, because the shared core links it too.
+add_library(openmodel_sqlite STATIC 3dParty/sqlite/sqlite3.c)
+target_include_directories(openmodel_sqlite PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/3dParty/sqlite>)
+target_compile_definitions(openmodel_sqlite PRIVATE
+    SQLITE_THREADSAFE=1
+    SQLITE_DQS=0
+    SQLITE_DEFAULT_FOREIGN_KEYS=1
+    SQLITE_OMIT_LOAD_EXTENSION)
+set_target_properties(openmodel_sqlite PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_link_libraries(openmodel_sqlite PUBLIC Threads::Threads ${CMAKE_DL_LIBS})
 add_library(openmodel_core STATIC ${OPENMODEL_CORE_SOURCES})
-target_link_libraries(openmodel_core PRIVATE Threads::Threads ${OPENMODEL_TK4CPP_LINK_INTERFACE})
+target_link_libraries(openmodel_core PRIVATE Threads::Threads openmodel_sqlite ${OPENMODEL_TK4CPP_LINK_INTERFACE})
 add_library(OpenModel::Core ALIAS openmodel_core)
 set_target_properties(openmodel_core PROPERTIES OUTPUT_NAME OpenModelCore)
 openmodel_configure_core_target(openmodel_core Core)
@@ -197,7 +210,7 @@ openmodel_configure_core_target(openmodel_core Core)
 if(OPENMODEL_BUILD_SHARED)
     add_library(openmodel_shared SHARED ${OPENMODEL_CORE_SOURCES})
     add_library(OpenModel::Shared ALIAS openmodel_shared)
-    target_link_libraries(openmodel_shared PRIVATE Threads::Threads ${OPENMODEL_TK4CPP_LINK_INTERFACE})
+    target_link_libraries(openmodel_shared PRIVATE Threads::Threads openmodel_sqlite ${OPENMODEL_TK4CPP_LINK_INTERFACE})
     set_target_properties(openmodel_shared PROPERTIES
         OUTPUT_NAME OpenModel
         WINDOWS_EXPORT_ALL_SYMBOLS ON)
@@ -319,6 +332,8 @@ if(OPENMODEL_BUILD_TESTS)
     openmodel_add_test(mesh_constraints_test tests/mesh_constraints_test.cpp)
     openmodel_add_test(material_database_test tests/material_database_test.cpp)
     openmodel_add_test(material_library_test tests/material_library_test.cpp)
+    openmodel_add_test(material_store_test tests/material_store_test.cpp)
+    target_link_libraries(material_store_test PRIVATE openmodel_sqlite)
     openmodel_add_test(code_aster_test tests/code_aster_test.cpp)
     openmodel_add_test(mesh_quality_test tests/mesh_quality_test.cpp)
     openmodel_add_test(cad_face_mapper_test tests/cad_face_mapper_test.cpp)
@@ -1266,7 +1281,8 @@ include(CMakePackageConfigHelpers)
 
 set(OPENMODEL_INSTALL_CMAKEDIR "${CMAKE_INSTALL_LIBDIR}/cmake/OpenModel")
 
-set(OPENMODEL_INSTALL_TARGETS openmodel_core)
+# openmodel_sqlite is exported too: openmodel_core links it privately, so the installed package needs its archive.
+set(OPENMODEL_INSTALL_TARGETS openmodel_core openmodel_sqlite)
 if(OPENMODEL_BUILD_ASSIMP_BACKEND)
     list(APPEND OPENMODEL_INSTALL_TARGETS openmodel_assimp)
 endif()
