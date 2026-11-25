@@ -2,3 +2,7 @@
 	path = 3dParty/TK4CPP
 	url = https://github.com/ClaudeTO80/TK4CPP.git
 	branch = main
+[submodule "3dParty/webui"]
+	path = 3dParty/webui
+	url = https://github.com/webui-dev/webui
+	branch = main
