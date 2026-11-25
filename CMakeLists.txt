@@ -268,7 +268,8 @@ ${_bytes}0x00};
         # webui.h pulls in <windows.h>, whose min/max macros break std::numeric_limits<T>::max().
         target_compile_definitions(openmodel-webui PRIVATE NOMINMAX)
     endif()
-    target_link_libraries(openmodel-webui PRIVATE OpenModel::Core "${OPENMODEL_WEBUI_LIBRARY}")
+    # main.cpp includes TK4CPP headers directly (Encode, Utility): link them here too, the core keeps them private.
+    target_link_libraries(openmodel-webui PRIVATE OpenModel::Core "${OPENMODEL_WEBUI_LIBRARY}" ${OPENMODEL_TK4CPP_LINK_INTERFACE} Threads::Threads)
     target_compile_features(openmodel-webui PRIVATE cxx_std_17)
     set_target_properties(openmodel-webui PROPERTIES OUTPUT_NAME openmodel-webui)
 endif()

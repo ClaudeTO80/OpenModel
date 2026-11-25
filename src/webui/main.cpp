@@ -125,7 +125,6 @@ constexpr double kFinestAngularDeflection = 0.05;
 
 /** Whole application state; always accessed with g_mutex held. */
 struct AppState {
-    OpenModel::MaterialStore materials;     ///< Material database (SQLite); opened on first use.
     bool materialsLoaded = false;
     std::string materialsNote;              ///< Problems found while loading the materials file.
     std::shared_ptr<CADModel> cad;
@@ -152,6 +151,9 @@ struct AppState {
 };
 
 AppState g;
+
+/** Material database (SQLite). Not part of AppState: it is a file, not part of the transactional state. */
+OpenModel::MaterialStore materialStore;
 std::mutex g_mutex;
 
 /** Locks the state, or reports that another operation is still running. */
@@ -2387,11 +2389,11 @@ void ensureMaterialsLoaded() {
     std::error_code ec;
     const bool existed = std::filesystem::exists(path, ec);
     std::string error;
-    if (!OpenModel::MaterialStore::open(path, g.materials, error)) {
+    if (!OpenModel::MaterialStore::open(path, materialStore, error)) {
         g.materialsNote = "The material database " + path + " cannot be opened: " + error;
         return;
     }
-    const std::string problems = OpenModel::importLegacyLibraryOnce(g.materials, materialLibraryPath(), !existed);
+    const std::string problems = OpenModel::importLegacyLibraryOnce(materialStore, materialLibraryPath(), !existed);
     if (!problems.empty()) g.materialsNote = "Legacy import: " + problems;
 }
 
@@ -2408,7 +2410,7 @@ void materialListHandler(webui_event_t* e) {
         return;
     }
     ensureMaterialsLoaded();
-    const std::string json = OpenModel::materialListJson(g.materials, units, materialStorePath(), g.materialsNote);
+    const std::string json = OpenModel::materialListJson(materialStore, units, materialStorePath(), g.materialsNote);
     webui_return_string(e, json.c_str());
 }
 
@@ -2437,7 +2439,7 @@ void materialSaveHandler(webui_event_t* e) {
     form.fatigueStrengthExponent = getStringArg(e, 13);
     form.fatigueDuctilityCoefficient = getStringArg(e, 14);
     form.fatigueDuctilityExponent = getStringArg(e, 15);
-    const OpenModel::MaterialServiceReply result = OpenModel::saveMaterialForm(g.materials, form);
+    const OpenModel::MaterialServiceReply result = OpenModel::saveMaterialForm(materialStore, form);
     reply(e, result.ok, result.message);
 }
 
@@ -2446,7 +2448,7 @@ void materialDeleteHandler(webui_event_t* e) {
     StateLock lock;
     if (!lock.ok()) { replyBusy(e); return; }
     ensureMaterialsLoaded();
-    const OpenModel::MaterialServiceReply result = OpenModel::deleteMaterialById(g.materials, getStringArg(e, 0));
+    const OpenModel::MaterialServiceReply result = OpenModel::deleteMaterialById(materialStore, getStringArg(e, 0));
     reply(e, result.ok, result.message);
 }
 
