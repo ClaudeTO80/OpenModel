@@ -141,12 +141,45 @@ The tests use the solver's own quadrature and nodes in the energy check; they do
 * A separate radiation sink temperature is not supported.
 * Not compared with CalculiX (`*HEAT TRANSFER`) or with a second code. That comparison is the next step to put the
   numbers on an independent footing.
-* No script syntax, no GUI, no results output to the viewer, no CLI command yet.
-* Only 1D; the 2D/3D formulation (and the FEM mesh of OpenModel) are out of scope for this step.
+* Script parser done (`Heat1DScript`); no GUI, no CLI command and no viewer output yet.
+* Only 1D along the axis (the flow and the geometry are along the axis; the section is given by A and P). The 2D/3D
+  formulation and the FEM mesh of OpenModel are out of scope: the 1D model has no mesh and runs only with the internal
+  solver.
+* Time dependence and amplitudes are not available in the 1D script: every value is constant.
 
-## 8. Decisions needed before the next step
+## 8. Decisions taken
 
-1. Script syntax: a `heat` analysis with its own steps (`heat transient dt=... end=...`), or the heat problem as a
-   separate analysis type next to `static`, `frequency`, `dynamic`.
-2. Solver: keep this solver as the reference, or export the same model to CalculiX `*HEAT TRANSFER` and compare.
-3. Which simplifications the GUI should expose as options (the ladder above) and which only as code.
+1. **Dedicated analysis** `analysis heat 1d`, with its own script (section 9), not the mesh-based analysis script.
+2. **Solver**: the internal solver is the only one for 1D models. CalculiX and Elmer are for 3D mesh models (to be
+   defined in a later step).
+3. **Scope of 1D**: flows and geometry along the axis. Sections: rectangle, circle, tube, regular polygon, and a table
+   for A(x) and P(x) by segments.
+4. **GUI**: all the options of the backend (to be implemented; not verifiable here, since the WebUI SDK is absent).
+
+## 9. Script (`analysis heat 1d`)
+
+Parser and runner: `include/OpenModel/Heat1DScript.hpp` (`parseScript`, `runScript`, `resultToCsv`). Tests:
+`tests/heat1d_script_test.cpp`. The header carries the full syntax; the summary:
+
+    analysis heat 1d length=1.0 elements=50
+    section rect a=0.1 b=0.1                  # A = a b, P = 2(a+b)
+    section circle r=0.01                     # A = pi r^2, P = 2 pi r
+    section tube ro=0.02 ri=0.01              # A = pi(ro^2 - ri^2), P = 2 pi (ro + ri): both surfaces exposed
+    section polygon sides=6 r=0.05            # regular polygon, r = circumradius
+    section table x=0,0.5,1 A=... P=...       # A(x), P(x) piecewise linear; x from 0 to the length
+    thermal k=50 rhocp=3.9e6
+    initial T=20
+    temperature end=left T=100               # or flux end=... q=..., convection end=... h=... Tinf=... [emissivity=...]
+    lateral h=10 Tinf=20 [emissivity=0]
+    heat q=5000                               # volumetric source
+    job MAIN [solver=internal]
+    step steady                               # or: step transient dt=0.01 end=10 [theta=0.5] [capacity=lumped]
+
+Each command appears once, and each end takes one temperature, flux or convection line. Errors are collected with their
+line numbers. The tube's perimeter counts both surfaces as exposed to the lateral exchange; this is an assumption of the
+model, to be stated in the GUI as well.
+
+Verification of the parser: the section areas and perimeters against their formulas (hexagon and square as exact
+values), a steady flux bar against its exact profile (error 2.8e-14), a source case (0.25 at x = 0.5 exact), a transient
+tube against the Fourier series (0.77479 against 0.77231: the lumped capacity error at 20 elements), and about thirty
+error cases checked by message and line number.
