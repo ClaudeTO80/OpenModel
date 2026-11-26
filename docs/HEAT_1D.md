@@ -1,0 +1,152 @@
+# One-dimensional heat conduction (`OpenModel::Heat1D`)
+
+Status: **core solver implemented and tested; not connected** to the analysis script, the GUI or the CalculiX writer yet.
+Header: `include/OpenModel/Heat1D.hpp`. Source: `src/Heat1D.cpp`. Tests: `tests/heat1d_test.cpp` (CTest `heat1d_test`).
+
+The first model is the complete one (every term below switched on). The simplifications are switches of the same
+model, so the complete formulation stays the reference and each simpler case is checked against it (see the ladder).
+
+## 1. Problem
+
+Segment \( x \in [0, L] \) with a cross-section \( A(x) \), perimeter \( P(x) \) and time \( t \in [0, t_{\text{end}}] \).
+Temperature \( T(x,t) \). The energy balance of a slice gives
+
+\[
+\rho c_p A(x)\,\frac{\partial T}{\partial t}
+= \frac{\partial}{\partial x}\!\Big(k(x,T)\,A(x)\,\frac{\partial T}{\partial x}\Big)
++ A(x)\,q(x,t)
+- P(x)\,\big[\,h_\ell\,(T-T_\infty) + \varepsilon_\ell\,\sigma\,(T^4-T_\infty^4)\,\big]
+\]
+
+with initial condition \( T(x,0) = T_0(x) \) and, at each end, one of
+
+| Condition | Expression at \( x = 0 \) (and analogously at \( x = L \)) |
+|---|---|
+| Temperature | \( T = T_b(t) \) |
+| Heat flux | \( -kA\,\partial_x T = A\,q''(t) \), with \( q'' \) entering the domain |
+| Convection and radiation | \( -kA\,\partial_x T = A\,\big[h\,(T_\infty - T) + \varepsilon\sigma\,(T_\infty^4 - T^4)\big] \) |
+
+Insulated end: flux with no value. Steady problem: the time derivative is dropped and the source is taken at \( t = 0 \).
+
+**Units.** The caller chooses a consistent set. Radiation requires absolute temperatures (kelvin) and \( \sigma \) in the same
+units. Insulated sides: no lateral term.
+
+**Radiation sink.** The radiative exchange uses the ambient temperature of its own exchange as the sink
+(\( T^4 - T_\infty^4 \)). A separate sink temperature (for example a sky or an enclosure temperature) is not supported.
+
+## 2. Weak form and discretisation
+
+Uniform mesh of \( N \) linear elements of length \( h = L/N \), nodes \( x_i = i h \). Shape functions
+\( N_1 = (1-\xi)/2 \), \( N_2 = (1+\xi)/2 \) on each element, with \( \xi \in [-1,1] \).
+
+The weak form with test functions \( N_i \) leads to the semi-discrete system
+
+\[
+C\,\dot{T} + K(T)\,T = g(T,t),
+\]
+
+where, element by element and with two-point Gauss quadrature (exact for the polynomial parts when \( A \), \( k \), \( P \)
+are constant):
+
+* \( C_{ij} = \int \rho c_p A\, N_i N_j\,dx \) (consistent) or its row-sum lumping \( C_{ii} = \int \rho c_p A\, N_i\,dx \).
+* Conduction: \( K^{\text{cond}}_{ij} = \int k(x,T)\,A\,\partial_x N_i\,\partial_x N_j\,dx \).
+* Lateral and end exchange: the flux \( a(T)\,(T - T_\infty) \) with
+  \( a(T) = h + \varepsilon\sigma\,(T^2 + T_\infty^2)(T + T_\infty) \) (this is exact:
+  \( T^4 - T_\infty^4 = (T^2+T_\infty^2)(T+T_\infty)(T-T_\infty) \)).
+  It adds \( \int P\,a\,N_iN_j \) to \( K \) (at the ends: \( A\,a \) on the node) and \( \int P\,a\,T_\infty N_i \) to \( g \).
+* Source: \( g_i = \int A\,q\,N_i\,dx \). Heat flux at an end: \( g_{\text{end}} \mathrel{+}= A\,q'' \).
+* Temperature ends are imposed as Dirichlet conditions on the system (the row becomes the identity).
+
+Because the mesh is uniform and linear, every system is tridiagonal: the solves use the Thomas algorithm (\( O(N) \)).
+
+## 3. Time integration and non-linearity
+
+Theta method on \( [t_n, t_{n+1}] \), \( \theta \in [0,1] \):
+
+\[
+\Big(\tfrac{C}{\Delta t} + \theta K^{k}\Big) T^{k+1}
+= \Big(\tfrac{C}{\Delta t} - (1-\theta) K^{n}\Big) T^{n} + (1-\theta)\,g^{n} + \theta\,g^{k},
+\]
+
+where \( K^{n}, g^{n} \) are evaluated at \( T^n, t_n \) and \( K^{k}, g^{k} \) at the iterate \( T^k \) and at \( t_{n+1} \).
+The coefficients that depend on \( T \) (conductivity, radiation) are **frozen at the iterate** (Picard). The loop stops when
+the largest change is below `tolerance * max(1, max|T|)`. At convergence the frozen coefficients are the exact ones, so
+the result is the theta method applied to the complete non-linear problem.
+
+| \( \theta \) | Scheme | Note |
+|---|---|---|
+| 0 | explicit Euler | conditionally stable; **the code does not check the stability limit** |
+| 0.5 | Crank-Nicolson | second order in time |
+| 1 | implicit Euler | unconditionally stable, first order |
+
+Capacity: `Capacity::Consistent` (default) or `Capacity::Lumped`.
+
+Steady problem: \( K(T)\,T = g(T) \) solved by the same Picard loop. It needs a temperature end, a convective end or a lateral
+exchange; otherwise the temperature level is undetermined and the input is refused.
+
+## 4. Options and output
+
+`Options`: `steady`, `theta`, `timeStep` (the step is shortened so that the run ends exactly at `endTime`), `endTime`,
+`capacity`, `tolerance` (default \(10^{-10}\)), `maxIterations` (default 100), `recordEvery`.
+
+`Result`: `nodes`, `times`, `temperatures[k][i]` (time \(k\), node \(i\)), `converged`, `maxPicardIterations`, `error`.
+Invalid input or a failed Picard loop is reported in `error` (no exception reaches the caller).
+
+## 5. Simplification ladder
+
+Each rung removes something from the complete model. The test column names the check that covers the rung.
+
+| Level | Model | What is removed | Covered by |
+|---|---|---|---|
+| 0 | complete | — | all tests |
+| 1 | constant properties | \( k(x,T) \to k \), \( \rho c_p \) and \( A \) constant | `steady linear`, `fin`, `transient sine` |
+| 2 | no radiation | \( \varepsilon = 0 \): the exchange is linear | `fin`, `convection end` |
+| 3 | no lateral exchange | \( P = 0 \) or no `lateral` | `convection end`, `heat flux end`, `energy balance` |
+| 4 | no temperature dependence in \( k \) | \( k \) a function of \( x \) only | `variable area`, `transient sine` |
+| 5 | steady, no source | \( \partial_t = 0 \), \( q = 0 \): linear profile | `steady linear` |
+| 6 | constant cross-section and no source, one element | the solver reduces to the textbook formulae | `convection end` (exact with N = 5) |
+
+The non-linear-conductivity and radiation tests run the complete model for those terms (level 0 for them); the other rungs
+are checked against closed forms.
+
+## 6. Verification (what was run)
+
+Build: `g++ -std=c++17 -Wall -Wextra -Wpedantic -Wshadow` clean; ASan and UBSan clean; CMake target `heat1d_test`; the whole
+core suite (58 tests) passes.
+
+| Test | Reference | Result |
+|---|---|---|
+| steady linear, Dirichlet ends | exact linear profile | max nodal error 0 |
+| steady, uniform source | \( T = x(1-x) \) | 2.8e-17 (exact at nodes) |
+| variable area \( A = 1+x \) | \( T = 100 - 100\ln(1+x)/\ln 2 \) | N = 10: 7.5e-3; N = 40: 4.8e-4 (ratio 15.8: second order) |
+| fin, lateral convection, insulated tip, N = 100 | \( \cosh \) profile, \( m = 10 \) 1/m | 1.6e-4 K |
+| convection at one end | linear profile, flux balance | 7.1e-15 |
+| flux at one end | \( T = 10 + 20x \) | 3.6e-15 |
+| radiation at one end (N = 1) | bisection on the balance | \( T_L = 367.955 \) K, bisection 367.955 K; 18 Picard iterations |
+| \( k = 1 + 0.01T \) | Kirchhoff transform (exact for this \( k \)) | 9.8e-11 K; 8 Picard iterations |
+| transient sine mode, N = 40, \( \Delta t = 10^{-3} \), \( t = 0.1 \) | \( \sin(\pi x)e^{-\pi^2 t} \) | CN 1.9e-4; implicit 1.6e-3; CN lumped 1.9e-4 |
+| energy balance, variable \( A \), time-dependent source, insulated | \( \Delta E = \sum \Delta t\,[\theta S^{n+1} + (1-\theta)S^n] \) | residual 6.7e-13 (exact up to round-off) |
+| recording, input checks, non-converged Picard | — | pass |
+
+The energy balance holds exactly for the discrete scheme because the rows of \( C \) sum to \( \int \rho c_p A\,N_j \) and the
+rows of the conduction matrix sum to zero; the test checks this identity, not a physical value.
+
+The tests use the solver's own quadrature and nodes in the energy check; they do not validate against an external code.
+
+## 7. Limits (not done or not verified)
+
+* One uniform mesh; no quadratic elements; no adaptive or non-uniform mesh.
+* \( \rho c_p \) does not depend on \( T \) (the capacity matrix is built once per run).
+* No check of the explicit stability limit (\( \theta < 1/2 \)); the user chooses the step.
+* A separate radiation sink temperature is not supported.
+* Not compared with CalculiX (`*HEAT TRANSFER`) or with a second code. That comparison is the next step to put the
+  numbers on an independent footing.
+* No script syntax, no GUI, no results output to the viewer, no CLI command yet.
+* Only 1D; the 2D/3D formulation (and the FEM mesh of OpenModel) are out of scope for this step.
+
+## 8. Decisions needed before the next step
+
+1. Script syntax: a `heat` analysis with its own steps (`heat transient dt=... end=...`), or the heat problem as a
+   separate analysis type next to `static`, `frequency`, `dynamic`.
+2. Solver: keep this solver as the reference, or export the same model to CalculiX `*HEAT TRANSFER` and compare.
+3. Which simplifications the GUI should expose as options (the ladder above) and which only as code.
