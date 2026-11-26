@@ -21,6 +21,7 @@
 #include <OpenModel/FemResults.hpp>
 #include <OpenModel/GltfWriter.hpp>
 #include <OpenModel/GmshSettings.hpp>
+#include <OpenModel/Heat1DScript.hpp>
 #include <OpenModel/ModelBinaryIO.hpp>
 #include <OpenModel/MeshData.hpp>
 #include <OpenModel/MeshRuns.hpp>
@@ -1722,6 +1723,71 @@ void analysisUpdate(webui_event_t* e) {
     reply(e, true, OpenModel::serializeAnalysisScript(g.analysis));
 }
 
+/** JSON number; a non-finite value becomes null, which keeps the document valid. */
+std::string jsonNumber(double value) {
+    if (!std::isfinite(value)) return "null";
+    std::ostringstream out;
+    out << std::setprecision(12) << value;
+    return out.str();
+}
+
+/** JSON array of strings. */
+std::string jsonStringArray(const std::vector<std::string>& values) {
+    std::string out = "[";
+    for (std::size_t i = 0; i < values.size(); ++i) out += (i ? "," : "") + jsonString(values[i]);
+    return out + "]";
+}
+
+/**
+ * @brief Handler of "openmodel_heat1d_run": parses a 1D heat script and runs the internal solver.
+ *
+ * It works on its own result and does not touch the structural model. The reply is a JSON object with ok, message
+ * (a summary, or the errors one per line), errors (parser messages with line numbers), and on success nodes, times,
+ * temperatures (one row per recorded time), converged, maxPicardIterations and csv (the same long-format CSV the
+ * command line writes).
+ */
+void heat1dRun(webui_event_t* e) {
+    OpenModel::Heat1D::ScriptProblem problem;
+    std::vector<std::string> errors;
+    std::ostringstream out;
+    if (!OpenModel::Heat1D::parseScript(getStringArg(e, 0), problem, errors)) {
+        std::string joined;
+        for (const auto& line : errors) joined += (joined.empty() ? "" : "\n") + line;
+        out << "{\"ok\":false,\"message\":" << jsonString(joined) << ",\"errors\":" << jsonStringArray(errors) << "}";
+        webui_return_string(e, out.str().c_str());
+        return;
+    }
+
+    const OpenModel::Heat1D::Result result = OpenModel::Heat1D::runScript(problem);
+    if (!result.error.empty()) {
+        out << "{\"ok\":false,\"message\":" << jsonString(result.error) << ",\"errors\":[" << jsonString(result.error) << "]}";
+        webui_return_string(e, out.str().c_str());
+        return;
+    }
+
+    std::string nodes = "[", times = "[", temperatures = "[";
+    for (std::size_t i = 0; i < result.nodes.size(); ++i) nodes += (i ? "," : "") + jsonNumber(result.nodes[i]);
+    for (std::size_t i = 0; i < result.times.size(); ++i) times += (i ? "," : "") + jsonNumber(result.times[i]);
+    for (std::size_t r = 0; r < result.temperatures.size(); ++r) {
+        temperatures += (r ? ",[" : "[");
+        const auto& row = result.temperatures[r];
+        for (std::size_t i = 0; i < row.size(); ++i) temperatures += (i ? "," : "") + jsonNumber(row[i]);
+        temperatures += "]";
+    }
+    nodes += "]"; times += "]"; temperatures += "]";
+
+    const std::string summary = std::to_string(result.nodes.size()) + " nodes, " +
+                                std::to_string(result.times.size()) + " recorded times" +
+                                (problem.options.steady ? " (steady)" : " (transient)") +
+                                (result.converged ? "" : ". Picard iteration did not converge");
+    out << "{\"ok\":true,\"message\":" << jsonString(summary) << ",\"errors\":[]"
+        << ",\"converged\":" << (result.converged ? "true" : "false")
+        << ",\"maxPicardIterations\":" << result.maxPicardIterations
+        << ",\"nodes\":" << nodes << ",\"times\":" << times << ",\"temperatures\":" << temperatures
+        << ",\"csv\":" << jsonString(OpenModel::Heat1D::resultToCsv(result)) << "}";
+    webui_return_string(e, out.str().c_str());
+}
+
 /** Delete a support, force or pressure by stable ID. The required material cannot be deleted. */
 void analysisDelete(webui_event_t* e) {
     StateLock lock;
@@ -3010,6 +3076,7 @@ int main() {
     webui_bind(window, "openmodel_analysis_get", analysisGet);
     webui_bind(window, "openmodel_analysis_update", analysisUpdate);
     webui_bind(window, "openmodel_analysis_delete", analysisDelete);
+    webui_bind(window, "openmodel_heat1d_run", heat1dRun);
     webui_bind(window, "openmodel_create_group", createGroupHandler);
     webui_bind(window, "openmodel_list_groups", listGroupsHandler);
     webui_bind(window, "openmodel_show_group", showGroupHandler);

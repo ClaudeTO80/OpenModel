@@ -216,6 +216,7 @@ details.node details.node{margin-top:8px;background:transparent}
     <div class="group"><div class="items">
       <button class="rb" data-act="an-focus" title="Go to the analysis script and solver parameters"><span class="ic">📝</span>Define…</button>
       <button class="rb" data-act="an-example" title="Insert an example script (cantilever)"><span class="ic">📋</span>Example</button>
+      <button class="rb" data-act="heat-focus" title="Heat conduction along an axis (1D): script, run and temperature profile"><span class="ic">🌡</span>Heat 1D…</button>
     </div><div class="gname">Model</div></div>
     <div class="group"><div class="items">
       <button class="rb" data-act="an-write" data-need="idle" title="Write the .inp file for CalculiX without launching the solver"><span class="ic">📄</span>Write input</button>
@@ -670,6 +671,21 @@ details.node details.node{margin-top:8px;background:transparent}
     <div class="grid2"><button id="btnCancel" onclick="analysisCancel()" disabled>Cancel</button><button onclick="analysisExample()">Example</button></div>
     <p class="hint">Commands: <code>material E= nu= rho=</code>, <code>fix plane:x=0 [dof=1,2,3]</code>, <code>force plane:x=10 F=fx,fy,fz</code>, <code>pressure group:NAME p=</code>, <code>gravity g=gx,gy,gz</code>, <code>step static</code> or <code>step frequency modes=N</code>. Selectors: <code>all</code>, <code>group:NAME</code>, <code>plane:x|y|z=VALUE</code>. Use consistent units of your choice. When the run finishes, the results are loaded automatically.</p>
     </details>
+    <details id="secHeat" class="node" open>
+      <summary>Heat conduction 1D (along the axis)</summary>
+      <label for="heatScript">Heat script (one command per line, # starts a comment)</label>
+      <textarea id="heatScript" rows="12" spellcheck="false" style="width:100%;font-family:monospace;font-size:12px"></textarea>
+      <div class="grid2"><button onclick="heatTemplate()">Template</button><button class="primary" onclick="heatRun()">Run heat analysis</button></div>
+      <div id="heatErrors" class="hint" role="alert" style="color:var(--bad,#b00020);white-space:pre-line"></div>
+      <div id="heatOut" hidden>
+        <label for="heatTime">Time shown</label>
+        <select id="heatTime" onchange="heatDraw()"></select>
+        <div id="heatPlot" style="margin-top:6px"></div>
+        <p class="hint" id="heatSummary"></p>
+        <button class="full" onclick="heatDownloadCsv()">Download CSV (time,x,temperature)</button>
+      </div>
+      <p class="hint">Commands: <code>analysis heat 1d</code>; <code>material id=ID k=K rhocp=C</code> or <code>kT=300:200,400:190</code> for conductivity tabulated in T; <code>segment material=ID length=L elements=N</code> (repeatable, from x = 0); shorthand <code>thermal k= rhocp=</code> with <code>analysis heat 1d length=L elements=N</code>, not mixed with material lines; <code>section rect a= b=</code>, <code>circle r=</code>, <code>tube ro= ri=</code>, <code>polygon sides= r=</code>, <code>table x= A= P=</code>; <code>initial T=</code>; <code>temperature end=left|right T=</code>; <code>flux end= q=</code> (no line = insulated); <code>convection end= h= Tinf= [emissivity=]</code>; <code>lateral h= Tinf= [emissivity=]</code>; <code>heat q=</code>; <code>job MAIN [solver=internal]</code>; <code>step steady</code> or <code>step transient dt= end= [theta=] [capacity=consistent|lumped]</code>. Only the internal solver runs 1D models; this analysis does not change the structural model.</p>
+    </details>
     <details class="node" open>
       <summary>Results</summary>
     <label for="resPath">Solver results (.frd, .dat CalculiX; .tab code_aster; .csv; multiple files separated by ';' are merged)</label>
@@ -811,6 +827,81 @@ let meshers = [], viewVersion = -1, viewAvailable = false, pendingView = false, 
 let viewEdges = "none";
 let busy = false, noMesher = false;
 let selectedCadFaceIds = [];
+
+/* Heat conduction 1D: runs the script on the backend and draws the temperature along the axis. */
+const HEAT_TEMPLATE = [
+  "analysis heat 1d",
+  "material id=WALL k=1.2 rhocp=1.8e6",
+  "segment material=WALL length=0.2 elements=40",
+  "section rect a=1 b=1",
+  "initial T=20",
+  "temperature end=left T=100",
+  "convection end=right h=10 Tinf=20",
+  "step transient dt=60 end=3600 theta=0.5 capacity=consistent"
+].join("\n");
+let heatLast = null;
+function heatTemplate() { $("heatScript").value = HEAT_TEMPLATE; }
+async function heatRun() {
+  const r = await call("openmodel_heat1d_run", $("heatScript").value);
+  const out = $("heatOut");
+  if (!r.ok) {
+    heatLast = null;
+    out.hidden = true;
+    $("heatErrors").textContent = (r.errors && r.errors.length ? r.errors : [r.message]).join("\n");
+    show("Heat analysis not run.", "bad");
+    return;
+  }
+  heatLast = r;
+  $("heatErrors").textContent = r.converged ? "" : "Picard iteration did not converge: the nonlinear coefficients may need a smaller time step.";
+  const sel = $("heatTime");
+  sel.innerHTML = "";
+  r.times.forEach((t, i) => {
+    const o = document.createElement("option");
+    o.value = String(i);
+    o.textContent = "t = " + t;
+    sel.appendChild(o);
+  });
+  sel.value = String(r.times.length - 1);
+  $("heatSummary").textContent = r.message + ". Max Picard iterations: " + r.maxPicardIterations + ".";
+  out.hidden = false;
+  heatDraw();
+  show("Heat analysis done: " + r.message, r.converged ? "good" : "bad");
+}
+function heatDraw() {
+  if (!heatLast) return;
+  const row = heatLast.temperatures[Number($("heatTime").value)] || [];
+  $("heatPlot").innerHTML = heatPlotSvg(heatLast.nodes, row);
+}
+function heatPlotSvg(xs, ys) {
+  const W = 460, H = 220, L = 56, R = 16, T = 14, B = 36;
+  const pts = xs.map((x, i) => [x, ys[i]]).filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y));
+  if (pts.length < 2) return "<p class=\"hint\">No finite values to plot.</p>";
+  const x0 = Math.min(...pts.map((p) => p[0])), x1 = Math.max(...pts.map((p) => p[0]));
+  let y0 = Math.min(...pts.map((p) => p[1])), y1 = Math.max(...pts.map((p) => p[1]));
+  if (y1 === y0) { y0 -= 1; y1 += 1; }
+  const px = (x) => L + ((x - x0) / ((x1 - x0) || 1)) * (W - L - R);
+  const py = (y) => T + (1 - (y - y0) / (y1 - y0)) * (H - T - B);
+  const line = pts.map(([x, y]) => px(x).toFixed(1) + "," + py(y).toFixed(1)).join(" ");
+  return '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Temperature along the axis" style="width:100%;height:auto">' +
+    '<rect x="' + L + '" y="' + T + '" width="' + (W - L - R) + '" height="' + (H - T - B) + '" fill="none" stroke="currentColor" opacity="0.3"/>' +
+    '<polyline points="' + line + '" fill="none" stroke="currentColor" stroke-width="2"/>' +
+    '<text x="' + (L - 6) + '" y="' + (py(y1) + 4) + '" text-anchor="end" font-size="11" fill="currentColor">' + y1.toPrecision(4) + '</text>' +
+    '<text x="' + (L - 6) + '" y="' + (py(y0) + 4) + '" text-anchor="end" font-size="11" fill="currentColor">' + y0.toPrecision(4) + '</text>' +
+    '<text x="' + L + '" y="' + (H - 12) + '" font-size="11" fill="currentColor">x = ' + x0.toPrecision(4) + '</text>' +
+    '<text x="' + (W - R) + '" y="' + (H - 12) + '" text-anchor="end" font-size="11" fill="currentColor">x = ' + x1.toPrecision(4) + '</text>' +
+    '</svg>';
+}
+function heatDownloadCsv() {
+  if (!heatLast) return;
+  const url = URL.createObjectURL(new Blob([heatLast.csv], {type: "text/csv"}));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "heat1d.csv";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 
 function show(text, kind) {
   const el = $("result"); el.textContent = text; el.className = kind || "";
@@ -2372,6 +2463,7 @@ async function analysisCancel() {
 }
 Object.assign(RIBBON_EXTRA, {
   "an-focus": () => focusSection("secSolve"),
+  "heat-focus": () => focusSection("secHeat"),
   "an-example": analysisExample,
   "an-write": analysisWrite,
   "an-run": analysisRun,

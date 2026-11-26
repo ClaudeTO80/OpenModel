@@ -16,6 +16,11 @@ Usage: `node viewer_rotation_axes_smoke.js <index.html> <file.mgwv>`.
 Checks the results colour bar of the viewer: its place on the left, the palette and scale selectors, the editable Min and Max and the ticks.
 Usage: `node viewer_colorbar_smoke.js <index.html> <file.mgwv> [screenshot-dir]`.
 
+## Heat 1D panel test (`gui_heat1d_smoke.js`)
+Checks the "Heat conduction 1D" section of the Analysis tab: the template, the run with the time selector, the plot and
+the CSV button, the errors with their line numbers, and that no structural analysis handler is called. The bridge is a stub.
+Usage: `node gui_heat1d_smoke.js <gui.html> <viewer.html>`.
+
 ## GUI end-to-end test (`gui_e2e.js`)
 Drives the real `openmodel-webui` on the real WebUI runtime: import a STEP file, select a rendered surface triangle and verify
 that the viewer reports its original OCC `sourceFaceId`; create a `BladeRoot` CAD face group, verify its sidecar persistence
