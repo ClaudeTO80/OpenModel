@@ -175,7 +175,7 @@ void testErrors() {
 
     // Missing sections and lines.
     CHECK(failsWith("analysis heat 1d length=1 elements=4\nthermal k=1 rhocp=1\nstep steady\n", "missing a section"));
-    CHECK(failsWith("analysis heat 1d length=1 elements=4\nsection rect a=1 b=1\nstep steady\n", "missing the thermal"));
+    CHECK(failsWith("analysis heat 1d length=1 elements=4\nsection rect a=1 b=1\nstep steady\n", "missing the material data"));
     CHECK(failsWith("analysis heat 1d length=1 elements=4\nsection rect a=1 b=1\nthermal k=1 rhocp=1\n", "missing a step"));
 
     // Order and repetition.
@@ -230,10 +230,81 @@ void testCsv() {
     CHECK(count == r.times.size() * r.nodes.size());
 }
 
+/**
+ * @brief Test 7: two materials in series from the script, with the interface on a node. The solution is the exact
+ *        piecewise-linear profile of the composite wall (k = 1 on 0..0.4, k = 4 on 0.4..1, ends at 100 and 0).
+ */
+void testTwoMaterials() {
+    const std::string text =
+        "analysis heat 1d\n"
+        "material id=A k=1 rhocp=1\n"
+        "material id=B k=4 rhocp=1\n"
+        "segment material=A length=0.4 elements=4\n"
+        "segment material=B length=0.6 elements=6\n"
+        "section rect a=1 b=1\n"
+        "temperature end=left T=100\n"
+        "temperature end=right T=0\n"
+        "step steady\n";
+    const ScriptProblem p = parseOk(text);
+    const Result r = runScript(p);
+    CHECK(r.error.empty());
+    CHECK(r.converged);
+    CHECK(r.nodes.size() == 11); // 4 + 6 elements, 11 nodes
+    const double q = 100.0 / (0.4 / 1.0 + 0.6 / 4.0);
+    const double Ti = 100.0 - 0.4 * q;
+    double err = 0.0;
+    for (std::size_t i = 0; i < r.nodes.size(); ++i) {
+        const double x = r.nodes[i];
+        const double exact = x <= 0.4 ? 100.0 - q * x : Ti - q * (x - 0.4) / 4.0;
+        err = std::max(err, std::fabs(r.temperatures.back()[i] - exact));
+    }
+    std::cout << "two materials: max nodal error " << err << " K, interface " << Ti << " K\n";
+    CHECK(err < 1e-9);
+
+    // A transient run with the same two layers runs and stays between the end temperatures.
+    const std::string transient =
+        "analysis heat 1d\nmaterial id=A k=1 rhocp=2\nmaterial id=B k=4 rhocp=3\n"
+        "segment material=A length=0.5 elements=10\nsegment material=B length=0.5 elements=10\n"
+        "section rect a=1 b=1\ninitial T=50\ntemperature end=left T=0\ntemperature end=right T=0\n"
+        "step transient dt=0.01 end=0.2 theta=0.5 capacity=lumped\n";
+    const Result rt = runScript(parseOk(transient));
+    CHECK(rt.error.empty());
+    CHECK(rt.converged);
+    for (double T : rt.temperatures.back()) CHECK(T >= -1e-9 && T <= 50.0 + 1e-9);
+}
+
+/** @brief Test 8: errors in the material and segment lines, each with its line number. */
+void testMaterialErrors() {
+    const std::string head = "analysis heat 1d\nsection rect a=1 b=1\n";
+    CHECK(failsWith(head + "material id=A k=1 rhocp=1\nmaterial id=A k=2 rhocp=1\n", "material 'A' is defined twice"));
+    CHECK(failsWith(head + "material id=A k=1 rhocp=1\nsegment material=B length=1 elements=2\n", "unknown material 'B'"));
+    CHECK(failsWith(head + "segment material=A length=1 elements=2\nmaterial id=A k=1 rhocp=1\n", "unknown material 'A'"));
+    CHECK(failsWith(head + "material id=A rhocp=1\n", "missing k="));
+    CHECK(failsWith(head + "material id=A k=-1 rhocp=1\n", "k must be positive"));
+    CHECK(failsWith(head + "material k=1 rhocp=1\n", "missing id="));
+    CHECK(failsWith(head + "material id=A k=1 rhocp=1\nsegment material=A elements=2\n", "missing length="));
+    CHECK(failsWith(head + "material id=A k=1 rhocp=1\nsegment material=A length=1\n", "missing elements="));
+    CHECK(failsWith(head + "material id=A k=1 rhocp=1\nsegment material=A length=0 elements=2\n", "length must be positive"));
+    CHECK(failsWith(head + "material id=A k=1 rhocp=1\nthermal k=1 rhocp=1\nsegment material=A length=1 elements=2\n",
+                    "cannot be combined"));
+    CHECK(failsWith("analysis heat 1d length=1 elements=4\nsection rect a=1 b=1\nmaterial id=A k=1 rhocp=1\n"
+                    "segment material=A length=1 elements=4\nstep steady\n",
+                    "follow from the segment lines"));
+    CHECK(failsWith("analysis heat 1d\nsection rect a=1 b=1\nmaterial id=A k=1 rhocp=1\nstep steady\n",
+                    "missing the material data"));
+    // A table for A(x) must cover the total length of the segments (here 0.5 + 0.5 = 1).
+    CHECK(failsWith("analysis heat 1d\nmaterial id=A k=1 rhocp=1\nsegment material=A length=0.5 elements=2\n"
+                    "segment material=A length=0.5 elements=2\nsection table x=0,0.5,0.9 A=1,1,1 P=1,1,1\n"
+                    "temperature end=left T=0\ntemperature end=right T=1\nstep steady\n",
+                    "table x must go from 0 to the length"));
+}
+
 } // namespace
 
 int main() {
     testSectionGeometry();
+    testTwoMaterials();
+    testMaterialErrors();
     testSteadyFluxBar();
     testSteadySource();
     testTransientRuns();

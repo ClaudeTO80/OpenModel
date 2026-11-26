@@ -148,6 +148,31 @@ ScalarFn piecewiseLinear(std::vector<double> xs, std::vector<double> ys) {
     };
 }
 
+/** @brief A material of the script: conductivity and volumetric heat capacity (constant). */
+struct MaterialDef {
+    std::string id;
+    double k = 0.0;
+    double rhocp = 0.0;
+};
+
+/** @brief A segment of the axis: a material over a length, meshed with a number of elements. */
+struct Segment {
+    std::string material;
+    double length = 0.0;
+    long elements = 0;
+    int line = 0;
+};
+
+/**
+ * @brief Index of the segment that holds x: the first one whose end lies beyond x (the last one at and past the end).
+ * @param ends  end position of each segment, increasing
+ */
+std::size_t segmentIndex(const std::vector<double>& ends, double x) {
+    const auto it = std::upper_bound(ends.begin(), ends.end(), x);
+    const std::size_t i = static_cast<std::size_t>(it - ends.begin());
+    return i < ends.size() ? i : ends.size() - 1;
+}
+
 TimeFn constantTime(double v) {
     return [v](double) { return v; };
 }
@@ -170,6 +195,10 @@ bool parseScript(const std::string& text, ScriptProblem& problem, std::vector<st
     bool sawHeat = false;
     bool sawJob = false;
     bool sawStep = false;
+    bool sawGeometry = false; ///< length= or elements= on the analysis line
+
+    std::vector<MaterialDef> materials;
+    std::vector<Segment> segments;
 
     double length = 0.0;
     long elements = 0;
@@ -203,17 +232,21 @@ bool parseScript(const std::string& text, ScriptProblem& problem, std::vector<st
             }
             sawAnalysis = true;
             if (c.bare.size() != 2 || c.bare[0] != "heat" || c.bare[1] != "1d") {
-                errs.push_back(where(c) + "expected 'analysis heat 1d length=L elements=N'");
+                errs.push_back(where(c) + "expected 'analysis heat 1d [length=L elements=N]'");
                 continue;
             }
             checkKeys(c, {"length", "elements"}, errs);
-            requireNumber(c, "length", length, errs);
-            if (c.values.count("length") && !(length > 0.0)) errs.push_back(where(c) + "length must be positive");
-            std::string elementsText = c.values.count("elements") ? c.values.at("elements") : std::string();
-            if (elementsText.empty()) {
-                errs.push_back(where(c) + "missing elements=");
-            } else if (!toInteger(elementsText, elements) || elements < 1) {
-                errs.push_back(where(c) + "elements must be an integer >= 1");
+            // length and elements are needed only by the thermal line; with material and segment lines they follow from the segments.
+            sawGeometry = c.values.count("length") > 0 || c.values.count("elements") > 0;
+            if (sawGeometry) {
+                requireNumber(c, "length", length, errs);
+                if (c.values.count("length") && !(length > 0.0)) errs.push_back(where(c) + "length must be positive");
+                const std::string elementsText = c.values.count("elements") ? c.values.at("elements") : std::string();
+                if (elementsText.empty()) {
+                    errs.push_back(where(c) + "missing elements=");
+                } else if (!toInteger(elementsText, elements) || elements < 1) {
+                    errs.push_back(where(c) + "elements must be an integer >= 1");
+                }
             }
         } else if (!sawAnalysis) {
             errs.push_back(where(c) + "the analysis line 'analysis heat 1d ...' must come first");
@@ -300,6 +333,49 @@ bool parseScript(const std::string& text, ScriptProblem& problem, std::vector<st
             } else {
                 errs.push_back(where(c) + "unknown section '" + kind + "' (rect, circle, tube, polygon, table)");
             }
+        } else if (c.keyword == "material") {
+            checkKeys(c, {"id", "k", "rhocp"}, errs);
+            const std::string id = c.values.count("id") ? c.values.at("id") : std::string();
+            double mk = 0.0;
+            double mr = 0.0;
+            if (id.empty()) {
+                errs.push_back(where(c) + "missing id=");
+            } else if (std::any_of(materials.begin(), materials.end(), [&](const MaterialDef& md) { return md.id == id; })) {
+                errs.push_back(where(c) + "material '" + id + "' is defined twice");
+            }
+            const bool okK = requireNumber(c, "k", mk, errs);
+            const bool okR = requireNumber(c, "rhocp", mr, errs);
+            if (okK && !(mk > 0.0)) errs.push_back(where(c) + "k must be positive");
+            if (okR && !(mr > 0.0)) errs.push_back(where(c) + "rhocp must be positive");
+            if (!id.empty() && okK && okR && mk > 0.0 && mr > 0.0) materials.push_back({id, mk, mr});
+        } else if (c.keyword == "segment") {
+            checkKeys(c, {"material", "length", "elements"}, errs);
+            const std::string id = c.values.count("material") ? c.values.at("material") : std::string();
+            bool ok = true;
+            if (id.empty()) {
+                errs.push_back(where(c) + "missing material=");
+                ok = false;
+            } else if (!std::any_of(materials.begin(), materials.end(), [&](const MaterialDef& md) { return md.id == id; })) {
+                errs.push_back(where(c) + "unknown material '" + id + "' (define it with a material line before)");
+                ok = false;
+            }
+            double segLength = 0.0;
+            if (!requireNumber(c, "length", segLength, errs)) {
+                ok = false;
+            } else if (!(segLength > 0.0)) {
+                errs.push_back(where(c) + "length must be positive");
+                ok = false;
+            }
+            long segElements = 0;
+            const std::string elementsText = c.values.count("elements") ? c.values.at("elements") : std::string();
+            if (elementsText.empty()) {
+                errs.push_back(where(c) + "missing elements=");
+                ok = false;
+            } else if (!toInteger(elementsText, segElements) || segElements < 1) {
+                errs.push_back(where(c) + "elements must be an integer >= 1");
+                ok = false;
+            }
+            if (ok) segments.push_back({id, segLength, segElements, c.line});
         } else if (c.keyword == "thermal") {
             if (sawThermal) {
                 errs.push_back(where(c) + "only one thermal line is allowed");
@@ -418,13 +494,50 @@ bool parseScript(const std::string& text, ScriptProblem& problem, std::vector<st
         }
     }
 
-    if (!sawAnalysis) errs.push_back("missing the analysis line 'analysis heat 1d length=L elements=N'");
+    if (!sawAnalysis) errs.push_back("missing the analysis line 'analysis heat 1d ...'");
     if (!sawSection) errs.push_back("missing a section line (rect, circle, tube, polygon or table)");
-    if (!sawThermal) errs.push_back("missing the thermal line 'thermal k=... rhocp=...'");
     if (!sawStep) errs.push_back("missing a step line ('step steady' or 'step transient ...')");
 
-    if (sawAnalysis && length > 0.0 && tableSection) {
-        if (tableX.front() != 0.0 || std::fabs(tableX.back() - length) > 1e-12 * length) {
+    // One material over the whole length (thermal line), or material and segment lines.
+    if (sawThermal) {
+        if (!materials.empty() || !segments.empty()) {
+            errs.push_back("the thermal line cannot be combined with material and segment lines");
+        } else if (!sawGeometry) {
+            errs.push_back("the thermal line needs length= and elements= on the analysis line");
+        } else {
+            materials.push_back({"default", k, rhocp});
+            segments.push_back({"default", length, elements, 0});
+        }
+    }
+    if (segments.empty() && !sawThermal) {
+        errs.push_back("missing the material data: a thermal line, or material and segment lines");
+    }
+    if (sawGeometry && !segments.empty() && !sawThermal) {
+        errs.push_back("length and elements follow from the segment lines: remove them from the analysis line");
+    }
+
+    // Nodes: each segment is split into its elements; the interfaces between segments are nodes.
+    std::vector<double> nodes{0.0};
+    std::vector<double> segEnds;
+    std::vector<double> segK;
+    std::vector<double> segRhoc;
+    double totalLength = 0.0;
+    for (const Segment& s : segments) {
+        const auto mat = std::find_if(materials.begin(), materials.end(), [&](const MaterialDef& md) { return md.id == s.material; });
+        if (mat == materials.end()) continue; // checked when the segment line was read
+        const double start = totalLength;
+        totalLength += s.length;
+        for (long j = 1; j <= s.elements; ++j) {
+            nodes.push_back(start + s.length * static_cast<double>(j) / static_cast<double>(s.elements));
+        }
+        nodes.back() = totalLength;
+        segEnds.push_back(totalLength);
+        segK.push_back(mat->k);
+        segRhoc.push_back(mat->rhocp);
+    }
+
+    if (sawAnalysis && totalLength > 0.0 && tableSection) {
+        if (tableX.front() != 0.0 || std::fabs(tableX.back() - totalLength) > 1e-12 * totalLength) {
             errs.push_back("line " + std::to_string(tableLine) + " (section): table x must go from 0 to the length");
         } else {
             area = piecewiseLinear(tableX, tableA);
@@ -432,16 +545,17 @@ bool parseScript(const std::string& text, ScriptProblem& problem, std::vector<st
         }
     }
 
-    if (!errs.empty() || !sawAnalysis || !sawSection || !sawThermal || !sawStep) {
+    if (!errs.empty() || !sawAnalysis || !sawSection || segments.empty() || !sawStep) {
         errors.insert(errors.end(), errs.begin(), errs.end());
         return false;
     }
 
     Model m;
-    m.length = length;
-    m.elements = static_cast<int>(elements);
-    m.conductivity = [k](double, double) { return k; };
-    m.volumetricHeatCapacity = constantScalar(rhocp);
+    m.length = totalLength;
+    m.nodes = nodes;
+    m.elements = static_cast<int>(nodes.size() - 1);
+    m.conductivity = [segEnds, segK](double x, double) { return segK[segmentIndex(segEnds, x)]; };
+    m.volumetricHeatCapacity = [segEnds, segRhoc](double x) { return segRhoc[segmentIndex(segEnds, x)]; };
     m.area = area;
     if (sawHeat) m.source = [q](double, double) { return q; };
     m.lateral.perimeter = perimeter;

@@ -411,6 +411,66 @@ void testPicardFailureIsReported() {
     CHECK(!r.converged);
 }
 
+/**
+ * @brief Test 14: two materials in series (composite wall) with the interface on a node; exact piecewise-linear profile.
+ *
+ * Layer 1 (0 to 0.4) has k = 1, layer 2 (0.4 to 1) has k = 4; ends at 100 and 0. The flux is
+ * q = 100 / (0.4 / 1 + 0.6 / 4) and the interface temperature is 100 - 0.4 q. The elements are constant-k within each
+ * layer, so the linear-element solution is exact at the nodes.
+ */
+void testCompositeWall() {
+    Model m = baseModel(1.0, 1);
+    m.nodes = {0.0, 0.1, 0.2, 0.3, 0.4, 0.6, 0.8, 1.0};
+    m.conductivity = [](double x, double) { return x < 0.4 ? 1.0 : 4.0; };
+    m.left = temperatureEnd(100.0);
+    m.right = temperatureEnd(0.0);
+    Options o;
+    o.steady = true;
+    const Result r = solve(m, o);
+    CHECK(r.error.empty());
+    CHECK(r.converged);
+    const double q = 100.0 / (0.4 / 1.0 + 0.6 / 4.0);
+    const double Ti = 100.0 - 0.4 * q;
+    const double err = maxNodalError(r, [&](double x) {
+        return x <= 0.4 ? 100.0 - q * x : Ti - q * (x - 0.4) / 4.0;
+    });
+    std::cout << "composite wall: max nodal error " << err << " K (interface " << Ti << " K)\n";
+    CHECK(err < 1e-9);
+}
+
+/** @brief Test 15: explicit nodes that are uniform give the same result as the uniform mesh; bad nodes are refused. */
+void testExplicitNodes() {
+    Model uniform = baseModel(1.0, 4);
+    uniform.left = temperatureEnd(10.0);
+    uniform.right = temperatureEnd(0.0);
+    uniform.source = [](double, double) { return 3.0; };
+    Options o;
+    o.steady = true;
+    const Result ru = solve(uniform, o);
+
+    Model explicitNodes = uniform;
+    explicitNodes.nodes = {0.0, 0.25, 0.5, 0.75, 1.0};
+    const Result re = solve(explicitNodes, o);
+    CHECK(re.error.empty());
+    double diff = 0.0;
+    for (std::size_t i = 0; i < ru.temperatures.back().size(); ++i) {
+        diff = std::max(diff, std::fabs(ru.temperatures.back()[i] - re.temperatures.back()[i]));
+    }
+    CHECK(diff < 1e-12);
+
+    Model badStart = uniform;
+    badStart.nodes = {0.1, 0.5, 1.0};
+    CHECK(!validate(badStart, o).empty());
+
+    Model badOrder = uniform;
+    badOrder.nodes = {0.0, 0.6, 0.5, 1.0};
+    CHECK(!validate(badOrder, o).empty());
+
+    Model badEnd = uniform;
+    badEnd.nodes = {0.0, 0.5, 0.9};
+    CHECK(!validate(badEnd, o).empty());
+}
+
 } // namespace
 
 int main() {
@@ -427,6 +487,8 @@ int main() {
     testRecording();
     testValidation();
     testPicardFailureIsReported();
+    testCompositeWall();
+    testExplicitNodes();
 
     if (g_failures != 0) {
         std::cerr << g_failures << " heat1d check(s) failed\n";

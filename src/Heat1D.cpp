@@ -61,10 +61,10 @@ struct Tridiagonal {
     }
 };
 
-/** @brief Mesh: node positions and the (uniform) element length. */
+/** @brief Mesh: node positions and the length of each element (they may differ). */
 struct Discretization {
     std::vector<double> x;
-    double h = 0.0;
+    std::vector<double> h; ///< h[e] = x[e+1] - x[e].
 };
 
 /** @brief Frozen-coefficient system: stiffness-like matrix K and load vector g of the semi-discrete equation. */
@@ -105,13 +105,13 @@ double evaluate(const TimeFn& fn, double t) { return fn ? fn(t) : 0.0; }
 Linearised assemble(const Model& m, const Discretization& d, const std::vector<double>& T, double t) {
     const std::size_t n = d.x.size();
     const std::size_t ne = n - 1;
-    const double h = d.h;
     const double sigma = m.stefanBoltzmann;
-    const double w = 0.5 * h; // Gauss weight 1 times the Jacobian h/2
 
     Linearised out{Tridiagonal(n), std::vector<double>(n, 0.0)};
 
     for (std::size_t e = 0; e < ne; ++e) {
+        const double h = d.h[e];
+        const double w = 0.5 * h; // Gauss weight 1 times the Jacobian h/2
         const double x1 = d.x[e];
         for (int ig = 0; ig < 2; ++ig) {
             const double xi = ig == 0 ? -kGaussAbscissa : kGaussAbscissa;
@@ -173,14 +173,14 @@ Linearised assemble(const Model& m, const Discretization& d, const std::vector<d
 Tridiagonal capacityMatrix(const Model& m, const Discretization& d, Capacity mode) {
     const std::size_t n = d.x.size();
     const std::size_t ne = n - 1;
-    const double w = 0.5 * d.h;
     Tridiagonal C(n);
     for (std::size_t e = 0; e < ne; ++e) {
+        const double w = 0.5 * d.h[e];
         for (int ig = 0; ig < 2; ++ig) {
             const double xi = ig == 0 ? -kGaussAbscissa : kGaussAbscissa;
             const double N1 = 0.5 * (1.0 - xi);
             const double N2 = 0.5 * (1.0 + xi);
-            const double x = d.x[e] + N2 * d.h;
+            const double x = d.x[e] + N2 * d.h[e];
             const double c = w * m.volumetricHeatCapacity(x) * m.area(x);
             if (mode == Capacity::Consistent) {
                 addElementPair(C, e, c * N1 * N1, c * N1 * N2, c * N2 * N2);
@@ -299,6 +299,29 @@ std::vector<double> picardStep(const Model& m, const Discretization& d, const Op
     return Tk;
 }
 
+/**
+ * @brief Node positions of the model: the explicit `nodes` when given (checked), else the uniform mesh of `elements`.
+ * @return an empty string when the mesh is usable, otherwise the problem found.
+ */
+std::string nodePositions(const Model& m, std::vector<double>& x) {
+    if (m.nodes.empty()) {
+        if (m.elements < 1) return "at least one element is needed";
+        x.resize(static_cast<std::size_t>(m.elements) + 1);
+        const double h = m.length / m.elements;
+        for (std::size_t i = 0; i < x.size(); ++i) x[i] = static_cast<double>(i) * h;
+        x.back() = m.length;
+        return {};
+    }
+    if (m.nodes.size() < 2) return "explicit nodes need at least two positions";
+    if (m.nodes.front() != 0.0) return "the first node must be at x = 0";
+    if (std::fabs(m.nodes.back() - m.length) > 1e-12 * m.length) return "the last node must be at x = length";
+    for (std::size_t i = 1; i < m.nodes.size(); ++i) {
+        if (!(m.nodes[i] > m.nodes[i - 1])) return "node positions must be strictly increasing";
+    }
+    x = m.nodes;
+    return {};
+}
+
 /** @brief Checks one end condition; returns an empty string when it is usable. */
 std::string validateBoundary(const Boundary& b, const std::string& name) {
     switch (b.kind) {
@@ -320,15 +343,15 @@ std::string validateBoundary(const Boundary& b, const std::string& name) {
 
 std::string validate(const Model& m, const Options& o) {
     if (!(m.length > 0.0)) return "length must be positive";
-    if (m.elements < 1) return "at least one element is needed";
+    std::vector<double> nodes;
+    if (auto err = nodePositions(m, nodes); !err.empty()) return err;
     if (!m.conductivity) return "conductivity k(x, T) is required";
     if (!m.area) return "cross-section A(x) is required";
     if (!o.steady && !m.volumetricHeatCapacity) return "volumetric heat capacity is required for a transient run";
 
     // Sample the properties at the element midpoints, at the initial temperature.
-    const double h = m.length / m.elements;
-    for (int e = 0; e < m.elements; ++e) {
-        const double x = (e + 0.5) * h;
+    for (std::size_t e = 0; e + 1 < nodes.size(); ++e) {
+        const double x = 0.5 * (nodes[e] + nodes[e + 1]);
         const double T0 = m.initialTemperature ? m.initialTemperature(x) : 0.0;
         if (!(m.conductivity(x, T0) > 0.0)) return "conductivity must be positive (at x = " + std::to_string(x) + ")";
         if (!(m.area(x) > 0.0)) return "cross-section must be positive (at x = " + std::to_string(x) + ")";
@@ -367,12 +390,13 @@ Result solve(const Model& model, const Options& options) {
     result.error = validate(model, options);
     if (!result.error.empty()) return result;
 
-    const std::size_t elements = static_cast<std::size_t>(model.elements);
     Discretization d;
-    d.h = model.length / static_cast<double>(elements);
-    d.x.resize(elements + 1);
-    for (std::size_t i = 0; i <= elements; ++i) d.x[i] = static_cast<double>(i) * d.h;
-    d.x.back() = model.length;
+    if (auto err = nodePositions(model, d.x); !err.empty()) {
+        result.error = err;
+        return result;
+    }
+    d.h.resize(d.x.size() - 1);
+    for (std::size_t e = 0; e + 1 < d.x.size(); ++e) d.h[e] = d.x[e + 1] - d.x[e];
     const std::size_t n = d.x.size();
     result.nodes = d.x;
 

@@ -63,7 +63,10 @@ struct Lateral {
 /** @brief The model: geometry, properties, sources and conditions. */
 struct Model {
     double length = 1.0;           ///< L > 0.
-    int elements = 10;             ///< Number of uniform linear elements N >= 1 (nodes = N + 1).
+    int elements = 10;             ///< Number of uniform linear elements N >= 1 (used when `nodes` is empty).
+    /// Explicit node positions 0 = x_0 < x_1 < ... < x_N = L. Empty = a uniform mesh of `elements` elements. Put the
+    /// node at an interface when the properties jump there (the properties are evaluated at the Gauss points).
+    std::vector<double> nodes;
 
     /// Thermal conductivity k(x, T) > 0. Required. Use a function of x only for a constant-property model.
     std::function<double(double x, double T)> conductivity;

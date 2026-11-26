@@ -14,13 +14,16 @@
  * line, `#` starts a comment, values are numbers in the caller's units (the same set for all of them).
  *
  * @code
- * analysis heat 1d length=1.0 elements=50
+ * analysis heat 1d                              # length and elements follow from the segments
+ * material id=ALU k=200 rhocp=2.4e6             # one or more materials, each with an id
+ * material id=STEEL k=50 rhocp=3.9e6
+ * segment material=ALU length=0.02 elements=20   # segments follow the axis from x = 0 (interfaces are nodes)
+ * segment material=STEEL length=0.05 elements=40
  * section rect a=0.1 b=0.1                       # A = a b, P = 2 (a + b)
  * section circle r=0.01                          # A = pi r^2, P = 2 pi r
  * section tube ro=0.02 ri=0.01                   # A = pi (ro^2 - ri^2), P = 2 pi (ro + ri): both surfaces exposed
  * section polygon sides=6 r=0.05                 # regular polygon, r = circumradius: P = n side, A = n/2 r^2 sin(2 pi/n)
  * section table x=0,0.5,1 A=0.01,0.02,0.01 P=0.4,0.5,0.4   # A(x), P(x) piecewise linear; x from 0 to length
- * thermal k=50 rhocp=3.9e6                       # conductivity and volumetric heat capacity (constant)
  * initial T=20                                   # initial temperature (default 0)
  * temperature end=left T=100                     # Dirichlet end; end=left or end=right
  * flux end=right q=500                           # heat per unit area entering the domain; no line = insulated
@@ -31,8 +34,10 @@
  * step steady                                    # or: step transient dt=0.01 end=10 [theta=0.5] [capacity=consistent|lumped]
  * @endcode
  *
- * Each command appears once, except that each end takes one temperature, flux or convection line. Time dependence and
- * amplitudes are not available yet: every value is constant.
+ * `material` and `segment` may repeat; every other command appears once, and each end takes one temperature, flux or
+ * convection line. The shorthand `thermal k=... rhocp=...` with `analysis heat 1d length=L elements=N` gives one
+ * material over the whole length and cannot be mixed with material lines. Time dependence and amplitudes are not
+ * available yet: every value is constant.
  */
 
 namespace OpenModel::Heat1D {

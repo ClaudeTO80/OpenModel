@@ -141,7 +141,9 @@ The tests use the solver's own quadrature and nodes in the energy check; they do
 * A separate radiation sink temperature is not supported.
 * Not compared with CalculiX (`*HEAT TRANSFER`) or with a second code. That comparison is the next step to put the
   numbers on an independent footing.
-* Script parser done (`Heat1DScript`); no GUI, no CLI command and no viewer output yet.
+* Script parser done (`Heat1DScript`), with one or more materials along the axis; no GUI, no CLI command and no viewer
+  output yet.
+* A material interface is a node: a segment boundary cannot fall inside an element.
 * Only 1D along the axis (the flow and the geometry are along the axis; the section is given by A and P). The 2D/3D
   formulation and the FEM mesh of OpenModel are out of scope: the 1D model has no mesh and runs only with the internal
   solver.
@@ -161,13 +163,16 @@ The tests use the solver's own quadrature and nodes in the energy check; they do
 Parser and runner: `include/OpenModel/Heat1DScript.hpp` (`parseScript`, `runScript`, `resultToCsv`). Tests:
 `tests/heat1d_script_test.cpp`. The header carries the full syntax; the summary:
 
-    analysis heat 1d length=1.0 elements=50
+    analysis heat 1d                          # length and elements come from the segments
     section rect a=0.1 b=0.1                  # A = a b, P = 2(a+b)
     section circle r=0.01                     # A = pi r^2, P = 2 pi r
     section tube ro=0.02 ri=0.01              # A = pi(ro^2 - ri^2), P = 2 pi (ro + ri): both surfaces exposed
     section polygon sides=6 r=0.05            # regular polygon, r = circumradius
     section table x=0,0.5,1 A=... P=...       # A(x), P(x) piecewise linear; x from 0 to the length
-    thermal k=50 rhocp=3.9e6
+    material id=ALU k=200 rhocp=2.4e6         # one or more materials, each with an id
+    material id=STEEL k=50 rhocp=3.9e6
+    segment material=ALU length=0.02 elements=20   # segments follow the axis from x = 0; they give the length
+    segment material=STEEL length=0.05 elements=40
     initial T=20
     temperature end=left T=100               # or flux end=... q=..., convection end=... h=... Tinf=... [emissivity=...]
     lateral h=10 Tinf=20 [emissivity=0]
@@ -175,8 +180,15 @@ Parser and runner: `include/OpenModel/Heat1DScript.hpp` (`parseScript`, `runScri
     job MAIN [solver=internal]
     step steady                               # or: step transient dt=0.01 end=10 [theta=0.5] [capacity=lumped]
 
-Each command appears once, and each end takes one temperature, flux or convection line. Errors are collected with their
-line numbers. The tube's perimeter counts both surfaces as exposed to the lateral exchange; this is an assumption of the
+Each command appears once, except `material` and `segment`, which repeat, and each end takes one temperature, flux or
+convection line. Errors are collected with their line numbers.
+
+Materials. Each segment names a material and is meshed with its own number of elements; the interfaces between segments
+are nodes, so the conductivity jumps exactly at a node. A single material can be given with the shorthand
+`thermal k=... rhocp=...` and `analysis heat 1d length=L elements=N` (one segment over the whole length). The two forms
+do not mix. The model does not check that the material properties of the segments are physically reasonable beyond
+being positive. Test: a composite wall of two materials with the interface on a node is exact at the nodes (error
+1.4e-14); the same wall written in the script gives the same result. The tube's perimeter counts both surfaces as exposed to the lateral exchange; this is an assumption of the
 model, to be stated in the GUI as well.
 
 Verification of the parser: the section areas and perimeters against their formulas (hexagon and square as exact
