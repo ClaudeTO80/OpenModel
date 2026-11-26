@@ -169,7 +169,7 @@ Parser and runner: `include/OpenModel/Heat1DScript.hpp` (`parseScript`, `runScri
     section tube ro=0.02 ri=0.01              # A = pi(ro^2 - ri^2), P = 2 pi (ro + ri): both surfaces exposed
     section polygon sides=6 r=0.05            # regular polygon, r = circumradius
     section table x=0,0.5,1 A=... P=...       # A(x), P(x) piecewise linear; x from 0 to the length
-    material id=ALU k=200 rhocp=2.4e6         # one or more materials, each with an id
+    material id=ALU k=200 rhocp=2.4e6         # constant conductivity; or kT=300:200,400:190 (table, see below)
     material id=STEEL k=50 rhocp=3.9e6
     segment material=ALU length=0.02 elements=20   # segments follow the axis from x = 0; they give the length
     segment material=STEEL length=0.05 elements=40
@@ -182,6 +182,13 @@ Parser and runner: `include/OpenModel/Heat1DScript.hpp` (`parseScript`, `runScri
 
 Each command appears once, except `material` and `segment`, which repeat, and each end takes one temperature, flux or
 convection line. Errors are collected with their line numbers.
+
+Temperature-dependent conductivity. `kT=T1:k1,T2:k2,...` replaces `k=`: the conductivity is interpolated linearly in the
+temperature (at least two pairs, temperatures strictly increasing, conductivities positive), and it is held at its end
+values outside the table. The solver evaluates it at the Gauss points with the temperature of the current Picard
+iterate. Tests: a linear table reproduces the Kirchhoff exact solution (error 1e-10 K, 8 iterations); a table with a kink
+converges monotonically and needed 31 iterations. Not supported yet: a temperature-dependent heat capacity, and a table
+that is steep enough to need many iterations is not checked beyond the iteration limit.
 
 Materials. Each segment names a material and is meshed with its own number of elements; the interfaces between segments
 are nodes, so the conductivity jumps exactly at a node. A single material can be given with the shorthand

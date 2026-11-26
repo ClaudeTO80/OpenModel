@@ -299,12 +299,77 @@ void testMaterialErrors() {
                     "table x must go from 0 to the length"));
 }
 
+/**
+ * @brief Test 9: conductivity given as a table kT. The table of k = 1 + 0.01 T (linear) reproduces the Kirchhoff exact
+ *        solution; the table is interpolated and extended by its end values; a table with a kink converges monotonically.
+ */
+void testTabulatedConductivity() {
+    const std::string linear =
+        "analysis heat 1d\nmaterial id=M kT=300:4,350:4.5,400:5 rhocp=1\nsegment material=M length=1 elements=20\n"
+        "section rect a=1 b=1\ntemperature end=left T=300\ntemperature end=right T=400\nstep steady\n";
+    const ScriptProblem p = parseOk(linear);
+    CHECK(std::fabs(p.model.conductivity(0.5, 325.0) - 4.25) < 1e-12); // interpolated
+    CHECK(std::fabs(p.model.conductivity(0.5, 250.0) - 4.0) < 1e-12);  // extended below
+    CHECK(std::fabs(p.model.conductivity(0.5, 500.0) - 5.0) < 1e-12);  // extended above
+    const Result r = runScript(p);
+    CHECK(r.error.empty());
+    CHECK(r.converged);
+    // Kirchhoff potential Phi = T + 0.005 T^2 is linear in x, as in heat1d_test.
+    const double phi0 = 300.0 + 0.005 * 300.0 * 300.0;
+    const double phiL = 400.0 + 0.005 * 400.0 * 400.0;
+    double err = 0.0;
+    for (std::size_t i = 0; i < r.nodes.size(); ++i) {
+        const double phi = phi0 + (phiL - phi0) * r.nodes[i];
+        const double exact = (-1.0 + std::sqrt(1.0 + 0.02 * phi)) / 0.01;
+        err = std::max(err, std::fabs(r.temperatures.back()[i] - exact));
+    }
+    std::cout << "tabulated linear k: max nodal error " << err << " K (Picard " << r.maxPicardIterations << ")\n";
+    CHECK(err < 1e-8);
+
+    // Non-linear table with a kink; the profile must rise monotonically from 300 to 900 with positive flux.
+    const std::string kink =
+        "analysis heat 1d\nmaterial id=M kT=300:10,600:1,900:2 rhocp=1\nsegment material=M length=1 elements=40\n"
+        "section rect a=1 b=1\ntemperature end=left T=300\ntemperature end=right T=900\nstep steady\n";
+    const Result rk = runScript(parseOk(kink));
+    CHECK(rk.error.empty());
+    CHECK(rk.converged);
+    const auto& T = rk.temperatures.back();
+    bool monotone = true;
+    for (std::size_t i = 1; i < T.size(); ++i) monotone = monotone && T[i] > T[i - 1];
+    CHECK(monotone);
+    CHECK(std::fabs(T.front() - 300.0) < 1e-9 && std::fabs(T.back() - 900.0) < 1e-9);
+    std::cout << "tabulated kink k: Picard iterations " << rk.maxPicardIterations << "\n";
+
+    // A tabulated material next to a constant one.
+    const std::string mixed =
+        "analysis heat 1d\nmaterial id=A kT=300:2,500:3 rhocp=1\nmaterial id=B k=4 rhocp=1\n"
+        "segment material=A length=0.5 elements=10\nsegment material=B length=0.5 elements=10\n"
+        "section rect a=1 b=1\ntemperature end=left T=300\ntemperature end=right T=500\nstep steady\n";
+    const Result rm = runScript(parseOk(mixed));
+    CHECK(rm.error.empty());
+    CHECK(rm.converged);
+}
+
+/** @brief Test 10: the errors of a conductivity table, and k= together with kT=. */
+void testConductivityErrors() {
+    const std::string head = "analysis heat 1d\nsection rect a=1 b=1\n";
+    CHECK(failsWith(head + "material id=M k=1 kT=300:1,400:2 rhocp=1\n", "give k= or kT=, not both"));
+    CHECK(failsWith(head + "material id=M rhocp=1\n", "missing k= or kT="));
+    CHECK(failsWith(head + "material id=M kT=300:4 rhocp=1\n", "needs at least two pairs"));
+    CHECK(failsWith(head + "material id=M kT=400:4,300:5 rhocp=1\n", "strictly increasing"));
+    CHECK(failsWith(head + "material id=M kT=300:0,400:5 rhocp=1\n", "must be positive"));
+    CHECK(failsWith(head + "material id=M kT=300-4,400:5 rhocp=1\n", "must be pairs T:k"));
+    CHECK(failsWith(head + "material id=M kT=300:4, rhocp=1\n", "must be pairs T:k"));
+}
+
 } // namespace
 
 int main() {
     testSectionGeometry();
     testTwoMaterials();
     testMaterialErrors();
+    testTabulatedConductivity();
+    testConductivityErrors();
     testSteadyFluxBar();
     testSteadySource();
     testTransientRuns();

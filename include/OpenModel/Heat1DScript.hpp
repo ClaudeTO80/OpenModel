@@ -15,7 +15,8 @@
  *
  * @code
  * analysis heat 1d                              # length and elements follow from the segments
- * material id=ALU k=200 rhocp=2.4e6             # one or more materials, each with an id
+ * material id=ALU k=200 rhocp=2.4e6             # one or more materials, each with an id; k= constant, or
+ *                                                # kT=300:200,400:190 (conductivity tabulated in T, linear, held at the ends)
  * material id=STEEL k=50 rhocp=3.9e6
  * segment material=ALU length=0.02 elements=20   # segments follow the axis from x = 0 (interfaces are nodes)
  * segment material=STEEL length=0.05 elements=40

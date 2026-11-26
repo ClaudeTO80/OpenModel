@@ -136,6 +136,46 @@ bool toNumberList(const std::string& s, std::vector<double>& out) {
     return !out.empty();
 }
 
+/**
+ * @brief Parses a conductivity table `T1:k1,T2:k2,...`: temperatures strictly increasing, conductivities positive, at
+ *        least two pairs. Errors are appended with the given prefix.
+ */
+bool parseConductivityTable(const std::string& text, std::vector<double>& temps, std::vector<double>& values,
+                            std::vector<std::string>& errs, const std::string& prefix) {
+    temps.clear();
+    values.clear();
+    if (!text.empty() && text.back() == ',') { // a trailing comma is a typo, not an empty pair
+        errs.push_back(prefix + "kT must be pairs T:k, got '" + text + "'");
+        return false;
+    }
+    std::istringstream items(text);
+    std::string item;
+    while (std::getline(items, item, ',')) {
+        const auto colon = item.find(':');
+        double t = 0.0;
+        double kv = 0.0;
+        if (colon == std::string::npos || !toNumber(item.substr(0, colon), t) || !toNumber(item.substr(colon + 1), kv)) {
+            errs.push_back(prefix + "kT must be pairs T:k, got '" + item + "'");
+            return false;
+        }
+        if (!temps.empty() && !(t > temps.back())) {
+            errs.push_back(prefix + "kT temperatures must be strictly increasing");
+            return false;
+        }
+        if (!(kv > 0.0)) {
+            errs.push_back(prefix + "kT conductivities must be positive");
+            return false;
+        }
+        temps.push_back(t);
+        values.push_back(kv);
+    }
+    if (temps.size() < 2) {
+        errs.push_back(prefix + "kT needs at least two pairs");
+        return false;
+    }
+    return true;
+}
+
 /** @brief Piecewise-linear function through (xs, ys); constant beyond the ends. */
 ScalarFn piecewiseLinear(std::vector<double> xs, std::vector<double> ys) {
     return [xs = std::move(xs), ys = std::move(ys)](double x) {
@@ -148,11 +188,18 @@ ScalarFn piecewiseLinear(std::vector<double> xs, std::vector<double> ys) {
     };
 }
 
-/** @brief A material of the script: conductivity and volumetric heat capacity (constant). */
+/**
+ * @brief A material of the script: conductivity and volumetric heat capacity.
+ *
+ * The conductivity is the constant `k`, or the table `kTemperatures`/`kValues` (piecewise linear in T, constant beyond
+ * its ends) when the table is not empty.
+ */
 struct MaterialDef {
     std::string id;
     double k = 0.0;
     double rhocp = 0.0;
+    std::vector<double> kTemperatures;
+    std::vector<double> kValues;
 };
 
 /** @brief A segment of the axis: a material over a length, meshed with a number of elements. */
@@ -179,6 +226,12 @@ TimeFn constantTime(double v) {
 
 ScalarFn constantScalar(double v) {
     return [v](double) { return v; };
+}
+
+/** @brief Conductivity of a material as a function of T: the constant k, or the tabulated values. */
+ScalarFn conductivityOf(const MaterialDef& md) {
+    if (md.kTemperatures.empty()) return constantScalar(md.k);
+    return piecewiseLinear(md.kTemperatures, md.kValues);
 }
 
 } // namespace
@@ -334,20 +387,42 @@ bool parseScript(const std::string& text, ScriptProblem& problem, std::vector<st
                 errs.push_back(where(c) + "unknown section '" + kind + "' (rect, circle, tube, polygon, table)");
             }
         } else if (c.keyword == "material") {
-            checkKeys(c, {"id", "k", "rhocp"}, errs);
+            checkKeys(c, {"id", "k", "kT", "rhocp"}, errs);
             const std::string id = c.values.count("id") ? c.values.at("id") : std::string();
             double mk = 0.0;
             double mr = 0.0;
+            std::vector<double> kTemps;
+            std::vector<double> kVals;
             if (id.empty()) {
                 errs.push_back(where(c) + "missing id=");
             } else if (std::any_of(materials.begin(), materials.end(), [&](const MaterialDef& md) { return md.id == id; })) {
                 errs.push_back(where(c) + "material '" + id + "' is defined twice");
             }
-            const bool okK = requireNumber(c, "k", mk, errs);
+            bool okK = false;
+            if (c.values.count("k") && c.values.count("kT")) {
+                errs.push_back(where(c) + "give k= or kT=, not both");
+            } else if (c.values.count("kT")) {
+                okK = parseConductivityTable(c.values.at("kT"), kTemps, kVals, errs, where(c));
+            } else if (c.values.count("k")) {
+                okK = requireNumber(c, "k", mk, errs);
+                if (okK && !(mk > 0.0)) {
+                    errs.push_back(where(c) + "k must be positive");
+                    okK = false;
+                }
+            } else {
+                errs.push_back(where(c) + "missing k= or kT=");
+            }
             const bool okR = requireNumber(c, "rhocp", mr, errs);
-            if (okK && !(mk > 0.0)) errs.push_back(where(c) + "k must be positive");
             if (okR && !(mr > 0.0)) errs.push_back(where(c) + "rhocp must be positive");
-            if (!id.empty() && okK && okR && mk > 0.0 && mr > 0.0) materials.push_back({id, mk, mr});
+            if (!id.empty() && okK && okR && mr > 0.0) {
+                MaterialDef md;
+                md.id = id;
+                md.k = mk;
+                md.rhocp = mr;
+                md.kTemperatures = kTemps;
+                md.kValues = kVals;
+                materials.push_back(md);
+            }
         } else if (c.keyword == "segment") {
             checkKeys(c, {"material", "length", "elements"}, errs);
             const std::string id = c.values.count("material") ? c.values.at("material") : std::string();
@@ -505,7 +580,11 @@ bool parseScript(const std::string& text, ScriptProblem& problem, std::vector<st
         } else if (!sawGeometry) {
             errs.push_back("the thermal line needs length= and elements= on the analysis line");
         } else {
-            materials.push_back({"default", k, rhocp});
+            MaterialDef md;
+            md.id = "default";
+            md.k = k;
+            md.rhocp = rhocp;
+            materials.push_back(md);
             segments.push_back({"default", length, elements, 0});
         }
     }
@@ -519,7 +598,7 @@ bool parseScript(const std::string& text, ScriptProblem& problem, std::vector<st
     // Nodes: each segment is split into its elements; the interfaces between segments are nodes.
     std::vector<double> nodes{0.0};
     std::vector<double> segEnds;
-    std::vector<double> segK;
+    std::vector<ScalarFn> segK; // conductivity of each segment, as a function of T
     std::vector<double> segRhoc;
     double totalLength = 0.0;
     for (const Segment& s : segments) {
@@ -532,7 +611,7 @@ bool parseScript(const std::string& text, ScriptProblem& problem, std::vector<st
         }
         nodes.back() = totalLength;
         segEnds.push_back(totalLength);
-        segK.push_back(mat->k);
+        segK.push_back(conductivityOf(*mat));
         segRhoc.push_back(mat->rhocp);
     }
 
@@ -554,7 +633,7 @@ bool parseScript(const std::string& text, ScriptProblem& problem, std::vector<st
     m.length = totalLength;
     m.nodes = nodes;
     m.elements = static_cast<int>(nodes.size() - 1);
-    m.conductivity = [segEnds, segK](double x, double) { return segK[segmentIndex(segEnds, x)]; };
+    m.conductivity = [segEnds, segK](double x, double T) { return segK[segmentIndex(segEnds, x)](T); };
     m.volumetricHeatCapacity = [segEnds, segRhoc](double x) { return segRhoc[segmentIndex(segEnds, x)]; };
     m.area = area;
     if (sawHeat) m.source = [q](double, double) { return q; };
