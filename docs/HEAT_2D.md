@@ -1,8 +1,9 @@
 # Two-dimensional heat conduction, thin plate (`OpenModel::Heat2D`)
 
-Status: **core solver implemented and tested** (structured grid, holes by element centroid). Not yet connected to the
-script, the CLI, the GUI or the Gmsh path. Header: `include/OpenModel/Heat2D.hpp`. Source: `src/Heat2D.cpp`.
-Test: `tests/heat2d_test.cpp` (CTest `heat2d_test`).
+Status: **core solver and script implemented and tested** (structured grid, holes by element centroid). Not yet connected
+to the CLI, the GUI or the Gmsh path. Headers: `include/OpenModel/Heat2D.hpp`, `include/OpenModel/Heat2DScript.hpp`.
+Sources: `src/Heat2D.cpp`, `src/Heat2DScript.cpp`. Tests: `tests/heat2d_test.cpp` (CTest `heat2d_test`) and
+`tests/heat2d_script_test.cpp` (CTest `heat2d_script_test`).
 
 ## 1. Problem
 
@@ -69,11 +70,40 @@ Build: `cmake --build . --target heat2d_test` in the project's CMake configurati
 The Fourier reference is the series \( \sum_{m,n\ \mathrm{odd}} \frac{16}{\pi^4 mn(m^2+n^2)}\sin\frac{m\pi}{2}\sin\frac{n\pi}{2} \),
 summed to \( m, n < 200 \).
 
-## 5. Limits (not done or not verified)
+## 5. Script (`analysis heat 2d`)
+
+Parser and runner: `include/OpenModel/Heat2DScript.hpp` (`parseScript`, `runScript`, `resultToCsv`). The header carries
+the full syntax; the summary:
+
+    analysis heat 2d
+    plate lx=0.2 ly=0.1 nx=40 ny=20 thickness=0.005
+    material k=50 rhocp=3.9e6
+    hole circle cx=0.1 cy=0.05 r=0.02          # may repeat
+    hole rect x0=0.02 y0=0.02 x1=0.04 y1=0.04  # may repeat
+    initial T=20
+    temperature side=left T=100                # side = left | right | bottom | top
+    flux side=right q=500                      # no line = insulated
+    convection side=top h=25 Tinf=20 [emissivity=0.8]
+    hole temperature T=50                      # or: hole flux q=..., hole convection h=... Tinf=...
+    heat q=5000
+    job MAIN [solver=internal]
+    step steady                                # or: step transient dt=0.01 end=10 [theta=1] [capacity=consistent|lumped]
+
+Every side takes one condition, given once. `plate`, `material`, `initial`, `heat`, `job` and `step` appear once; the
+hole condition line appears once and applies to every hole boundary. The values are constant: temperature-dependent
+conductivity (`kT=`) and time-dependent values are not available in this script yet. Default `theta` is 1 (implicit
+Euler), as in the 1D script. Errors are collected with their line numbers; a model that fails the final check
+(`validate`) is reported without a line number.
+
+Tests: `heat2d_script_test` solves the unit square with a source written as a script against the double Fourier
+reference (centre 0.0737077 against 0.0736713), checks a circular hole and the hole condition (every active node at 50),
+a uniform transient (stays at 100 to 1e-8), the CSV layout, and the error messages with their line numbers.
+
+## 6. Limits (not done or not verified)
 
 * Staircase boundary for holes: first-order geometric error. Curved holes are accurate only in the Gmsh path (to do).
 * Only the rectangular plate. The axisymmetric (r-z) case is not in this increment.
-* Not yet connected to the script (`analysis heat 2d`), the CLI, the GUI or the viewer. The results are in memory only.
+* Not yet connected to the CLI, the GUI or the viewer. The script runs from C++ only: there is no WebUI handler yet.
 * No Gmsh path: a 2D CAD loaded and meshed with Gmsh, and a mesh supplied from outside, are the next step. Gmsh is not
   compilable in the environment where this was written, so that path cannot be verified here.
 * No time-dependent properties beyond \( T \); \( \rho c_p \) is a function of \( x, y \) only.
