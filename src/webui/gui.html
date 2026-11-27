@@ -687,6 +687,7 @@ details.node details.node{margin-top:8px;background:transparent}
       <label for="heatScript">Heat script (one command per line, # starts a comment)</label>
       <textarea id="heatScript" rows="12" spellcheck="false" style="width:100%;font-family:monospace;font-size:12px"></textarea>
       <div class="grid2"><button onclick="heatTemplate()">Template</button><button class="primary" onclick="heatRun()">Run heat analysis</button></div>
+      <div class="grid2"><button onclick="heatShow(false)">Show geometry</button><button onclick="heatShow(true)">Show results</button></div>
       <div id="heatErrors" class="hint" role="alert" style="color:var(--bad,#b00020);white-space:pre-line"></div>
       <div id="heatOut" hidden>
         <label for="heatTime">Time shown</label>
@@ -984,6 +985,23 @@ async function heatRun() {
   out.hidden = false;
   heatDraw();
   show("Heat analysis done: " + r.message, r.converged ? "good" : "bad");
+  heatShow(true);
+}
+/** Draws the axis and the cross-sections in the viewer; with results, the elements take the temperature of the solution. */
+async function heatShow(withResults) {
+  const r = await act("openmodel_heat1d_show", $("heatScript").value, withResults ? "1" : "0");
+  if (r && r.ok && withResults) heatColourByResult();
+}
+/** The viewer is reloaded after the reply: colour its elements by the field of the results once it has the model. */
+function heatColourByResult() {
+  let tries = 0;
+  const timer = setInterval(() => {
+    const w = viewerApi();
+    if (w || ++tries > 50) {
+      clearInterval(timer);
+      if (w) w.OpenModelViewer.set({mode: "scalar"});
+    }
+  }, 100);
 }
 function heatDraw() {
   if (!heatLast) return;

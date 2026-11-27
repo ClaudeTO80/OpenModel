@@ -97,7 +97,8 @@ set(OPENMODEL_CORE_SOURCES
     src/Solvers.cpp
     src/ElmerSolver.cpp
     src/Heat1D.cpp
-    src/Heat1DScript.cpp)
+    src/Heat1DScript.cpp
+    src/Heat1DDisplay.cpp)
 
 function(openmodel_configure_core_target target export_name)
     target_include_directories(${target} PUBLIC
@@ -334,9 +335,10 @@ if(OPENMODEL_BUILD_TESTS)
     target_link_libraries(web_base64_test PRIVATE ${OPENMODEL_TK4CPP_LIBRARIES})
     openmodel_add_test(heat1d_test tests/heat1d_test.cpp)
     openmodel_add_test(heat1d_script_test tests/heat1d_script_test.cpp)
+    openmodel_add_test(heat1d_display_test tests/heat1d_display_test.cpp)
     set(_openmodel_core_test_names core_smoke_test mesh_validation_test abaqus_writer_test physical_groups_test
         mesh_topology_test surface_mesher_test gltf_writer_test surface_refiner_test
-        web_view_writer_test model_binary_io_test openmodel_project_test project_archive_test mesh_importer_test fem_results_test analysis_setup_test mesh_selection_test mesh_constraints_test material_database_test material_library_test code_aster_test mesh_quality_test cad_face_mapper_test mesh_bodies_test mesh_runs_test rigid_link_test gmsh_settings_test process_runner_test web_base64_test heat1d_test heat1d_script_test)
+        web_view_writer_test model_binary_io_test openmodel_project_test project_archive_test mesh_importer_test fem_results_test analysis_setup_test mesh_selection_test mesh_constraints_test material_database_test material_library_test code_aster_test mesh_quality_test cad_face_mapper_test mesh_bodies_test mesh_runs_test rigid_link_test gmsh_settings_test process_runner_test web_base64_test heat1d_test heat1d_script_test heat1d_display_test)
     if(OPENMODEL_BUILD_CLI)
         list(APPEND _openmodel_core_test_names openmodel_cli_info openmodel_cli_validate_demo)
     endif()

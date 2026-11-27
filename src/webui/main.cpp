@@ -21,6 +21,7 @@
 #include <OpenModel/FemResults.hpp>
 #include <OpenModel/GltfWriter.hpp>
 #include <OpenModel/GmshSettings.hpp>
+#include <OpenModel/Heat1DDisplay.hpp>
 #include <OpenModel/Heat1DScript.hpp>
 #include <OpenModel/ModelBinaryIO.hpp>
 #include <OpenModel/MeshData.hpp>
@@ -60,6 +61,7 @@
 #endif
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cctype>
 #include <cmath>
@@ -1788,6 +1790,77 @@ void heat1dRun(webui_event_t* e) {
     webui_return_string(e, out.str().c_str());
 }
 
+/**
+ * @brief Handler of "openmodel_heat1d_show": draws the cross-sections of a heat script and its axis in the viewer.
+ *
+ * Arguments: the script, and "1" to colour the elements by the temperature of the solution (the script must run) or
+ * "0" for the geometry alone. The drawing replaces the view until the next model action; the structural model is not
+ * changed. The reply carries the viewer fields, so the viewer reloads, and the ok and message keys.
+ */
+void heat1dShow(webui_event_t* e) {
+    StateLock lock;
+    if (!lock.ok()) { replyBusy(e); return; }
+    const std::string text = getStringArg(e, 0);
+    const bool withResults = getStringArg(e, 1) == "1";
+    auto fail = [&](const std::string& message, const std::vector<std::string>& errors) {
+        std::ostringstream out;
+        out << "{\"ok\":false,\"message\":" << jsonString(message) << ",\"errors\":" << jsonStringArray(errors)
+            << "," << viewFields() << "}";
+        webui_return_string(e, out.str().c_str());
+    };
+
+    OpenModel::Heat1D::ScriptProblem problem;
+    std::vector<std::string> errors;
+    if (!OpenModel::Heat1D::parseScript(text, problem, errors)) {
+        std::string joined;
+        for (const auto& line : errors) joined += (joined.empty() ? "" : "\n") + line;
+        fail(joined, errors);
+        return;
+    }
+    std::vector<double> temperatures;
+    if (withResults) {
+        const auto run = OpenModel::Heat1D::runScript(problem);
+        if (!run.error.empty() || run.temperatures.empty()) {
+            fail("The solution is not available: " + run.error, {run.error});
+            return;
+        }
+        temperatures = run.temperatures.back();
+    }
+    const auto display = OpenModel::Heat1D::displayMesh(problem, {}, withResults ? &temperatures : nullptr);
+    if (!display.error.empty()) { fail(display.error, {display.error}); return; }
+
+    // Materials are coloured in the order they first appear; the axis is black.
+    static const std::array<std::array<float, 3>, 6> palette{{
+        {{0.25f, 0.45f, 0.75f}}, {{0.85f, 0.55f, 0.20f}}, {{0.35f, 0.65f, 0.35f}},
+        {{0.70f, 0.30f, 0.55f}}, {{0.55f, 0.50f, 0.30f}}, {{0.30f, 0.60f, 0.65f}}}};
+    WebViewOptions options;
+    std::size_t colour = 0;
+    for (const auto& segment : problem.segments) {
+        if (options.groupColors.count(segment.material)) continue;
+        options.groupColors[segment.material] = palette[colour++ % palette.size()];
+    }
+    options.groupColors["AXIS"] = {{0.05f, 0.05f, 0.05f}};
+    if (withResults) {
+        WebElementField field;
+        field.name = "Temperature";
+        field.values = display.values;
+        options.elementFields.push_back(field);
+    }
+    std::vector<unsigned char> image;
+    const auto written = WebViewWriter::build(display.mesh, options, image);
+    if (!written.success) { fail("The drawing could not be written: " + written.error, {written.error}); return; }
+
+    g.view = std::move(image);
+    g.viewNote.clear();
+    g.viewLabel = "Heat 1D";
+    ++g.viewVersion;
+    const std::string message = std::to_string(problem.segments.size()) + " segments" +
+                                (withResults ? ", coloured by the temperature of the solution" : ", geometry only");
+    std::ostringstream out;
+    out << "{\"ok\":true,\"message\":" << jsonString(message) << ",\"errors\":[]," << viewFields() << "}";
+    webui_return_string(e, out.str().c_str());
+}
+
 /** Delete a support, force or pressure by stable ID. The required material cannot be deleted. */
 void analysisDelete(webui_event_t* e) {
     StateLock lock;
@@ -3077,6 +3150,7 @@ int main() {
     webui_bind(window, "openmodel_analysis_update", analysisUpdate);
     webui_bind(window, "openmodel_analysis_delete", analysisDelete);
     webui_bind(window, "openmodel_heat1d_run", heat1dRun);
+    webui_bind(window, "openmodel_heat1d_show", heat1dShow);
     webui_bind(window, "openmodel_create_group", createGroupHandler);
     webui_bind(window, "openmodel_list_groups", listGroupsHandler);
     webui_bind(window, "openmodel_show_group", showGroupHandler);

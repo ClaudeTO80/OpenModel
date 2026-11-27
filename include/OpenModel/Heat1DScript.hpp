@@ -45,10 +45,31 @@
 
 namespace OpenModel::Heat1D {
 
+/** @brief A simple section as written in the script: its kind and values. Unused values are zero. */
+struct SectionSpec {
+    std::string kind; ///< rect, circle, tube, polygon, table; empty when there is none
+    double a = 0.0;   ///< rect: side along y
+    double b = 0.0;   ///< rect: side along z
+    double r = 0.0;   ///< circle radius, polygon circumradius
+    double ro = 0.0;  ///< tube outer radius
+    double ri = 0.0;  ///< tube inner radius
+    int sides = 0;    ///< polygon sides
+};
+
+/** @brief One segment of the axis as written in the script. */
+struct SegmentSpec {
+    std::string material;  ///< material id
+    double length = 0.0;   ///< length along the axis
+    int elements = 0;      ///< number of elements
+    SectionSpec section;   ///< the segment's own shape (shape=); empty kind when it takes the global section
+};
+
 /** @brief A parsed heat script, ready to run. */
 struct ScriptProblem {
     Model model;     ///< Geometry, properties and conditions.
     Options options; ///< Steady or transient run.
+    std::vector<SegmentSpec> segments; ///< The axis segments in order (the thermal shorthand gives one segment).
+    SectionSpec globalSection;         ///< The section line; empty kind when the script has none.
 };
 
 /**

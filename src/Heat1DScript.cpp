@@ -211,6 +211,7 @@ struct Segment {
     bool hasShape = false; ///< the segment has its own section (shape= on the segment line)
     ScalarFn area;         ///< its area and perimeter when hasShape
     ScalarFn perimeter;
+    SectionSpec shapeSpec; ///< its section as written, when hasShape
 };
 
 /**
@@ -241,6 +242,7 @@ ScalarFn conductivityOf(const MaterialDef& md) {
 struct ConstantSection {
     ScalarFn area;
     ScalarFn perimeter;
+    SectionSpec spec; ///< the section as written, for the display
 };
 
 /** @brief Keys of a simple section: rect a b, circle r, tube ro ri, polygon sides r. Empty for any other kind. */
@@ -271,6 +273,7 @@ bool readConstantSection(const Command& c, const std::string& kind, ConstantSect
         }
         out.area = constantScalar(a * b);
         out.perimeter = constantScalar(2.0 * (a + b));
+        out.spec = SectionSpec{"rect", a, b, 0.0, 0.0, 0.0, 0};
         return true;
     }
     if (kind == "circle") {
@@ -282,6 +285,7 @@ bool readConstantSection(const Command& c, const std::string& kind, ConstantSect
         }
         out.area = constantScalar(kPi * r * r);
         out.perimeter = constantScalar(2.0 * kPi * r);
+        out.spec = SectionSpec{"circle", 0.0, 0.0, r, 0.0, 0.0, 0};
         return true;
     }
     if (kind == "tube") {
@@ -294,6 +298,7 @@ bool readConstantSection(const Command& c, const std::string& kind, ConstantSect
         out.area = constantScalar(kPi * (ro * ro - ri * ri));
         // Both surfaces (outer and inner) are exposed to the same lateral exchange.
         out.perimeter = constantScalar(2.0 * kPi * (ro + ri));
+        out.spec = SectionSpec{"tube", 0.0, 0.0, 0.0, ro, ri, 0};
         return true;
     }
     if (kind == "polygon") {
@@ -317,6 +322,7 @@ bool readConstantSection(const Command& c, const std::string& kind, ConstantSect
         const double n = static_cast<double>(sides);
         out.area = constantScalar(0.5 * n * r * r * std::sin(2.0 * kPi / n));
         out.perimeter = constantScalar(2.0 * n * r * std::sin(kPi / n));
+        out.spec = SectionSpec{"polygon", 0.0, 0.0, r, 0.0, 0.0, static_cast<int>(sides)};
         return true;
     }
     errs.push_back(where(c) + "unknown section '" + kind + "'");
@@ -338,6 +344,7 @@ bool parseScript(const std::string& text, ScriptProblem& problem, std::vector<st
     bool sawJob = false;
     bool sawStep = false;
     bool sawGeometry = false; ///< length= or elements= on the analysis line
+    SectionSpec globalSpec;   ///< the section line as written (kind table for a tabulated section)
 
     std::vector<MaterialDef> materials;
     std::vector<Segment> segments;
@@ -412,6 +419,8 @@ bool parseScript(const std::string& text, ScriptProblem& problem, std::vector<st
                     errs.push_back(where(c) + "x, A and P need the same number of values (at least 2)");
                 } else {
                     tableSection = true;
+                    globalSpec = SectionSpec{};
+                    globalSpec.kind = "table";
                     tableLine = c.line;
                     for (std::size_t i = 0; i < tableX.size(); ++i) {
                         if (i > 0 && !(tableX[i] > tableX[i - 1])) {
@@ -434,6 +443,7 @@ bool parseScript(const std::string& text, ScriptProblem& problem, std::vector<st
                 if (readConstantSection(c, kind, cs, errs)) {
                     area = cs.area;
                     perimeter = cs.perimeter;
+                    globalSpec = cs.spec;
                 }
             } else {
                 errs.push_back(where(c) + "unknown section '" + kind + "' (rect, circle, tube, polygon, table)");
@@ -522,6 +532,7 @@ bool parseScript(const std::string& text, ScriptProblem& problem, std::vector<st
                     seg.hasShape = true;
                     seg.area = cs.area;
                     seg.perimeter = cs.perimeter;
+                    seg.shapeSpec = cs.spec;
                 } else {
                     ok = false;
                 }
@@ -752,6 +763,16 @@ bool parseScript(const std::string& text, ScriptProblem& problem, std::vector<st
         errors.push_back(problemError);
         return false;
     }
+    problem.segments.clear();
+    for (const Segment& sg : segments) {
+        SegmentSpec spec;
+        spec.material = sg.material;
+        spec.length = sg.length;
+        spec.elements = static_cast<int>(sg.elements);
+        if (sg.hasShape) spec.section = sg.shapeSpec;
+        problem.segments.push_back(spec);
+    }
+    problem.globalSection = globalSpec;
     problem.model = std::move(m);
     problem.options = options;
     return true;

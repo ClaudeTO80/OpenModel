@@ -124,6 +124,21 @@ const bridge = () => {
     const sent = await page.evaluate(() => window.__calls.filter((c) => c.name === 'openmodel_heat1d_run').pop().args[0]);
     check(sent.includes('shape=tube ro=0.05 ri=0.02'), 'the run sends the chain to the backend');
 
+    // 1c. The drawing: geometry only, then with the results; a run shows its results in the viewer.
+    const lastShowArg = () => page.evaluate(() => {
+      const c = window.__calls.filter((x) => x.name === 'openmodel_heat1d_show').pop();
+      return c ? c.args[1] : null;
+    });
+    await page.click('button:has-text("Show geometry")');
+    await page.waitForTimeout(200);
+    check((await lastShowArg()) === '0', 'Show geometry asks for the geometry alone');
+    await page.click('button:has-text("Show results")');
+    await page.waitForTimeout(200);
+    check((await lastShowArg()) === '1', 'Show results asks for the coloured results');
+    await page.click('button:has-text("Run heat analysis")');
+    await page.waitForTimeout(300);
+    check((await lastShowArg()) === '1', 'a successful run shows its results in the viewer');
+
     // 2. A script with errors lists them with their line numbers and hides the previous result.
     await page.fill('#heatScript', 'analysis heat 1d\nbogus line\n');
     await page.click('button:has-text("Run heat analysis")');
@@ -133,7 +148,7 @@ const bridge = () => {
 
     // 3. The panel is independent of the structural analysis.
     check((await calls('openmodel_analysis_load')) === 0 && (await calls('openmodel_run_solver')) === 0, 'the heat panel calls no structural analysis handler');
-    check((await calls('openmodel_heat1d_run')) === 3, 'each run calls the heat handler once (template, chain, bad script)');
+    check((await calls('openmodel_heat1d_run')) === 4, 'each run calls the heat handler once (template, chain, run, bad script)');
 
     check(problems.length === 0, 'no page errors (' + problems.length + ')');
     if (problems.length) console.log(problems.join('\n'));

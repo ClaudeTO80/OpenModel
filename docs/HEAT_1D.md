@@ -238,3 +238,21 @@ The chain block builds the material and segment lines; the other commands are wr
 `tests/webgl/gui_heat1d_smoke.js` (run with `node tests/webgl/gui_heat1d_smoke.js src/webui/gui.html
 examples/webgl-fem-viewer/index.html`), which uses a stub bridge. The handler itself is compiled only inside the WebUI
 build, which is not available in every environment; its JSON output was checked against the real core with a harness.
+
+## 11. Display of the geometry
+
+The panel shows what is analysed before and after the run:
+
+* **Show geometry**: the real cross-sections of the segments, extruded along the axis, one colour per material; the axis
+  as a black tube. The drawing is for viewing only: it is not a solver mesh.
+* **Show results**: the same drawing with each element coloured by the temperature of the 1D solution at its position
+  along the axis (linear between the nodes). The section is one temperature, which is the one-dimensional assumption
+  made visible. A run shows its results automatically.
+
+The axis is a tube and not a line because the viewer draws lines one pixel wide. Its radius is a percentage of the
+largest extent of the model (`DisplayOptions::axisRadiusPercent`, 2 % by default), so it stays proportional to the
+model and changes with the zoom in pixels. A fixed width in pixels would need a change to the viewer.
+
+Limits: a tabulated section cannot be drawn; circles and polygons are approximated by `ringPoints` sides (32 by
+default); the solid is opaque, so the axis inside it is seen with the Opacity slider of the viewer or with a section
+plane. The drawing replaces the view until the next model action.
