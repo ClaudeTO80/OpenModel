@@ -70,6 +70,24 @@ Build: `cmake --build . --target heat2d_test` in the project's CMake configurati
 The Fourier reference is the series \( \sum_{m,n\ \mathrm{odd}} \frac{16}{\pi^4 mn(m^2+n^2)}\sin\frac{m\pi}{2}\sin\frac{n\pi}{2} \),
 summed to \( m, n < 200 \).
 
+### CalculiX comparison (manual, not in CTest)
+
+`tests/heat2d_calculix/`: the same plate (1 x 1, 20 x 20 grid, thickness 0.1, circular hole r = 0.2 at the centre, source
+q = 1, sides at 0, hole at 50) written as a Heat2D script and as a CalculiX `*HEAT TRANSFER, STEADY STATE` deck of C3D8
+elements one layer thick. The hole topology is the same (element centroids), so the node sets are the same.
+Run: `python3 tests/heat2d_calculix/compare.py <heat2d_run> <workdir>` with `ccx` (CalculiX 2.21, Ubuntu package
+`calculix-ccx`) on PATH.
+
+| Case | Result |
+|---|---|
+| with source q = 1 | 404 nodes; max \( |T_{ccx} - T_{h2d}| \) = 4.5e-6 K on a 50 K field |
+| source q = 0 (Dirichlet only) | max difference 4.7e-6 K |
+
+The CalculiX log shows that the first iteration does not converge and the second does (its own residual-flux test). The
+difference is nearly uniform over the nodes and is the same with and without the source, so it is attributed to the
+convergence tolerance of CalculiX's nonlinear loop, not to the discretisation. This attribution is not proven: the
+tolerance was not tightened to test it. The agreement is at the 1e-7 relative level, which is the check's sensitivity.
+
 ## 5. Script (`analysis heat 2d`)
 
 Parser and runner: `include/OpenModel/Heat2DScript.hpp` (`parseScript`, `runScript`, `resultToCsv`). The header carries
