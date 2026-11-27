@@ -88,6 +88,26 @@ difference is nearly uniform over the nodes and is the same with and without the
 convergence tolerance of CalculiX's nonlinear loop, not to the discretisation. This attribution is not proven: the
 tolerance was not tightened to test it. The agreement is at the 1e-7 relative level, which is the check's sensitivity.
 
+### Applicability of the thin plate to a 3D body (`assessThinPlate`)
+
+`assessThinPlate(t, k, h_z, Bi_limit)` returns the Biot number \( Bi = h_z (t/2)/k \) on the faces normal to z and
+whether it is below the limit. It cannot check that the boundary conditions and sources are independent of z: that
+assumption is listed in its notes. Adiabatic z-faces (h_z = 0) give an exact reduction under that assumption.
+
+Check with CalculiX (`tests/heat2d_calculix/thin_plate_check.py`, manual): a 1 x 1 block, thickness 0.1, two element
+layers through the thickness, source q = 1, sides at 0, convection h_z on both z-faces. The deviation between the face
+and the mid-plane temperature, relative to the maximum temperature:
+
+| h_z | Bi | face-to-mid deviation |
+|---|---|---|
+| 0.02 | 0.001 | 5.0e-4 |
+| 2.0 | 0.1 | 4.8e-2 |
+| 20 | 1.0 | 3.3e-1 |
+
+The deviation is about Bi/2 for small Bi. With the default limit of 0.1 the through-thickness deviation can reach about
+5 %; a 1 % deviation needs Bi around 0.02. The limit is a choice of the user, not a fixed rule of the code. The 2D model
+itself does not include the z-face exchange at all, so the deviation above is the error of ignoring it.
+
 ## 5. Script (`analysis heat 2d`)
 
 Parser and runner: `include/OpenModel/Heat2DScript.hpp` (`parseScript`, `runScript`, `resultToCsv`). The header carries

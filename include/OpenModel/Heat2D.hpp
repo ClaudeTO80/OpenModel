@@ -96,6 +96,30 @@ struct Result {
  */
 std::string validate(const Model& model, const Options& options);
 
+/** @brief Result of the check that a 3D prismatic body can be modelled as this thin plate. */
+struct ThinPlateAssessment {
+    std::string error;             ///< Non-empty when the input is invalid (the other fields are then not meaningful).
+    bool applicable = false;       ///< True when the Biot number on the faces normal to z is below the limit.
+    double biot = 0.0;             ///< Bi = h_z (t / 2) / k, with t / 2 the characteristic length of the two-sided exchange.
+    double biotLimit = 0.0;        ///< The limit used.
+    std::vector<std::string> notes; ///< What the user must still assert (the check cannot see them).
+};
+
+/**
+ * @brief Checks whether a 3D prismatic body of thickness t along z can be solved as this thin plate.
+ *
+ * Two conditions are needed. (1) The boundary conditions and the sources do not depend on z: this is not checked, it is
+ * listed in the notes. (2) The exchange on the faces normal to z is weak: with the effective coefficient h_z on those
+ * faces (convection plus linearised radiation, computed by the caller), the Biot number Bi = h_z (t/2) / k must not exceed
+ * biotLimit. A zero h_z (adiabatic faces) gives Bi = 0 and the reduction is exact under condition (1).
+ *
+ * @param thickness  t > 0, the extent along z
+ * @param conductivity  k > 0 at the operating temperature
+ * @param faceCoefficient  h_z >= 0, effective coefficient on the faces normal to z
+ * @param biotLimit  limit on Bi, 0 < biotLimit (0.1 is the usual choice)
+ */
+ThinPlateAssessment assessThinPlate(double thickness, double conductivity, double faceCoefficient, double biotLimit = 0.1);
+
 /**
  * @brief Solves the model.
  *

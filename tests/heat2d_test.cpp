@@ -327,6 +327,35 @@ void testValidation() {
 
 } // namespace
 
+void testThinPlateAssessment() {
+    // Input checks.
+    CHECK(!assessThinPlate(0.0, 1.0, 0.0).error.empty());
+    CHECK(!assessThinPlate(0.1, 0.0, 0.0).error.empty());
+    CHECK(!assessThinPlate(0.1, 1.0, -1.0).error.empty());
+    CHECK(!assessThinPlate(0.1, 1.0, 0.0, 0.0).error.empty());
+
+    // Adiabatic faces normal to z: Bi = 0, applicable, with the exactness note.
+    const ThinPlateAssessment adiabatic = assessThinPlate(0.1, 1.0, 0.0);
+    CHECK(adiabatic.error.empty());
+    CHECK(adiabatic.applicable);
+    CHECK(adiabatic.biot == 0.0);
+    CHECK(adiabatic.notes.size() == 2);
+
+    // Bi = h (t/2) / k = 2 * 0.05 / 1 = 0.1: exactly at the limit, applicable.
+    const ThinPlateAssessment atLimit = assessThinPlate(0.1, 1.0, 2.0);
+    CHECK(atLimit.applicable);
+    CHECK(std::abs(atLimit.biot - 0.1) < 1e-15);
+
+    // Bi = 2.5 * 0.05 = 0.125 > 0.1: not applicable.
+    const ThinPlateAssessment above = assessThinPlate(0.1, 1.0, 2.5);
+    CHECK(!above.applicable);
+    CHECK(std::abs(above.biot - 0.125) < 1e-15);
+
+    // The Biot number grows with the thickness and falls with the conductivity.
+    CHECK(assessThinPlate(0.2, 1.0, 1.0).biot > assessThinPlate(0.1, 1.0, 1.0).biot);
+    CHECK(assessThinPlate(0.1, 10.0, 1.0).biot < assessThinPlate(0.1, 1.0, 1.0).biot);
+}
+
 int main() {
     testLinearField();
     testConvectionEnd();
@@ -338,6 +367,7 @@ int main() {
     testThicknessScaling();
     testNonlinearConductivity();
     testValidation();
+    testThinPlateAssessment();
 
     if (g_failures == 0) {
         std::cout << "heat2d_test: all checks passed\n";

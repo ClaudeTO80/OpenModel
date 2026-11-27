@@ -651,4 +651,32 @@ Result solve(const Model& m, const Options& o) {
     return res;
 }
 
+ThinPlateAssessment assessThinPlate(double thickness, double conductivity, double faceCoefficient, double biotLimit) {
+    ThinPlateAssessment a;
+    a.biotLimit = biotLimit;
+    if (!(thickness > 0.0)) {
+        a.error = "thickness must be positive";
+        return a;
+    }
+    if (!(conductivity > 0.0)) {
+        a.error = "conductivity must be positive";
+        return a;
+    }
+    if (!(faceCoefficient >= 0.0)) {
+        a.error = "the face coefficient must not be negative";
+        return a;
+    }
+    if (!(biotLimit > 0.0)) {
+        a.error = "the Biot limit must be positive";
+        return a;
+    }
+    a.biot = faceCoefficient * (0.5 * thickness) / conductivity;
+    a.applicable = a.biot <= biotLimit;
+    a.notes.push_back("the boundary conditions and the sources must not depend on z (not checked here)");
+    if (faceCoefficient == 0.0) {
+        a.notes.push_back("faces normal to z are adiabatic: the reduction is exact when the first note holds");
+    }
+    return a;
+}
+
 } // namespace OpenModel::Heat2D
