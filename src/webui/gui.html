@@ -673,6 +673,17 @@ details.node details.node{margin-top:8px;background:transparent}
     </details>
     <details id="secHeat" class="node" open>
       <summary>Heat conduction 1D (along the axis)</summary>
+      <details class="node" open>
+        <summary>Primitive chain</summary>
+        <p class="hint">Each primitive is a segment of the axis with its own section and material; they follow each other from x = 0 in the order listed. Interfaces are nodes. The chain replaces the material, segment, section and thermal lines of the script.</p>
+        <label>Materials (constant conductivity)</label>
+        <div id="heatMats" class="stack"></div>
+        <button type="button" class="full" onclick="heatAddMat()">Add material</button>
+        <label>Primitives along the axis</label>
+        <div id="heatPrims" class="stack"></div>
+        <button type="button" class="full" onclick="heatAddPrim()">Add primitive</button>
+        <button type="button" class="full" onclick="heatApplyChain()">Set chain in script</button>
+      </details>
       <label for="heatScript">Heat script (one command per line, # starts a comment)</label>
       <textarea id="heatScript" rows="12" spellcheck="false" style="width:100%;font-family:monospace;font-size:12px"></textarea>
       <div class="grid2"><button onclick="heatTemplate()">Template</button><button class="primary" onclick="heatRun()">Run heat analysis</button></div>
@@ -684,7 +695,7 @@ details.node details.node{margin-top:8px;background:transparent}
         <p class="hint" id="heatSummary"></p>
         <button class="full" onclick="heatDownloadCsv()">Download CSV (time,x,temperature)</button>
       </div>
-      <p class="hint">Commands: <code>analysis heat 1d</code>; <code>material id=ID k=K rhocp=C</code> or <code>kT=300:200,400:190</code> for conductivity tabulated in T; <code>segment material=ID length=L elements=N</code> (repeatable, from x = 0); shorthand <code>thermal k= rhocp=</code> with <code>analysis heat 1d length=L elements=N</code>, not mixed with material lines; <code>section rect a= b=</code>, <code>circle r=</code>, <code>tube ro= ri=</code>, <code>polygon sides= r=</code>, <code>table x= A= P=</code>; <code>initial T=</code>; <code>temperature end=left|right T=</code>; <code>flux end= q=</code> (no line = insulated); <code>convection end= h= Tinf= [emissivity=]</code>; <code>lateral h= Tinf= [emissivity=]</code>; <code>heat q=</code>; <code>job MAIN [solver=internal]</code>; <code>step steady</code> or <code>step transient dt= end= [theta=] [capacity=consistent|lumped]</code>. Only the internal solver runs 1D models; this analysis does not change the structural model.</p>
+      <p class="hint">Commands: <code>analysis heat 1d</code>; <code>material id=ID k=K rhocp=C</code> or <code>kT=300:200,400:190</code> for conductivity tabulated in T; <code>segment material=ID length=L elements=N [shape=rect a= b= | circle r= | tube ro= ri= | polygon sides= r=]</code> (repeatable, from x = 0; a shape on every segment replaces the section line); shorthand <code>thermal k= rhocp=</code> with <code>analysis heat 1d length=L elements=N</code>, not mixed with material lines; <code>section rect a= b=</code>, <code>circle r=</code>, <code>tube ro= ri=</code>, <code>polygon sides= r=</code>, <code>table x= A= P=</code>; <code>initial T=</code>; <code>temperature end=left|right T=</code>; <code>flux end= q=</code> (no line = insulated); <code>convection end= h= Tinf= [emissivity=]</code>; <code>lateral h= Tinf= [emissivity=]</code>; <code>heat q=</code>; <code>job MAIN [solver=internal]</code>; <code>step steady</code> or <code>step transient dt= end= [theta=] [capacity=consistent|lumped]</code>. Only the internal solver runs 1D models; this analysis does not change the structural model.</p>
     </details>
     <details class="node" open>
       <summary>Results</summary>
@@ -829,6 +840,112 @@ let busy = false, noMesher = false;
 let selectedCadFaceIds = [];
 
 /* Heat conduction 1D: runs the script on the backend and draws the temperature along the axis. */
+/* Primitive chain: rows of materials and primitives that generate the material and segment lines of the script. */
+let heatMats = [{id: "STEEL", k: "50", rhocp: "3.9e6"}];
+let heatPrims = [{mat: "STEEL", shape: "rect", a: "0.02", b: "0.02", r: "", ro: "", ri: "", sides: "", length: "0.5", elements: "20"}];
+const HEAT_SHAPE_KEYS = {rect: ["a", "b"], circle: ["r"], tube: ["ro", "ri"], polygon: ["sides", "r"]};
+const HEAT_SHAPE_LABEL = {rect: "rectangle", circle: "circle", tube: "tube", polygon: "regular polygon"};
+function heatField(label, value, onInput, width) {
+  const wrap = document.createElement("label");
+  wrap.style.margin = "0";
+  wrap.textContent = label + " ";
+  const input = document.createElement("input");
+  input.value = value;
+  input.style.width = width || "90px";
+  input.addEventListener("input", () => onInput(input.value));
+  wrap.appendChild(input);
+  return wrap;
+}
+function heatRemoveButton(onClick) {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.textContent = "Remove";
+  b.addEventListener("click", onClick);
+  return b;
+}
+function renderHeatChain() {
+  const mats = $("heatMats");
+  mats.innerHTML = "";
+  heatMats.forEach((m, i) => {
+    const row = document.createElement("div");
+    row.className = "row";
+    row.append(
+      heatField("id", m.id, (v) => { m.id = v; renderHeatPrimsOnly(); }, "90px"),
+      heatField("k", m.k, (v) => { m.k = v; }, "70px"),
+      heatField("rhocp", m.rhocp, (v) => { m.rhocp = v; }, "90px"),
+      heatRemoveButton(() => { heatMats.splice(i, 1); renderHeatChain(); })
+    );
+    mats.appendChild(row);
+  });
+  renderHeatPrimsOnly();
+}
+function renderHeatPrimsOnly() {
+  const prims = $("heatPrims");
+  prims.innerHTML = "";
+  heatPrims.forEach((p, i) => {
+    const row = document.createElement("div");
+    row.className = "stack";
+    const top = document.createElement("div");
+    top.className = "row";
+    const mat = document.createElement("select");
+    heatMats.forEach((m) => {
+      const o = document.createElement("option");
+      o.value = m.id;
+      o.textContent = m.id;
+      if (m.id === p.mat) o.selected = true;
+      mat.appendChild(o);
+    });
+    mat.addEventListener("change", () => { p.mat = mat.value; });
+    const shape = document.createElement("select");
+    Object.keys(HEAT_SHAPE_KEYS).forEach((k) => {
+      const o = document.createElement("option");
+      o.value = k;
+      o.textContent = HEAT_SHAPE_LABEL[k];
+      if (k === p.shape) o.selected = true;
+      shape.appendChild(o);
+    });
+    shape.addEventListener("change", () => { p.shape = shape.value; renderHeatPrimsOnly(); });
+    top.append(mat, shape, heatRemoveButton(() => { heatPrims.splice(i, 1); renderHeatPrimsOnly(); }));
+    const dims = document.createElement("div");
+    dims.className = "row";
+    HEAT_SHAPE_KEYS[p.shape].forEach((key) => {
+      dims.appendChild(heatField(key === "sides" ? "sides" : key, p[key], (v) => { p[key] = v; }, "70px"));
+    });
+    dims.append(
+      heatField("length", p.length, (v) => { p.length = v; }, "70px"),
+      heatField("elements", p.elements, (v) => { p.elements = v; }, "60px")
+    );
+    row.append(top, dims);
+    prims.appendChild(row);
+  });
+}
+function heatAddMat() {
+  heatMats.push({id: "MAT" + (heatMats.length + 1), k: "1", rhocp: "1"});
+  renderHeatChain();
+}
+function heatAddPrim() {
+  heatPrims.push({mat: heatMats.length ? heatMats[0].id : "", shape: "rect", a: "0.01", b: "0.01", r: "", ro: "", ri: "", sides: "", length: "0.1", elements: "10"});
+  renderHeatPrimsOnly();
+}
+/** The generated material and segment lines, in the order the backend reads them. */
+function heatChainLines() {
+  const lines = heatMats.map((m) => "material id=" + m.id + " k=" + m.k + " rhocp=" + m.rhocp);
+  heatPrims.forEach((p) => {
+    const parts = ["segment", "material=" + p.mat, "length=" + p.length, "elements=" + p.elements, "shape=" + p.shape];
+    HEAT_SHAPE_KEYS[p.shape].forEach((key) => parts.push(key + "=" + p[key]));
+    lines.push(parts.join(" "));
+  });
+  return lines;
+}
+/** Replaces the material, segment, section and thermal lines of the script with the chain; the other lines stay. */
+function heatApplyChain() {
+  if (!confirm("Replace the material, segment, section and thermal lines of the heat script with the primitive chain?")) return;
+  const kept = $("heatScript").value.split(/\r?\n/).filter((l) => !/^\s*(material|segment|section|thermal)\b/i.test(l));
+  const at = kept.findIndex((l) => /^\s*analysis\b/i.test(l));
+  if (at >= 0) kept[at] = kept[at].replace(/\s+(length|elements)=\S+/g, "");   // the segments give the length and elements
+  kept.splice(at >= 0 ? at + 1 : 0, 0, ...heatChainLines());
+  $("heatScript").value = kept.join("\n");
+}
 const HEAT_TEMPLATE = [
   "analysis heat 1d",
   "material id=WALL k=1.2 rhocp=1.8e6",
@@ -840,6 +957,7 @@ const HEAT_TEMPLATE = [
   "step transient dt=60 end=3600 theta=0.5 capacity=consistent"
 ].join("\n");
 let heatLast = null;
+renderHeatChain();
 function heatTemplate() { $("heatScript").value = HEAT_TEMPLATE; }
 async function heatRun() {
   const r = await call("openmodel_heat1d_run", $("heatScript").value);

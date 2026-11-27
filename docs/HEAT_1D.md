@@ -203,6 +203,22 @@ values), a steady flux bar against its exact profile (error 2.8e-14), a source c
 tube against the Fourier series (0.77479 against 0.77231: the lumped capacity error at 20 elements), and about thirty
 error cases checked by message and line number.
 
+### Primitives in a chain (`shape=` on a segment)
+
+A segment may carry its own simple section, so a chain of primitives is a list of segments:
+
+```
+segment material=STEEL length=0.5 elements=20 shape=rect a=0.02 b=0.02
+segment material=STEEL length=0.3 elements=6 shape=tube ro=0.05 ri=0.02
+```
+
+The keys are those of the section line (`rect a b`, `circle r`, `tube ro ri`, `polygon sides r`). A segment without a
+shape takes the section line, which may be a table over the whole length. The section line can be left out when every
+segment has a shape. Assumptions that still hold: the section is constant inside a segment and jumps at the interface
+node; the lateral exchange uses the perimeter of the segment where the node lies; the end convection uses the area of
+the end segment. Checked by a steady chain against the series resistances `sum L_i / (k_i A_i)` (error 3e-14 K) and
+by a mixed case with a global rectangle and a circle on one segment.
+
 ## 10. GUI panel
 
 The Analysis tab of the ribbon has the button **Heat 1D…**, which opens the section **Heat conduction 1D** in the
@@ -212,10 +228,13 @@ analysis overlay. It holds:
 * **Run heat analysis**, which calls the handler `openmodel_heat1d_run` with the script text. The handler parses and
   runs the script on the internal solver and returns the result as JSON, without touching the structural model;
 * the errors of the parser, each with its line number, or of the run; the previous result is hidden on an error;
+* the **Primitive chain** block: materials (id, k, rhocp) and primitives (material, shape, dimensions, length,
+  elements) in the order along the axis; **Set chain in script** replaces the material, segment, section and thermal
+  lines of the script with the chain (after a confirmation) and keeps the other lines;
 * the time selector (the recorded times), the temperature along the axis for the chosen time (SVG plot), and
   **Download CSV** with the same long-format CSV as `resultToCsv`.
 
-The panel edits the script as text: it does not build the script from form fields. Checked by
+The chain block builds the material and segment lines; the other commands are written in the script text. Checked by
 `tests/webgl/gui_heat1d_smoke.js` (run with `node tests/webgl/gui_heat1d_smoke.js src/webui/gui.html
 examples/webgl-fem-viewer/index.html`), which uses a stub bridge. The handler itself is compiled only inside the WebUI
 build, which is not available in every environment; its JSON output was checked against the real core with a harness.

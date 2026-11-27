@@ -364,6 +364,105 @@ void testConductivityErrors() {
 
 } // namespace
 
+/**
+ * @brief Test 11: a chain of primitives, each segment with its own section and material (shape= on the segment line).
+ *        A steady flow Q through the chain of series resistances R_i = L_i / (k_i A_i) gives Q = dT / sum(R_i) and a
+ *        linear profile inside each segment, so the nodal solution is exact. The global section line is absent.
+ */
+void testShapeChain() {
+    const std::string text =
+        "analysis heat 1d\n"
+        "material id=A k=2 rhocp=1\n"
+        "material id=B k=5 rhocp=1\n"
+        "segment material=A length=0.3 elements=6 shape=rect a=1 b=0.5\n"
+        "segment material=B length=0.2 elements=4 shape=circle r=0.5\n"
+        "segment material=A length=0.4 elements=8 shape=tube ro=0.5 ri=0.25\n"
+        "temperature end=left T=100\n"
+        "temperature end=right T=0\n"
+        "step steady\n";
+    const ScriptProblem p = parseOk(text);
+    const Result r = runScript(p);
+    CHECK(r.error.empty());
+    CHECK(r.converged);
+    CHECK(r.nodes.size() == 19); // 6 + 4 + 8 elements, 19 nodes
+
+    // Closed form: the series resistances of the three segments.
+    const double L[3] = {0.3, 0.2, 0.4};
+    const double k[3] = {2.0, 5.0, 2.0};
+    const double A[3] = {0.5, kPi * 0.25, kPi * (0.25 - 0.0625)};
+    double R[3];
+    double sumR = 0.0;
+    for (int i = 0; i < 3; ++i) { R[i] = L[i] / (k[i] * A[i]); sumR += R[i]; }
+    const double Q = 100.0 / sumR;
+    double err = 0.0;
+    for (std::size_t n = 0; n < r.nodes.size(); ++n) {
+        const double x = r.nodes[n];
+        // Locate the segment that holds x (the interface nodes belong to the segment on their left).
+        int seg = 0;
+        double s0 = 0.0;
+        for (int i = 0; i < 3; ++i) {
+            if (x <= s0 + L[i] + 1e-12 || i == 2) { seg = i; break; }
+            s0 += L[i];
+        }
+        double T0 = 100.0;
+        for (int i = 0; i < seg; ++i) T0 -= Q * R[i];
+        const double exact = T0 - Q / (k[seg] * A[seg]) * (x - s0);
+        err = std::max(err, std::fabs(r.temperatures.back()[n] - exact));
+    }
+    std::cout << "shape chain: Q = " << Q << " W, max nodal error " << err << " K\n";
+    CHECK(err < 1e-9);
+
+    // The area and the perimeter follow the segments, not one global section.
+    CHECK(std::fabs(p.model.area(0.1) - 0.5) < 1e-12);
+    CHECK(std::fabs(p.model.area(0.4) - kPi * 0.25) < 1e-12);
+    CHECK(std::fabs(p.model.area(0.8) - kPi * 0.1875) < 1e-12);
+    CHECK(std::fabs(p.model.lateral.perimeter(0.4) - 2.0 * kPi * 0.5) < 1e-12);
+    CHECK(std::fabs(p.model.lateral.perimeter(0.1) - 3.0) < 1e-12);
+}
+
+/**
+ * @brief Test 12: a global section line and a shape on one segment: the segment with its own shape uses it, the others
+ *        use the global section, and the global table is accepted over the whole length.
+ */
+void testShapeMixedWithGlobalSection() {
+    const std::string text =
+        "analysis heat 1d\n"
+        "material id=A k=1 rhocp=1\n"
+        "segment material=A length=0.5 elements=5\n"
+        "segment material=A length=0.5 elements=5 shape=circle r=1\n"
+        "section rect a=2 b=3\n"
+        "temperature end=left T=0\n"
+        "temperature end=right T=0\n"
+        "step steady\n";
+    const ScriptProblem p = parseOk(text);
+    CHECK(std::fabs(p.model.area(0.2) - 6.0) < 1e-12);      // global rectangle
+    CHECK(std::fabs(p.model.area(0.7) - kPi) < 1e-12);       // the segment's own circle
+    CHECK(std::fabs(p.model.lateral.perimeter(0.2) - 10.0) < 1e-12);
+    CHECK(runScript(p).converged);
+}
+
+/** @brief Test 13: errors of the shape= form, each with its line number. */
+void testShapeErrors() {
+    const std::string head = "analysis heat 1d\nmaterial id=A k=1 rhocp=1\n";
+    CHECK(failsWith(head + "segment material=A length=1 elements=2 shape=table x=0,1 A=1,1 P=1,1\n" +
+                        "temperature end=left T=0\ntemperature end=right T=0\nstep steady\n",
+                    "unknown shape 'table'"));
+    CHECK(failsWith(head + "segment material=A length=1 elements=2 shape=circle r=1 a=2\n" +
+                        "temperature end=left T=0\ntemperature end=right T=0\nstep steady\n",
+                    "unknown key 'a'"));
+    CHECK(failsWith(head + "segment material=A length=1 elements=2 shape=rect a=1\n" +
+                        "temperature end=left T=0\ntemperature end=right T=0\nstep steady\n",
+                    "missing b="));
+    CHECK(failsWith(head + "segment material=A length=1 elements=2 shape=circle r=-1\n" +
+                        "temperature end=left T=0\ntemperature end=right T=0\nstep steady\n",
+                    "r must be positive"));
+    // Without a section line, every segment needs its own shape.
+    CHECK(failsWith(head + "segment material=A length=1 elements=2 shape=circle r=1\n" +
+                        "segment material=A length=1 elements=2\n" +
+                        "temperature end=left T=0\ntemperature end=right T=0\nstep steady\n",
+                    "missing a section line"));
+}
+
 int main() {
     testSectionGeometry();
     testTwoMaterials();
@@ -375,6 +474,9 @@ int main() {
     testTransientRuns();
     testErrors();
     testCsv();
+    testShapeChain();
+    testShapeMixedWithGlobalSection();
+    testShapeErrors();
 
     if (g_failures != 0) {
         std::cerr << g_failures << " heat1d script check(s) failed\n";

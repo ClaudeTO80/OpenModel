@@ -76,6 +76,7 @@ const bridge = () => {
     await context.addInitScript(bridge);
     const page = await context.newPage();
     page.on('pageerror', (e) => problems.push(String(e)));
+    page.on('dialog', (d) => d.accept());
     await page.goto(base + '/gui.html');
     await page.waitForFunction(() => document.getElementById('viewer').contentWindow && document.getElementById('viewer').contentWindow.OpenModelViewer);
     await page.click('#ribbon .tab[data-tab="solve"]');
@@ -99,6 +100,30 @@ const bridge = () => {
     check((await page.getAttribute('#heatPlot polyline', 'points')) !== points, 'choosing another time redraws the plot');
     check((await page.locator('button:has-text("Download CSV")').count()) === 1, 'the CSV download button is there');
 
+    // 1b. The primitive chain: a second primitive with a tube section, set in the script and sent to the backend.
+    check((await page.locator('#heatPrims > div').count()) === 1, 'the chain starts with one primitive');
+    await page.click('button:has-text("Add primitive")');
+    check((await page.locator('#heatPrims > div').count()) === 2, 'Add primitive adds a row');
+    const second = page.locator('#heatPrims > div').nth(1);
+    await second.locator('select').nth(1).selectOption('tube');
+    const inputs = second.locator('input');
+    check((await inputs.count()) === 4, 'a tube shows ro, ri, length and elements');
+    await inputs.nth(0).fill('0.05');
+    await inputs.nth(1).fill('0.02');
+    await inputs.nth(2).fill('0.3');
+    await inputs.nth(3).fill('6');
+    await page.click('button:has-text("Set chain in script")');
+    const script = await page.inputValue('#heatScript');
+    check(script.includes('segment material=STEEL length=0.5 elements=20 shape=rect a=0.02 b=0.02'), 'the chain writes the rectangle segment');
+    check(script.includes('segment material=STEEL length=0.3 elements=6 shape=tube ro=0.05 ri=0.02'), 'the chain writes the tube segment');
+    check(!/^\s*section\b/m.test(script), 'the section line is replaced by the shapes');
+    check(script.includes('material id=STEEL k=50 rhocp=3.9e6'), 'the chain writes the material line');
+    check(script.includes('temperature end=left'), 'the other lines of the script are kept');
+    await page.click('button:has-text("Run heat analysis")');
+    await page.waitForFunction(() => !document.getElementById('heatOut').hidden);
+    const sent = await page.evaluate(() => window.__calls.filter((c) => c.name === 'openmodel_heat1d_run').pop().args[0]);
+    check(sent.includes('shape=tube ro=0.05 ri=0.02'), 'the run sends the chain to the backend');
+
     // 2. A script with errors lists them with their line numbers and hides the previous result.
     await page.fill('#heatScript', 'analysis heat 1d\nbogus line\n');
     await page.click('button:has-text("Run heat analysis")');
@@ -108,7 +133,7 @@ const bridge = () => {
 
     // 3. The panel is independent of the structural analysis.
     check((await calls('openmodel_analysis_load')) === 0 && (await calls('openmodel_run_solver')) === 0, 'the heat panel calls no structural analysis handler');
-    check((await calls('openmodel_heat1d_run')) === 2, 'the run calls the heat handler once per run');
+    check((await calls('openmodel_heat1d_run')) === 3, 'each run calls the heat handler once (template, chain, bad script)');
 
     check(problems.length === 0, 'no page errors (' + problems.length + ')');
     if (problems.length) console.log(problems.join('\n'));

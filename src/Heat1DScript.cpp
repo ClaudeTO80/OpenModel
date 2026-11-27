@@ -208,6 +208,9 @@ struct Segment {
     double length = 0.0;
     long elements = 0;
     int line = 0;
+    bool hasShape = false; ///< the segment has its own section (shape= on the segment line)
+    ScalarFn area;         ///< its area and perimeter when hasShape
+    ScalarFn perimeter;
 };
 
 /**
@@ -232,6 +235,92 @@ ScalarFn constantScalar(double v) {
 ScalarFn conductivityOf(const MaterialDef& md) {
     if (md.kTemperatures.empty()) return constantScalar(md.k);
     return piecewiseLinear(md.kTemperatures, md.kValues);
+}
+
+/** @brief Area and perimeter of a simple section, both constant along the axis. */
+struct ConstantSection {
+    ScalarFn area;
+    ScalarFn perimeter;
+};
+
+/** @brief Keys of a simple section: rect a b, circle r, tube ro ri, polygon sides r. Empty for any other kind. */
+std::vector<std::string> sectionKeys(const std::string& kind) {
+    if (kind == "rect") return {"a", "b"};
+    if (kind == "circle") return {"r"};
+    if (kind == "tube") return {"ro", "ri"};
+    if (kind == "polygon") return {"sides", "r"};
+    return {};
+}
+
+/**
+ * @brief Reads a simple section (rect, circle, tube or polygon) from a command. The caller checks the keys with
+ *        sectionKeys first.
+ * @param c     the command holding the section values
+ * @param kind  the section kind, one of rect, circle, tube, polygon
+ * @param out   receives the area and the perimeter when the section is valid
+ * @param errs  receives the problems, prefixed with the line number
+ * @return true when the section is valid
+ */
+bool readConstantSection(const Command& c, const std::string& kind, ConstantSection& out, std::vector<std::string>& errs) {
+    if (kind == "rect") {
+        double a = 0.0, b = 0.0;
+        if (!requireNumber(c, "a", a, errs) || !requireNumber(c, "b", b, errs)) return false;
+        if (!(a > 0.0 && b > 0.0)) {
+            errs.push_back(where(c) + "a and b must be positive");
+            return false;
+        }
+        out.area = constantScalar(a * b);
+        out.perimeter = constantScalar(2.0 * (a + b));
+        return true;
+    }
+    if (kind == "circle") {
+        double r = 0.0;
+        if (!requireNumber(c, "r", r, errs)) return false;
+        if (!(r > 0.0)) {
+            errs.push_back(where(c) + "r must be positive");
+            return false;
+        }
+        out.area = constantScalar(kPi * r * r);
+        out.perimeter = constantScalar(2.0 * kPi * r);
+        return true;
+    }
+    if (kind == "tube") {
+        double ro = 0.0, ri = 0.0;
+        if (!requireNumber(c, "ro", ro, errs) || !requireNumber(c, "ri", ri, errs)) return false;
+        if (!(ri >= 0.0 && ro > ri)) {
+            errs.push_back(where(c) + "need 0 <= ri < ro");
+            return false;
+        }
+        out.area = constantScalar(kPi * (ro * ro - ri * ri));
+        // Both surfaces (outer and inner) are exposed to the same lateral exchange.
+        out.perimeter = constantScalar(2.0 * kPi * (ro + ri));
+        return true;
+    }
+    if (kind == "polygon") {
+        double r = 0.0;
+        long sides = 0;
+        const std::string sidesText = c.values.count("sides") ? c.values.at("sides") : std::string();
+        bool ok = true;
+        if (sidesText.empty()) {
+            errs.push_back(where(c) + "missing sides=");
+            ok = false;
+        } else if (!toInteger(sidesText, sides) || sides < 3) {
+            errs.push_back(where(c) + "sides must be an integer >= 3");
+            ok = false;
+        }
+        if (!requireNumber(c, "r", r, errs)) return false;
+        if (!(r > 0.0)) {
+            errs.push_back(where(c) + "r must be positive");
+            ok = false;
+        }
+        if (!ok) return false;
+        const double n = static_cast<double>(sides);
+        out.area = constantScalar(0.5 * n * r * r * std::sin(2.0 * kPi / n));
+        out.perimeter = constantScalar(2.0 * n * r * std::sin(kPi / n));
+        return true;
+    }
+    errs.push_back(where(c) + "unknown section '" + kind + "'");
+    return false;
 }
 
 } // namespace
@@ -310,51 +399,7 @@ bool parseScript(const std::string& text, ScriptProblem& problem, std::vector<st
             }
             sawSection = true;
             const std::string kind = c.bare.size() == 1 ? c.bare[0] : std::string();
-            if (kind == "rect") {
-                checkKeys(c, {"a", "b"}, errs);
-                double a = 0.0, b = 0.0;
-                if (requireNumber(c, "a", a, errs) && requireNumber(c, "b", b, errs)) {
-                    if (!(a > 0.0 && b > 0.0)) errs.push_back(where(c) + "a and b must be positive");
-                    else {
-                        area = constantScalar(a * b);
-                        perimeter = constantScalar(2.0 * (a + b));
-                    }
-                }
-            } else if (kind == "circle") {
-                checkKeys(c, {"r"}, errs);
-                double r = 0.0;
-                if (requireNumber(c, "r", r, errs)) {
-                    if (!(r > 0.0)) errs.push_back(where(c) + "r must be positive");
-                    else {
-                        area = constantScalar(kPi * r * r);
-                        perimeter = constantScalar(2.0 * kPi * r);
-                    }
-                }
-            } else if (kind == "tube") {
-                checkKeys(c, {"ro", "ri"}, errs);
-                double ro = 0.0, ri = 0.0;
-                if (requireNumber(c, "ro", ro, errs) && requireNumber(c, "ri", ri, errs)) {
-                    if (!(ri >= 0.0 && ro > ri)) errs.push_back(where(c) + "need 0 <= ri < ro");
-                    else {
-                        area = constantScalar(kPi * (ro * ro - ri * ri));
-                        // Both surfaces (outer and inner) are exposed to the same lateral exchange.
-                        perimeter = constantScalar(2.0 * kPi * (ro + ri));
-                    }
-                }
-            } else if (kind == "polygon") {
-                checkKeys(c, {"sides", "r"}, errs);
-                double r = 0.0;
-                long sides = 0;
-                const std::string sidesText = c.values.count("sides") ? c.values.at("sides") : std::string();
-                if (sidesText.empty()) errs.push_back(where(c) + "missing sides=");
-                else if (!toInteger(sidesText, sides) || sides < 3) errs.push_back(where(c) + "sides must be an integer >= 3");
-                if (requireNumber(c, "r", r, errs) && !(r > 0.0)) errs.push_back(where(c) + "r must be positive");
-                if (sides >= 3 && r > 0.0) {
-                    const double n = static_cast<double>(sides);
-                    area = constantScalar(0.5 * n * r * r * std::sin(2.0 * kPi / n));
-                    perimeter = constantScalar(2.0 * n * r * std::sin(kPi / n));
-                }
-            } else if (kind == "table") {
+            if (kind == "table") {
                 checkKeys(c, {"x", "A", "P"}, errs);
                 const auto xs = c.values.count("x") ? c.values.at("x") : std::string();
                 const auto as = c.values.count("A") ? c.values.at("A") : std::string();
@@ -382,6 +427,13 @@ bool parseScript(const std::string& text, ScriptProblem& problem, std::vector<st
                             break;
                         }
                     }
+                }
+            } else if (!sectionKeys(kind).empty()) {
+                checkKeys(c, sectionKeys(kind), errs);
+                ConstantSection cs;
+                if (readConstantSection(c, kind, cs, errs)) {
+                    area = cs.area;
+                    perimeter = cs.perimeter;
                 }
             } else {
                 errs.push_back(where(c) + "unknown section '" + kind + "' (rect, circle, tube, polygon, table)");
@@ -424,7 +476,13 @@ bool parseScript(const std::string& text, ScriptProblem& problem, std::vector<st
                 materials.push_back(md);
             }
         } else if (c.keyword == "segment") {
-            checkKeys(c, {"material", "length", "elements"}, errs);
+            const std::string shapeKind = c.values.count("shape") ? c.values.at("shape") : std::string();
+            std::vector<std::string> allowed{"material", "length", "elements", "shape"};
+            if (!shapeKind.empty()) {
+                const auto keys = sectionKeys(shapeKind);
+                allowed.insert(allowed.end(), keys.begin(), keys.end());
+            }
+            checkKeys(c, allowed, errs);
             const std::string id = c.values.count("material") ? c.values.at("material") : std::string();
             bool ok = true;
             if (id.empty()) {
@@ -450,7 +508,25 @@ bool parseScript(const std::string& text, ScriptProblem& problem, std::vector<st
                 errs.push_back(where(c) + "elements must be an integer >= 1");
                 ok = false;
             }
-            if (ok) segments.push_back({id, segLength, segElements, c.line});
+            Segment seg;
+            seg.material = id;
+            seg.length = segLength;
+            seg.elements = segElements;
+            seg.line = c.line;
+            if (!shapeKind.empty()) {
+                ConstantSection cs;
+                if (sectionKeys(shapeKind).empty()) {
+                    errs.push_back(where(c) + "unknown shape '" + shapeKind + "' (rect, circle, tube, polygon)");
+                    ok = false;
+                } else if (readConstantSection(c, shapeKind, cs, errs)) {
+                    seg.hasShape = true;
+                    seg.area = cs.area;
+                    seg.perimeter = cs.perimeter;
+                } else {
+                    ok = false;
+                }
+            }
+            if (ok) segments.push_back(seg);
         } else if (c.keyword == "thermal") {
             if (sawThermal) {
                 errs.push_back(where(c) + "only one thermal line is allowed");
@@ -570,7 +646,11 @@ bool parseScript(const std::string& text, ScriptProblem& problem, std::vector<st
     }
 
     if (!sawAnalysis) errs.push_back("missing the analysis line 'analysis heat 1d ...'");
-    if (!sawSection) errs.push_back("missing a section line (rect, circle, tube, polygon or table)");
+    const bool everySegmentShaped = !segments.empty() && std::all_of(segments.begin(), segments.end(),
+                                                                     [](const Segment& sg) { return sg.hasShape; });
+    if (!sawSection && !everySegmentShaped) {
+        errs.push_back("missing a section line (rect, circle, tube, polygon or table), or a shape= on every segment");
+    }
     if (!sawStep) errs.push_back("missing a step line ('step steady' or 'step transient ...')");
 
     // One material over the whole length (thermal line), or material and segment lines.
@@ -585,7 +665,11 @@ bool parseScript(const std::string& text, ScriptProblem& problem, std::vector<st
             md.k = k;
             md.rhocp = rhocp;
             materials.push_back(md);
-            segments.push_back({"default", length, elements, 0});
+            Segment seg;
+            seg.material = "default";
+            seg.length = length;
+            seg.elements = elements;
+            segments.push_back(seg);
         }
     }
     if (segments.empty() && !sawThermal) {
@@ -600,6 +684,9 @@ bool parseScript(const std::string& text, ScriptProblem& problem, std::vector<st
     std::vector<double> segEnds;
     std::vector<ScalarFn> segK; // conductivity of each segment, as a function of T
     std::vector<double> segRhoc;
+    std::vector<ScalarFn> segArea;      // section of each segment: its own, or the global one (filled below)
+    std::vector<ScalarFn> segPerimeter;
+    bool anyShape = false;
     double totalLength = 0.0;
     for (const Segment& s : segments) {
         const auto mat = std::find_if(materials.begin(), materials.end(), [&](const MaterialDef& md) { return md.id == s.material; });
@@ -613,6 +700,9 @@ bool parseScript(const std::string& text, ScriptProblem& problem, std::vector<st
         segEnds.push_back(totalLength);
         segK.push_back(conductivityOf(*mat));
         segRhoc.push_back(mat->rhocp);
+        anyShape = anyShape || s.hasShape;
+        segArea.push_back(s.area);
+        segPerimeter.push_back(s.perimeter);
     }
 
     if (sawAnalysis && totalLength > 0.0 && tableSection) {
@@ -624,7 +714,7 @@ bool parseScript(const std::string& text, ScriptProblem& problem, std::vector<st
         }
     }
 
-    if (!errs.empty() || !sawAnalysis || !sawSection || segments.empty() || !sawStep) {
+    if (!errs.empty() || !sawAnalysis || segments.empty() || !sawStep || (!sawSection && !everySegmentShaped)) {
         errors.insert(errors.end(), errs.begin(), errs.end());
         return false;
     }
@@ -635,9 +725,21 @@ bool parseScript(const std::string& text, ScriptProblem& problem, std::vector<st
     m.elements = static_cast<int>(nodes.size() - 1);
     m.conductivity = [segEnds, segK](double x, double T) { return segK[segmentIndex(segEnds, x)](T); };
     m.volumetricHeatCapacity = [segEnds, segRhoc](double x) { return segRhoc[segmentIndex(segEnds, x)]; };
-    m.area = area;
+    if (anyShape) {
+        // Segments without their own section take the global one (a section line, possibly a table over the length).
+        for (std::size_t i = 0; i < segArea.size(); ++i) {
+            if (!segArea[i]) {
+                segArea[i] = area;
+                segPerimeter[i] = perimeter;
+            }
+        }
+        m.area = [segEnds, segArea](double x) { return segArea[segmentIndex(segEnds, x)](x); };
+        m.lateral.perimeter = [segEnds, segPerimeter](double x) { return segPerimeter[segmentIndex(segEnds, x)](x); };
+    } else {
+        m.area = area;
+        m.lateral.perimeter = perimeter;
+    }
     if (sawHeat) m.source = [q](double, double) { return q; };
-    m.lateral.perimeter = perimeter;
     m.lateral.h = latH;
     m.lateral.emissivity = latEps;
     m.lateral.ambient = constantTime(latTinf);

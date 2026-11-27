@@ -19,7 +19,7 @@
  *                                                # kT=300:200,400:190 (conductivity tabulated in T, linear, held at the ends)
  * material id=STEEL k=50 rhocp=3.9e6
  * segment material=ALU length=0.02 elements=20   # segments follow the axis from x = 0 (interfaces are nodes)
- * segment material=STEEL length=0.05 elements=40
+ * segment material=STEEL length=0.05 elements=40 shape=circle r=0.01   # optional own section of the segment
  * section rect a=0.1 b=0.1                       # A = a b, P = 2 (a + b)
  * section circle r=0.01                          # A = pi r^2, P = 2 pi r
  * section tube ro=0.02 ri=0.01                   # A = pi (ro^2 - ri^2), P = 2 pi (ro + ri): both surfaces exposed
@@ -36,7 +36,9 @@
  * @endcode
  *
  * `material` and `segment` may repeat; every other command appears once, and each end takes one temperature, flux or
- * convection line. The shorthand `thermal k=... rhocp=...` with `analysis heat 1d length=L elements=N` gives one
+ * convection line. A segment may carry its own simple section (`shape=rect|circle|tube|polygon` with that shape's keys,
+ * the same values as the section line): a chain of primitives is then a list of segments, and the section line may be
+ * left out when every segment has a shape. Segments without a shape take the section line, which may be a table. The shorthand `thermal k=... rhocp=...` with `analysis heat 1d length=L elements=N` gives one
  * material over the whole length and cannot be mixed with material lines. Time dependence and amplitudes are not
  * available yet: every value is constant.
  */
