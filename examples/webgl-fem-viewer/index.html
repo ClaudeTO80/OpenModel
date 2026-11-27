@@ -160,6 +160,7 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
         <option value="skin" selected>Surface</option>
         <option value="all">All (with section)</option>
       </select></label>
+    <label class="row"><span>Opacity</span><input type="range" id="opacity" min="5" max="100" step="5" value="100" aria-describedby="opacityValue"> <span id="opacityValue" style="min-width:3.5em;color:var(--text)">100 %</span></label>
     <div id="consRows" hidden>
       <label class="row"><span>Constraints</span><input type="checkbox" id="consOn" checked title="Constrained degrees of freedom: a double cone along each fixed translation (X red, Y green, Z blue), a ring around each fixed rotation, an orange dot where a value is prescribed"> <span style="flex:1;color:var(--text)">fixed dofs</span></label>
       <label class="row"><span>Symbol size</span><input type="number" id="consSize" min="0.5" max="30" step="0.5" value="2.2"> <span style="flex:1;color:var(--text)">% of radius</span></label>
@@ -339,7 +340,7 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     gl_Position = hidden ? vec4(2.0, 2.0, 2.0, 1.0) : uP * mv;
   }`;
   const FS_TRI = GLSL_COMMON + `
-  uniform vec4 uClip; uniform int uClipOn; uniform int uMode;
+  uniform vec4 uClip; uniform int uClipOn; uniform int uMode; uniform float uAlpha;
   uniform sampler2D uLut; uniform vec2 uRange; uniform int uLog;
   in vec3 vView; in vec3 vModel; in vec3 vColor; in float vS; flat in uint vSel;
   out vec4 o;
@@ -359,7 +360,7 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     float key = abs(dot(n, normalize(vec3(0.35, 0.55, 1.0))));
     float fill = abs(dot(n, normalize(vec3(-0.6, -0.2, 0.5))));
     float light = 0.30 + 0.62 * key + 0.18 * fill;
-    o = vec4(base * light, 1.0);
+    o = vec4(base * light, uAlpha);
   }`;
   const VS_EDGE = GLSL_COMMON + `
   uniform sampler2D uPos, uDisp; uniform usampler2D uEIdx, uEBlock, uERegion, uVis, uGVis;
@@ -640,7 +641,7 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
   /* ----------------------------------------------------------------- state */
   const S = {
     model: null, tex: {}, count: {}, mode: "block", vis: null, palettes: {},
-    wire: "skin", axes: true, consOn: true, consSize: 2.2, clipOn: false, clipAxis: 2, clipPos: 0.5, clipFlip: false,
+    wire: "skin", opacity: 1, axes: true, consOn: true, consSize: 2.2, clipOn: false, clipAxis: 2, clipPos: 0.5, clipFlip: false,
     fieldIndex: 0, range: [0, 1], dirty: true, logScale: false,
     defOn: true, defFactor: 1, defSuggested: 1,
     modeIndex: 0, animate: false, phase: 0, lastTick: 0,
@@ -987,7 +988,13 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
     bindTex(triProg, "uPalette", 6, paletteFor(paletteMode)); bindTex(triProg, "uScalar", 7, T.scalar);
     bindTex(triProg, "uLut", 8, lutTex); bindTex(triProg, "uDisp", 10, T.disp); bindTex(triProg, "uSel", 11, T.selTri);
     const drawTris = S.clipOn ? S.count.tris : S.count.skinTris;
+    // Translucent surfaces: blended, without depth writes, so the edges and the points behind them stay visible.
+    // The surfaces are not sorted, so overlapping translucent faces may blend in any order.
+    const translucent = S.opacity < 1;
+    gl.uniform1f(triProg.u.uAlpha, S.opacity);
+    if (translucent) { gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.depthMask(false); }
     if (drawTris > 0) gl.drawArrays(gl.TRIANGLES, 0, drawTris * 3);
+    if (translucent) { gl.depthMask(true); gl.disable(gl.BLEND); }
     gl.disable(gl.POLYGON_OFFSET_FILL);
 
     if (S.wire !== "none") {
@@ -1407,6 +1414,11 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
   $("cbMinIn").addEventListener("change", (e) => setRangeEnd(0, e.target.value));
   $("cbMaxIn").addEventListener("change", (e) => setRangeEnd(1, e.target.value));
   $("wire").addEventListener("change", (e) => { S.wire = e.target.value; S.dirty = true; syncViewTools(); });
+  $("opacity").addEventListener("input", (e) => {
+    S.opacity = Math.min(1, Math.max(0.05, Number(e.target.value) / 100));
+    $("opacityValue").textContent = e.target.value + " %";
+    S.dirty = true;
+  });
   setupViewTools();
   $("axesOn").addEventListener("change", (e) => { S.axes = e.target.checked; S.dirty = true; });
   $("consOn").addEventListener("change", (e) => { S.consOn = e.target.checked; S.dirty = true; });
@@ -2166,6 +2178,12 @@ main.over::after { content: ""; position: absolute; inset: 8px; border: 2px dash
       if (!S.model) return;
       if ("mode" in options) { $("colorMode").value = options.mode; S.mode = options.mode; }
       if ("wire" in options) { $("wire").value = options.wire; S.wire = options.wire; }
+      if ("opacity" in options) {
+        S.opacity = Math.min(1, Math.max(0.05, Number(options.opacity)));
+        $("opacity").value = String(Math.round(S.opacity * 100));
+        $("opacityValue").textContent = $("opacity").value + " %";
+        S.dirty = true;
+      }
       if ("constraints" in options) { S.consOn = !!options.constraints; $("consOn").checked = S.consOn; }
       if ("constraintSize" in options && options.constraintSize > 0) { S.consSize = Math.min(options.constraintSize, 30); $("consSize").value = S.consSize; }
       if ("axes" in options) { S.axes = !!options.axes; $("axesOn").checked = S.axes; }

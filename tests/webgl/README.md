@@ -12,6 +12,9 @@ the section plane and block visibility. Enable it in CTest with `-DOPENMODEL_TES
 Checks the left-button rotations of the viewer: Ctrl+Alt roll, Ctrl+Shift pitch, Shift+Alt yaw, and that plain drag and Shift+drag are unchanged. The oracle is the view matrix: each rotation keeps the matching axis row and stays orthonormal.
 Usage: `node viewer_rotation_axes_smoke.js <index.html> <file.mgwv>`.
 
+## Opacity test (`viewer_opacity_smoke.js`)
+Checks the Opacity slider of the viewer and `set({opacity})`: the label follows the slider, and with the section plane on and all edges drawn there are more dark pixels at 30 % opacity than at 100 % (the edges inside the solid show through), while 100 % restores the opaque picture. Usage: `node viewer_opacity_smoke.js <index.html> <file.mgwv>`.
+
 ## Colour bar test (`viewer_colorbar_smoke.js`)
 Checks the results colour bar of the viewer: its place on the left, the palette and scale selectors, the editable Min and Max and the ticks.
 Usage: `node viewer_colorbar_smoke.js <index.html> <file.mgwv> [screenshot-dir]`.
