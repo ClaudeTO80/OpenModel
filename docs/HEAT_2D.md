@@ -179,6 +179,23 @@ all sides insulated stays at 100 K to 1e-8 (lumped capacity, implicit).
 This is the conforming alternative to the staircase boundary of section 2: the hole boundary is a true circle. A direct
 comparison with the staircase on the same geometry was not run (the structured solver only has a rectangle).
 
+### Staircase against conforming boundary (`heat2d_gmsh_compare_test`)
+
+Plate 2 x 1 with a circular hole (r = 0.3 at (1, 0.5)), source 1, outer sides at 0, hole at 50. Quantity: the mean
+temperature over the solid. Reference: conforming Gmsh mesh at h = 0.008 (31725 nodes). Absolute errors:
+
+| staircase, nx (elements) | error | conforming, h (nodes) | error |
+|---|---|---|---|
+| 40 (688) | 0.478 | 0.05 (905) | 0.0277 |
+| 80 (2752) | 0.230 | 0.025 (3409) | 0.00613 |
+| 160 (10996) | 0.123 | 0.0125 (13152) | 0.00101 |
+
+The staircase error halves when the element size halves (ratio 1.88 between nx = 80 and 160: first order). The conforming
+error falls by 6.1 between h = 0.025 and 0.0125. That ratio is above the second order, and the reference contributes to it:
+the reference is itself a conforming mesh, so the finest levels are not measured against an exact value. The coarsest
+conforming mesh (905 nodes) is more accurate than the staircase with 10996 elements. The test checks the two orders and
+that ordering, not absolute values.
+
 ## 6. Limits (not done or not verified)
 
 * Staircase boundary for holes in the structured solver: first-order geometric error. Curved holes need the mesh path (5b).
