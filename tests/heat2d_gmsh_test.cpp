@@ -76,7 +76,7 @@ double maxError(double h, std::size_t& nodes) {
         const double y = mesh.nodes[i][1];
         const double rr = std::hypot(x, y);
         if (rr < A_IN - 1e-12 || rr > R + 1e-12) continue;
-        worst = std::max(worst, std::abs(r.temperatures[i] - exactAt(rr)));
+        worst = std::max(worst, std::abs(r.temperatures[0][i] - exactAt(rr)));
     }
     return worst;
 }
@@ -146,7 +146,7 @@ double annulusError(const TriangleMesh& mesh, const MeshResult& r) {
     for (std::size_t i = 0; i < mesh.nodes.size(); ++i) {
         const double rr = std::hypot(mesh.nodes[i][0], mesh.nodes[i][1]);
         if (rr < A_IN - 1e-12 || rr > R + 1e-12) continue;
-        worst = std::max(worst, std::abs(r.temperatures[i] - exactAt(rr)));
+        worst = std::max(worst, std::abs(r.temperatures[0][i] - exactAt(rr)));
     }
     return worst;
 }
@@ -199,11 +199,11 @@ void testPlateWithHoleFromStep() {
     // Boundary values: outer contour at 0, hole at TH.
     double outerWorst = 0.0, holeWorst = 0.0, maxT = -1e300;
     for (const auto& e : mesh.edges) {
-        const double t = r.temperatures[static_cast<std::size_t>(e.a)];
+        const double t = r.temperatures[0][static_cast<std::size_t>(e.a)];
         if (e.tag == 1) outerWorst = std::max(outerWorst, std::abs(t));
         if (e.tag == 2) holeWorst = std::max(holeWorst, std::abs(t - TH));
     }
-    for (double t : r.temperatures) maxT = std::max(maxT, t);
+    for (double t : r.temperatures[0]) maxT = std::max(maxT, t);
     std::cout << "plate with hole from STEP: " << mesh.nodes.size() << " nodes, outer max |T| " << outerWorst
               << " K, hole max |T-50| " << holeWorst << " K, max T " << maxT << " K\n";
     CHECK(outerWorst < 1e-9);
@@ -211,7 +211,7 @@ void testPlateWithHoleFromStep() {
     // Minimum principle: -lap T = q > 0 makes T superharmonic, so its minimum is on the boundary (0 here). The maximum
     // sits on the hole, where T = TH: the source lowers T away from the hole, so no interior node exceeds TH.
     double minT = 1e300;
-    for (double t : r.temperatures) minT = std::min(minT, t);
+    for (double t : r.temperatures[0]) minT = std::min(minT, t);
     CHECK(minT > -1e-9);
     CHECK(maxT <= TH + 1e-9);
 }

@@ -139,8 +139,9 @@ a uniform transient (stays at 100 to 1e-8), the CSV layout, and the error messag
 
 ## 5b. Unstructured mesh and Gmsh (`Heat2DMesh`, `Heat2DGmsh`)
 
-`solveMesh` solves the steady problem on a triangle mesh given by the caller (linear triangles, 3-point quadrature,
-boundary edges tagged; a tag selects a condition, a tag not listed is insulated). It uses the same sparse matrix and
+`solveMesh` solves the steady or transient problem on a triangle mesh given by the caller (linear triangles, 3-point
+quadrature, theta method with consistent or lumped capacity, boundary edges tagged; a tag selects a condition, a tag not
+listed is insulated). It uses the same sparse matrix and
 conjugate-gradient solver as the structured solver (`src/Heat2DLinear.hpp`).
 
 * Square split into 2 x 40^2 triangles, source 1, zero sides: centre error 3.6e-5 against the double Fourier series, the
@@ -171,6 +172,10 @@ touches a side of the face's bounding box, so a hole tangent to an outer side is
 
 Not verified: STEP files made by other CAD systems, which can carry trimmed or split faces and tolerance gaps.
 
+Transient on the triangle mesh: \( T = \sin(\pi x) e^{-\pi^2 t} \) on the unit square, Crank-Nicolson, \( \Delta t = 10^{-3} \),
+\( t = 0.1 \), 40 x 40 squares split into triangles: max nodal error 2.3e-4 (test `heat2d_mesh_test`). A uniform field with
+all sides insulated stays at 100 K to 1e-8 (lumped capacity, implicit).
+
 This is the conforming alternative to the staircase boundary of section 2: the hole boundary is a true circle. A direct
 comparison with the staircase on the same geometry was not run (the structured solver only has a rectangle).
 
@@ -178,7 +183,7 @@ comparison with the staircase on the same geometry was not run (the structured s
 
 * Staircase boundary for holes in the structured solver: first-order geometric error. Curved holes need the mesh path (5b).
 * Structured solver: only the rectangular plate. The axisymmetric (r-z) case is not in this increment.
-* Mesh solver: steady only; no script, CLI or GUI integration yet.
+* Mesh solver: no script, CLI or GUI integration yet.
 * Not yet connected to the CLI, the GUI or the viewer. The script runs from C++ only: there is no WebUI handler yet.
 * Gmsh path: annulus generator and STEP import of one planar face (section 5b). Files from other CAD systems are not
   tested. Gmsh 4.12.1 with OpenCASCADE is installed here (`libgmsh-dev`), so the path is compiled and tested in this

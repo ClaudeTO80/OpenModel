@@ -4,16 +4,15 @@
 
 #include <algorithm>
 #include <cmath>
-#include <set>
 #include <sstream>
 
 /**
  * @file Heat2DMesh.cpp
- * @brief Steady thin-plate conduction on linear triangles (see Heat2DMesh.hpp).
+ * @brief Thin-plate conduction on linear triangles, steady and transient (see Heat2DMesh.hpp).
  *
- * Triangle terms use the constant gradients of the linear shape functions. The conduction, source and capacity-free
- * terms are integrated with the 3-point rule at the edge midpoints (exact for quadratic integrands). Edge terms use the
- * 2-point Gauss rule on each boundary edge, as in the structured solver.
+ * Triangle terms use the constant gradients of the linear shape functions. Conduction, source and capacity are
+ * integrated with the 3-point rule at the edge midpoints (exact for quadratic integrands). Boundary terms use the 2-point
+ * Gauss rule on each edge, as in the structured solver. The time loop and the Picard iteration follow Heat2D.cpp.
  */
 
 namespace OpenModel::Heat2D {
@@ -21,11 +20,15 @@ namespace OpenModel::Heat2D {
 namespace {
 
 using detail::Sparse;
+using detail::combine;
 using detail::multiply;
 using detail::solveFixed;
 
 /** @brief 1 / sqrt(3): abscissa of the 2-point Gauss rule on [-1, 1]. */
 const double kGaussPoint = 1.0 / std::sqrt(3.0);
+
+/** @brief Barycentric shape values at the three edge midpoints: the 3-point rule. */
+const double kMidpointN[3][3] = {{0.5, 0.5, 0.0}, {0.5, 0.0, 0.5}, {0.0, 0.5, 0.5}};
 
 /** @brief Twice the signed area of a triangle. */
 double twiceArea(const TriangleMesh& m, const std::array<int, 3>& t) {
@@ -36,7 +39,7 @@ double twiceArea(const TriangleMesh& m, const std::array<int, 3>& t) {
 }
 
 /**
- * @brief Conduction matrix K(T) and load vector g(T, t) of the solid, with the boundary terms.
+ * @brief Conduction matrix K(T) and load vector g(T, t) of the solid, with the boundary terms at time t.
  * @return false and sets err when a material value is not positive.
  */
 bool assembleMesh(const TriangleMesh& m, const MeshModel& model, const std::vector<double>& T, double t, Sparse& K,
@@ -44,9 +47,6 @@ bool assembleMesh(const TriangleMesh& m, const MeshModel& model, const std::vect
     const std::size_t n = m.nodes.size();
     K = Sparse(n);
     g.assign(n, 0.0);
-
-    // 3-point rule: the edge midpoints, with the barycentric shape values Nq and weight 1/3 of the area each.
-    const double Nq[3][3] = {{0.5, 0.5, 0.0}, {0.5, 0.0, 0.5}, {0.0, 0.5, 0.5}};
 
     for (const auto& tri : m.triangles) {
         const std::size_t i0 = static_cast<std::size_t>(tri[0]);
@@ -57,16 +57,14 @@ bool assembleMesh(const TriangleMesh& m, const MeshModel& model, const std::vect
         const auto& p2 = m.nodes[i2];
         const double J2 = twiceArea(m, tri);
         const double area = 0.5 * std::abs(J2);
-
-        // Gradients of the linear shape functions (constant on the triangle).
         const double gx[3] = {(p1[1] - p2[1]) / J2, (p2[1] - p0[1]) / J2, (p0[1] - p1[1]) / J2};
         const double gy[3] = {(p2[0] - p1[0]) / J2, (p0[0] - p2[0]) / J2, (p1[0] - p0[0]) / J2};
         const int nodes[3] = {tri[0], tri[1], tri[2]};
 
         for (int q = 0; q < 3; ++q) {
-            const double x = Nq[q][0] * p0[0] + Nq[q][1] * p1[0] + Nq[q][2] * p2[0];
-            const double y = Nq[q][0] * p0[1] + Nq[q][1] * p1[1] + Nq[q][2] * p2[1];
-            const double Tgp = Nq[q][0] * T[i0] + Nq[q][1] * T[i1] + Nq[q][2] * T[i2];
+            const double x = kMidpointN[q][0] * p0[0] + kMidpointN[q][1] * p1[0] + kMidpointN[q][2] * p2[0];
+            const double y = kMidpointN[q][0] * p0[1] + kMidpointN[q][1] * p1[1] + kMidpointN[q][2] * p2[1];
+            const double Tgp = kMidpointN[q][0] * T[i0] + kMidpointN[q][1] * T[i1] + kMidpointN[q][2] * T[i2];
             const double k = model.conductivity(x, y, Tgp);
             if (!(k > 0.0)) {
                 err = "conductivity must be positive";
@@ -78,22 +76,21 @@ bool assembleMesh(const TriangleMesh& m, const MeshModel& model, const std::vect
                 for (int c = 0; c < 3; ++c) {
                     K.add(nodes[a], nodes[c], w * k * (gx[a] * gx[c] + gy[a] * gy[c]));
                 }
-                g[static_cast<std::size_t>(nodes[a])] += w * qs * Nq[q][a];
+                g[static_cast<std::size_t>(nodes[a])] += w * qs * kMidpointN[q][a];
             }
         }
     }
 
-    // Boundary terms, 2-point Gauss on each edge.
+    // Boundary terms at time t, 2-point Gauss on each edge.
     const double s = kGaussPoint;
     for (const auto& e : m.edges) {
         const auto it = model.boundaries.find(e.tag);
         if (it == model.boundaries.end()) continue;  // insulated
-        const Heat1D::Boundary& bc = it->second;
+        const OpenModel::Heat1D::Boundary& bc = it->second;
         if (bc.kind == BoundaryKind::Temperature) continue;
         const auto& pa = m.nodes[static_cast<std::size_t>(e.a)];
         const auto& pb = m.nodes[static_cast<std::size_t>(e.b)];
-        const double len = std::hypot(pb[0] - pa[0], pb[1] - pa[1]);
-        const double J = len / 2.0;
+        const double J = std::hypot(pb[0] - pa[0], pb[1] - pa[1]) / 2.0;
         const std::size_t ia = static_cast<std::size_t>(e.a);
         const std::size_t ib = static_cast<std::size_t>(e.b);
         const double Ta = T[ia];
@@ -101,7 +98,7 @@ bool assembleMesh(const TriangleMesh& m, const MeshModel& model, const std::vect
 
         if (bc.kind == BoundaryKind::HeatFlux) {
             if (!bc.value) continue;
-            const double qv = bc.value(0.0);
+            const double qv = bc.value(t);
             for (double sg : {-s, s}) {
                 const double Na = 0.5 * (1.0 - sg);
                 const double Nb = 0.5 * (1.0 + sg);
@@ -111,7 +108,7 @@ bool assembleMesh(const TriangleMesh& m, const MeshModel& model, const std::vect
             continue;
         }
 
-        const double Tinf = bc.ambient ? bc.ambient(0.0) : 0.0;
+        const double Tinf = bc.ambient ? bc.ambient(t) : 0.0;
         for (double sg : {-s, s}) {
             const double Na = 0.5 * (1.0 - sg);
             const double Nb = 0.5 * (1.0 + sg);
@@ -127,6 +124,110 @@ bool assembleMesh(const TriangleMesh& m, const MeshModel& model, const std::vect
         }
     }
     return true;
+}
+
+/** @brief Capacity matrix: consistent (3-point rule, exact for quadratics) or row-sum lumped. */
+bool assembleCapacity(const TriangleMesh& m, const MeshModel& model, Capacity kind, Sparse& C, std::string& err) {
+    const std::size_t n = m.nodes.size();
+    Sparse consistent(n);
+    for (const auto& tri : m.triangles) {
+        const auto& p0 = m.nodes[static_cast<std::size_t>(tri[0])];
+        const auto& p1 = m.nodes[static_cast<std::size_t>(tri[1])];
+        const auto& p2 = m.nodes[static_cast<std::size_t>(tri[2])];
+        const double area = 0.5 * std::abs(twiceArea(m, tri));
+        const int nodes[3] = {tri[0], tri[1], tri[2]};
+        for (int q = 0; q < 3; ++q) {
+            const double x = kMidpointN[q][0] * p0[0] + kMidpointN[q][1] * p1[0] + kMidpointN[q][2] * p2[0];
+            const double y = kMidpointN[q][0] * p0[1] + kMidpointN[q][1] * p1[1] + kMidpointN[q][2] * p2[1];
+            const double rho = model.volumetricHeatCapacity(x, y);
+            if (!(rho > 0.0)) {
+                err = "volumetric heat capacity must be positive";
+                return false;
+            }
+            const double w = model.thickness * rho * area / 3.0;
+            for (int a = 0; a < 3; ++a)
+                for (int c = 0; c < 3; ++c) consistent.add(nodes[a], nodes[c], w * kMidpointN[q][a] * kMidpointN[q][c]);
+        }
+    }
+    if (kind == Capacity::Consistent) {
+        C = consistent;
+        return true;
+    }
+    C = Sparse(n);
+    for (std::size_t i = 0; i < n; ++i) {
+        double rowSum = 0.0;
+        for (const auto& [j, v] : consistent.rows[i]) rowSum += v;
+        if (rowSum != 0.0) C.rows[i][static_cast<int>(i)] = rowSum;
+    }
+    return true;
+}
+
+/** @brief Fixed nodes at time t: every node of a temperature boundary, and every node outside the triangles. */
+bool fixedNodes(const TriangleMesh& m, const MeshModel& model, double t, std::vector<char>& fixed,
+                std::vector<double>& value, std::string& error) {
+    const std::size_t n = m.nodes.size();
+    fixed.assign(n, 0);
+    value.assign(n, 0.0);
+    std::vector<char> touched(n, 0);
+    for (const auto& tri : m.triangles)
+        for (int v : tri) touched[static_cast<std::size_t>(v)] = 1;
+    for (const auto& e : m.edges) {
+        const auto it = model.boundaries.find(e.tag);
+        if (it == model.boundaries.end() || it->second.kind != BoundaryKind::Temperature) continue;
+        const double v = it->second.value(t);
+        for (int node : {e.a, e.b}) {
+            const std::size_t i = static_cast<std::size_t>(node);
+            if (fixed[i] && std::abs(value[i] - v) > 1e-12) {
+                error = "two temperature boundaries meet at a node with different temperatures";
+                return false;
+            }
+            fixed[i] = 1;
+            value[i] = v;
+        }
+    }
+    for (std::size_t i = 0; i < n; ++i) {
+        if (!touched[i]) fixed[i] = 1;
+    }
+    return true;
+}
+
+/** @brief Picard iteration of one (theta) step: coefficients frozen at the iterate, until the change is small. */
+bool picardStep(const TriangleMesh& m, const MeshModel& model, const Sparse& C, const std::vector<double>& CT,
+                const std::vector<double>& KTn, const std::vector<double>& gn, double tn, double dt, double theta,
+                const std::vector<double>& Tstart, const std::vector<char>& fixed, const std::vector<double>& fixedValue,
+                const Options& o, std::vector<double>& Tout, int& iterations, std::string& err) {
+    const std::size_t n = m.nodes.size();
+    std::vector<double> Tk = Tstart;
+    const double tnp1 = tn + dt;
+    for (int it = 1; it <= o.maxIterations; ++it) {
+        Sparse Kk;
+        std::vector<double> gk;
+        if (!assembleMesh(m, model, Tk, tnp1, Kk, gk, err)) return false;
+        Sparse A = (dt > 0.0) ? combine(C, 1.0 / dt, Kk, theta) : Kk;
+        std::vector<double> b(n);
+        for (std::size_t i = 0; i < n; ++i) {
+            // (C / dt + theta K^k) T^{k+1} = (C / dt) T^n - (1 - theta) K^n T^n + (1 - theta) g^n + theta g^k
+            // Steady (dt = 0): no capacity term, and theta = 1 leaves b = g^k.
+            const double capacity = (dt > 0.0) ? CT[i] / dt : 0.0;
+            b[i] = capacity - (1.0 - theta) * KTn[i] + (1.0 - theta) * gn[i] + theta * gk[i];
+        }
+        std::vector<double> Tnew = Tk;
+        if (!solveFixed(A, b, fixed, fixedValue, Tnew, err)) return false;
+        double change = 0.0;
+        double scale = 1.0;
+        for (std::size_t i = 0; i < n; ++i) {
+            change = std::max(change, std::abs(Tnew[i] - Tk[i]));
+            scale = std::max(scale, std::abs(Tnew[i]));
+        }
+        Tk = Tnew;
+        iterations = it;
+        if (change <= o.tolerance * scale) {
+            Tout = Tk;
+            return true;
+        }
+    }
+    err = "Picard iteration did not converge";
+    return false;
 }
 
 } // namespace
@@ -146,7 +247,7 @@ std::string validateMesh(const TriangleMesh& m, const MeshModel& model) {
         if (e.a < 0 || e.a >= n || e.b < 0 || e.b >= n) return "a boundary edge refers to a node that does not exist";
     }
     for (const auto& kv : model.boundaries) {
-        const Heat1D::Boundary& b = kv.second;
+        const OpenModel::Heat1D::Boundary& b = kv.second;
         if (b.kind == BoundaryKind::Temperature && !b.value) return "a temperature boundary needs a temperature value";
         if (b.kind == BoundaryKind::Convection) {
             if (!b.ambient) return "a convection boundary needs an ambient temperature";
@@ -160,74 +261,126 @@ std::string validateMesh(const TriangleMesh& m, const MeshModel& model) {
 MeshResult solveMesh(const TriangleMesh& m, const MeshModel& model, const Options& o) {
     MeshResult res;
     res.error = validateMesh(m, model);
-    if (res.error.empty() && !o.steady) res.error = "only the steady problem is available on a mesh";
     if (!res.error.empty()) return res;
-
-    const std::size_t n = m.nodes.size();
-
-    // Fixed nodes: every node of a temperature edge; a node shared by two temperature edges must have one value.
-    std::vector<char> fixed(n, 0);
-    std::vector<double> fixedValue(n, 0.0);
-    std::vector<char> touched(n, 0);
-    for (const auto& tri : m.triangles)
-        for (int v : tri) touched[static_cast<std::size_t>(v)] = 1;
-    for (const auto& e : m.edges) {
-        const auto it = model.boundaries.find(e.tag);
-        if (it == model.boundaries.end() || it->second.kind != BoundaryKind::Temperature) continue;
-        const double v = it->second.value(0.0);
-        for (int node : {e.a, e.b}) {
-            const std::size_t i = static_cast<std::size_t>(node);
-            if (fixed[i] && std::abs(fixedValue[i] - v) > 1e-12) {
-                res.error = "two temperature boundaries meet at a node with different temperatures";
-                return res;
-            }
-            fixed[i] = 1;
-            fixedValue[i] = v;
+    if (!o.steady) {
+        if (!model.volumetricHeatCapacity) {
+            res.error = "volumetric heat capacity is required for a transient run";
+            return res;
+        }
+        if (!(o.timeStep > 0.0)) {
+            res.error = "time step must be positive";
+            return res;
+        }
+        if (!(o.endTime > 0.0)) {
+            res.error = "end time must be positive";
+            return res;
+        }
+        if (!(o.theta >= 0.0 && o.theta <= 1.0)) {
+            res.error = "theta must be in [0, 1]";
+            return res;
+        }
+        if (o.recordEvery < 1) {
+            res.error = "recordEvery must be at least 1";
+            return res;
         }
     }
-    // Nodes outside every triangle are not part of the solid: fixed to zero, out of the system.
-    bool anchored = false;
-    for (std::size_t i = 0; i < n; ++i) {
-        if (!touched[i]) fixed[i] = 1;
-        if (fixed[i]) anchored = true;
-    }
-    for (const auto& e : model.boundaries) {
-        if (e.second.kind == BoundaryKind::Convection) anchored = true;
-    }
-    if (!anchored) {
-        res.error = "a steady problem needs a temperature boundary or a convection boundary: the temperature level is undetermined";
+    if (!(o.tolerance > 0.0) || o.maxIterations < 1) {
+        res.error = "tolerance must be positive and maxIterations at least 1";
         return res;
     }
 
+    const std::size_t n = m.nodes.size();
     std::string err;
-    std::vector<double> Tk(n, 0.0);
-    for (int it = 1; it <= o.maxIterations; ++it) {
-        Sparse K;
-        std::vector<double> g;
-        if (!assembleMesh(m, model, Tk, 0.0, K, g, err)) {
+
+    // A steady problem needs a temperature or a convection boundary; the temperature level is otherwise undetermined.
+    if (o.steady) {
+        bool anchored = false;
+        for (const auto& e : m.edges) {
+            const auto it = model.boundaries.find(e.tag);
+            if (it != model.boundaries.end() && (it->second.kind == BoundaryKind::Temperature ||
+                                                  it->second.kind == BoundaryKind::Convection))
+                anchored = true;
+        }
+        if (!anchored) {
+            res.error = "a steady problem needs a temperature boundary or a convection boundary: the temperature level is undetermined";
+            return res;
+        }
+        std::vector<char> fixed;
+        std::vector<double> fixedValue;
+        if (!fixedNodes(m, model, 0.0, fixed, fixedValue, err)) {
             res.error = err;
             return res;
         }
-        std::vector<double> Tnew = Tk;
-        if (!solveFixed(K, g, fixed, fixedValue, Tnew, err)) {
+        std::vector<double> T(n, 0.0);
+        int its = 0;
+        std::vector<double> Tout;
+        // Steady: the same Picard loop with no capacity term (dt = 0 means no C/dt).
+        Sparse C(n);
+        const std::vector<double> zero(n, 0.0);
+        if (!picardStep(m, model, C, zero, zero, zero, 0.0, 0.0, 1.0, T, fixed, fixedValue, o, Tout, its, err)) {
+            res.error = err;
+            res.maxPicardIterations = its;
+            return res;
+        }
+        res.maxPicardIterations = its;
+        res.converged = true;
+        res.times = {0.0};
+        res.temperatures = {Tout};
+        return res;
+    }
+
+    // Transient.
+    std::vector<double> T(n, 0.0);
+    if (model.initialTemperature) {
+        for (std::size_t i = 0; i < n; ++i) T[i] = model.initialTemperature(m.nodes[i][0], m.nodes[i][1]);
+    }
+    Sparse C;
+    if (!assembleCapacity(m, model, o.capacity, C, err)) {
+        res.error = err;
+        return res;
+    }
+    const int steps = std::max(1, static_cast<int>(std::ceil(o.endTime / o.timeStep - 1e-9)));
+    const double dt = o.endTime / steps;
+    res.times = {0.0};
+    res.temperatures = {T};
+    res.converged = true;
+
+    for (int step = 0; step < steps; ++step) {
+        const double tn = step * dt;
+        const double tnp1 = (step + 1) * dt;
+
+        Sparse Kn;
+        std::vector<double> gn;
+        if (!assembleMesh(m, model, T, tn, Kn, gn, err)) {
             res.error = err;
             return res;
         }
-        double change = 0.0;
-        double scale = 1.0;
-        for (std::size_t i = 0; i < n; ++i) {
-            change = std::max(change, std::abs(Tnew[i] - Tk[i]));
-            scale = std::max(scale, std::abs(Tnew[i]));
+        const std::vector<double> CT = multiply(C, T);
+        const std::vector<double> KTn = multiply(Kn, T);
+
+        std::vector<char> fixed;
+        std::vector<double> fixedValue;
+        if (!fixedNodes(m, model, tnp1, fixed, fixedValue, err)) {
+            res.error = err;
+            return res;
         }
-        Tk = Tnew;
-        res.maxPicardIterations = it;
-        if (change <= o.tolerance * scale) {
-            res.converged = true;
-            break;
+
+        std::vector<double> Tnew;
+        int its = 0;
+        if (!picardStep(m, model, C, CT, KTn, gn, tn, dt, o.theta, T, fixed, fixedValue, o, Tnew, its, err)) {
+            res.error = err;
+            res.converged = false;
+            res.maxPicardIterations = std::max(res.maxPicardIterations, its);
+            return res;
+        }
+        res.maxPicardIterations = std::max(res.maxPicardIterations, its);
+        T = Tnew;
+        const int done = step + 1;
+        if (done % o.recordEvery == 0 || done == steps) {
+            res.times.push_back(tnp1);
+            res.temperatures.push_back(T);
         }
     }
-    res.temperatures = Tk;
-    if (!res.converged) res.error = "Picard iteration did not converge";
     return res;
 }
 

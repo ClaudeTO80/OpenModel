@@ -7,6 +7,7 @@
 #include <OpenModel/Heat2D.hpp>
 #include <OpenModel/Heat2DMesh.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 #include <string>
@@ -88,7 +89,7 @@ void testFourierOnTriangles() {
         }
     }
     // The centre is the node (20, 20) of the 41 x 41 grid.
-    const double centre = r.temperatures[static_cast<std::size_t>(20 * 41 + 20)];
+    const double centre = r.temperatures[0][static_cast<std::size_t>(20 * 41 + 20)];
     std::cout << "triangle mesh centre " << centre << "  Fourier " << sum << "  error " << std::abs(centre - sum) << "\n";
     CHECK(std::abs(centre - sum) < 1e-4);
 }
@@ -113,19 +114,19 @@ void testAgainstStructuredSolver() {
     CHECK(tr.error.empty());
     // Both are second-order discretisations of the same problem: their centres differ by the discretisation error only.
     const double quadCentre = sr.temperatures[0][static_cast<std::size_t>(20 * 41 + 20)];
-    const double triCentre = tr.temperatures[static_cast<std::size_t>(20 * 41 + 20)];
+    const double triCentre = tr.temperatures[0][static_cast<std::size_t>(20 * 41 + 20)];
     std::cout << "structured centre " << quadCentre << "  triangles centre " << triCentre << "\n";
     CHECK(std::abs(quadCentre - triCentre) < 1e-4);
 }
 
 void testInputChecks() {
-    // Transient runs are refused.
+    // A transient run without a volumetric heat capacity is refused.
     Options transient;
     transient.steady = false;
     transient.timeStep = 0.1;
     transient.endTime = 1.0;
     const MeshResult tr = solveMesh(squareMesh(4), zeroSidesWithSource(1.0), transient);
-    CHECK(tr.error.find("only the steady") != std::string::npos);
+    CHECK(tr.error.find("volumetric heat capacity") != std::string::npos);
 
     // Triangle that refers to a missing node.
     TriangleMesh bad = squareMesh(2);
@@ -152,12 +153,64 @@ void testInputChecks() {
     CHECK(cr.error.find("different temperatures") != std::string::npos);
 }
 
+void testTransientSineOnTriangles() {
+    // T(x, 0) = sin(pi x), zero on the x-sides, insulated y-sides: T = sin(pi x) exp(-pi^2 t) exactly.
+    TriangleMesh mesh = squareMesh(40);
+    MeshModel model;
+    model.conductivity = [](double, double, double) { return 1.0; };
+    model.volumetricHeatCapacity = [](double, double) { return 1.0; };
+    model.initialTemperature = [](double x, double) { return std::sin(kPi * x); };
+    model.boundaries[1] = temperatureBoundary(0.0);
+    model.boundaries[2] = temperatureBoundary(0.0);
+    Options o;
+    o.steady = false;
+    o.timeStep = 1e-3;
+    o.endTime = 0.1;
+    o.theta = 0.5;
+    const MeshResult r = solveMesh(mesh, model, o);
+    CHECK(r.error.empty());
+    CHECK(r.converged);
+    CHECK(!r.times.empty() && std::abs(r.times.back() - 0.1) < 1e-12);
+    double worst = 0.0;
+    const double decay = std::exp(-kPi * kPi * 0.1);
+    for (std::size_t i = 0; i < mesh.nodes.size(); ++i) {
+        const double exact = std::sin(kPi * mesh.nodes[i][0]) * decay;
+        worst = std::max(worst, std::abs(r.temperatures.back()[i] - exact));
+    }
+    std::cout << "transient sine on triangles (Crank-Nicolson, dt = 1e-3, t = 0.1): max nodal error " << worst << "\n";
+    CHECK(worst < 1e-3);
+}
+
+void testTransientUniformStaysUniform() {
+    // No boundary tags: every side insulated, no source; a uniform field must not change.
+    TriangleMesh mesh = squareMesh(8);
+    MeshModel model;
+    model.conductivity = [](double, double, double) { return 50.0; };
+    model.volumetricHeatCapacity = [](double, double) { return 3.9e6; };
+    model.initialTemperature = [](double, double) { return 100.0; };
+    Options o;
+    o.steady = false;
+    o.timeStep = 0.5;
+    o.endTime = 2.0;
+    o.theta = 1.0;
+    o.capacity = OpenModel::Heat1D::Capacity::Lumped;
+    const MeshResult r = solveMesh(mesh, model, o);
+    CHECK(r.error.empty());
+    double worst = 0.0;
+    for (const auto& row : r.temperatures)
+        for (double t : row) worst = std::max(worst, std::abs(t - 100.0));
+    CHECK(worst < 1e-8);
+    CHECK(r.times.size() == 5);
+}
+
 } // namespace
 
 int main() {
     testFourierOnTriangles();
     testAgainstStructuredSolver();
     testInputChecks();
+    testTransientSineOnTriangles();
+    testTransientUniformStaysUniform();
 
     if (g_failures == 0) {
         std::cout << "heat2d_mesh_test: all checks passed\n";
