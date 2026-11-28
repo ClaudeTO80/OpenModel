@@ -1,6 +1,7 @@
 #pragma once
 
 #include <OpenModel/Heat2DMesh.hpp>
+#include <OpenModel/Heat2DMeshScript.hpp>
 
 #include <string>
 
@@ -33,5 +34,14 @@ TriangleMesh meshAnnulusGmsh(double outerRadius, double innerRadius, double size
  * @return the mesh; empty when there is an error
  */
 TriangleMesh meshPlanarStepGmsh(const std::string& path, double size, std::string& error);
+
+/**
+ * @brief Runs a parsed mesh script: imports and meshes the STEP file, checks the mesh and the model, and solves.
+ * @param problem  the parsed script
+ * @param mesh     receives the mesh (on success and on a solver failure)
+ * @param result   receives the solution
+ * @return an empty string on success, otherwise the first problem found
+ */
+std::string runMeshScript(const MeshScriptProblem& problem, TriangleMesh& mesh, MeshResult& result);
 
 } // namespace OpenModel::Heat2D

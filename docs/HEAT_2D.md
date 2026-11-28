@@ -196,6 +196,34 @@ the reference is itself a conforming mesh, so the finest levels are not measured
 conforming mesh (905 nodes) is more accurate than the staircase with 10996 elements. The test checks the two orders and
 that ordering, not absolute values.
 
+### Mesh script (`analysis heat 2d mesh`, `Heat2DMeshScript`)
+
+The script reads a STEP planar face, meshes it with Gmsh and solves it with `solveMesh`. Parser in the core
+(`include/OpenModel/Heat2DMeshScript.hpp`), runner `runMeshScript` in the Gmsh backend (`include/OpenModel/Heat2DGmsh.hpp`).
+
+```
+analysis heat 2d mesh
+geometry step file=plate.step size=0.05
+material k=1 rhocp=1 thickness=1
+boundary tag=1 temperature T=0
+boundary tag=2 temperature T=50
+heat q=1
+initial T=20
+job MAIN solver=internal
+step steady            # or: step transient dt=0.01 end=10 theta=0.5 capacity=lumped
+```
+
+Tag 1 is the outer contour and tag 2 the holes (see above). Boundary kinds: `temperature T=`, `flux q=`,
+`convection h= Tinf= [emissivity=]`; each key is checked against its kind. Errors are collected and reported with their
+line number; the script is read to the end before any result is returned. Checks: `geometry step` form, positive size,
+positive k, rhocp and thickness, whole-number tags that appear once, capacity `consistent|lumped`, only the internal
+solver. Verified: the parser test `heat2d_mesh_script_test` (valid scripts and their values, 26 error cases, most with their line
+numbers, CSV) and the end-to-end test `heat2d_mesh_run_test` (script on the STEP annulus gives 1554 nodes and max error
+0.0458556 K, identical to the API path; a transient run warms the solid; a missing file is an error). The CSV has the
+header `time,x,y,temperature`, then one row per recorded time and node.
+
+Not done: the script has no tag selection by name, no per-time values, and no CLI or GUI entry yet.
+
 ## 6. Limits (not done or not verified)
 
 * Staircase boundary for holes in the structured solver: first-order geometric error. Curved holes need the mesh path (5b).

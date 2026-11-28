@@ -167,4 +167,20 @@ TriangleMesh meshPlanarStepGmsh(const std::string& path, double size, std::strin
         error);
 }
 
+std::string runMeshScript(const MeshScriptProblem& problem, TriangleMesh& mesh, MeshResult& result) {
+    result = MeshResult{};
+    std::string err;
+    mesh = meshPlanarStepGmsh(problem.stepFile, problem.size, err);
+    if (!err.empty()) return err;
+    MeshModel model = problem.model;
+    if (problem.hasInitial) {
+        const double T0 = problem.initialT;
+        model.initialTemperature = [T0](double, double) { return T0; };
+    }
+    err = validateMesh(mesh, model);
+    if (!err.empty()) return err;
+    result = solveMesh(mesh, model, problem.options);
+    return result.error;
+}
+
 } // namespace OpenModel::Heat2D
