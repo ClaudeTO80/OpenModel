@@ -160,6 +160,17 @@ The error falls at each step. Between h = 0.05 and 0.025 the observed order is 1
 theory: the sizes used are still coarse for the logarithmic gradient at the inner circle. The test checks the order is
 above 1.5, which is what was measured, not the asymptotic value.
 
+`meshPlanarStepGmsh(path, size)` imports a STEP file that holds exactly one planar face and meshes it. Boundary edges
+of the outer contour get tag 1, the edges of every hole get tag 2. A curve is an outer contour when its bounding box
+touches a side of the face's bounding box, so a hole tangent to an outer side is misclassified. Verified here:
+
+* Annulus written to STEP and imported: 1554 nodes at h = 0.05, max error 0.0458556 K, identical to the direct mesh.
+* Rectangle 2 x 1 with a circular hole (r = 0.3) imported from STEP, outer at 0 and hole at 50, source 1: boundary values
+  exact to 7e-14 K, and the minimum over the nodes is above -1e-9 K, as the minimum principle requires. The maximum is
+  50 K on the hole, not above it, since the source lowers the temperature away from the hole.
+
+Not verified: STEP files made by other CAD systems, which can carry trimmed or split faces and tolerance gaps.
+
 This is the conforming alternative to the staircase boundary of section 2: the hole boundary is a true circle. A direct
 comparison with the staircase on the same geometry was not run (the structured solver only has a rectangle).
 
@@ -169,8 +180,9 @@ comparison with the staircase on the same geometry was not run (the structured s
 * Structured solver: only the rectangular plate. The axisymmetric (r-z) case is not in this increment.
 * Mesh solver: steady only; no script, CLI or GUI integration yet.
 * Not yet connected to the CLI, the GUI or the viewer. The script runs from C++ only: there is no WebUI handler yet.
-* Gmsh path: only the annulus generator exists. Loading a 2D CAD file (STEP) and meshing it is not implemented. Gmsh
-  4.12.1 with OpenCASCADE is installed here (`libgmsh-dev`), so the Gmsh path is compiled and tested in this environment.
+* Gmsh path: annulus generator and STEP import of one planar face (section 5b). Files from other CAD systems are not
+  tested. Gmsh 4.12.1 with OpenCASCADE is installed here (`libgmsh-dev`), so the path is compiled and tested in this
+  environment.
 * No time-dependent properties beyond \( T \); \( \rho c_p \) is a function of \( x, y \) only.
 * The theta-method stability limit is not checked (as in Heat1D).
 * The plate model is thin: no through-thickness gradient. Whether a 3D model can be reduced to it (small Biot number,
