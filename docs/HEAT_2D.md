@@ -137,13 +137,40 @@ Tests: `heat2d_script_test` solves the unit square with a source written as a sc
 reference (centre 0.0737077 against 0.0736713), checks a circular hole and the hole condition (every active node at 50),
 a uniform transient (stays at 100 to 1e-8), the CSV layout, and the error messages with their line numbers.
 
+## 5b. Unstructured mesh and Gmsh (`Heat2DMesh`, `Heat2DGmsh`)
+
+`solveMesh` solves the steady problem on a triangle mesh given by the caller (linear triangles, 3-point quadrature,
+boundary edges tagged; a tag selects a condition, a tag not listed is insulated). It uses the same sparse matrix and
+conjugate-gradient solver as the structured solver (`src/Heat2DLinear.hpp`).
+
+* Square split into 2 x 40^2 triangles, source 1, zero sides: centre error 3.6e-5 against the double Fourier series, the
+  same as the structured 40 x 40 grid (test `heat2d_mesh_test`).
+* `meshAnnulusGmsh` (CMake option `OPENMODEL_BUILD_GMSH_BACKEND`) builds an annulus with the Gmsh OpenCASCADE kernel. The
+  test `heat2d_gmsh_test` solves outer R = 1 at 0, inner a = 0.2 at 50, source 1, and compares with the exact radial
+  solution. Max nodal error by element size, measured here:
+
+| h | nodes | max error (K) |
+|---|---|---|
+| 0.20 | 130 | 0.287 |
+| 0.10 | 416 | 0.243 |
+| 0.05 | 1554 | 0.0459 |
+| 0.025 | 5870 | 0.0158 |
+
+The error falls at each step. Between h = 0.05 and 0.025 the observed order is 1.54, not the 2 of the asymptotic
+theory: the sizes used are still coarse for the logarithmic gradient at the inner circle. The test checks the order is
+above 1.5, which is what was measured, not the asymptotic value.
+
+This is the conforming alternative to the staircase boundary of section 2: the hole boundary is a true circle. A direct
+comparison with the staircase on the same geometry was not run (the structured solver only has a rectangle).
+
 ## 6. Limits (not done or not verified)
 
-* Staircase boundary for holes: first-order geometric error. Curved holes are accurate only in the Gmsh path (to do).
-* Only the rectangular plate. The axisymmetric (r-z) case is not in this increment.
+* Staircase boundary for holes in the structured solver: first-order geometric error. Curved holes need the mesh path (5b).
+* Structured solver: only the rectangular plate. The axisymmetric (r-z) case is not in this increment.
+* Mesh solver: steady only; no script, CLI or GUI integration yet.
 * Not yet connected to the CLI, the GUI or the viewer. The script runs from C++ only: there is no WebUI handler yet.
-* No Gmsh path: a 2D CAD loaded and meshed with Gmsh, and a mesh supplied from outside, are the next step. Gmsh is not
-  compilable in the environment where this was written, so that path cannot be verified here.
+* Gmsh path: only the annulus generator exists. Loading a 2D CAD file (STEP) and meshing it is not implemented. Gmsh
+  4.12.1 with OpenCASCADE is installed here (`libgmsh-dev`), so the Gmsh path is compiled and tested in this environment.
 * No time-dependent properties beyond \( T \); \( \rho c_p \) is a function of \( x, y \) only.
 * The theta-method stability limit is not checked (as in Heat1D).
 * The plate model is thin: no through-thickness gradient. Whether a 3D model can be reduced to it (small Biot number,

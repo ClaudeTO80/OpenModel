@@ -100,7 +100,8 @@ set(OPENMODEL_CORE_SOURCES
     src/Heat1DScript.cpp
     src/Heat1DDisplay.cpp
     src/Heat2D.cpp
-    src/Heat2DScript.cpp)
+    src/Heat2DScript.cpp
+    src/Heat2DMesh.cpp)
 
 function(openmodel_configure_core_target target export_name)
     target_include_directories(${target} PUBLIC
@@ -340,9 +341,10 @@ if(OPENMODEL_BUILD_TESTS)
     openmodel_add_test(heat1d_display_test tests/heat1d_display_test.cpp)
     openmodel_add_test(heat2d_test tests/heat2d_test.cpp)
     openmodel_add_test(heat2d_script_test tests/heat2d_script_test.cpp)
+    openmodel_add_test(heat2d_mesh_test tests/heat2d_mesh_test.cpp)
     set(_openmodel_core_test_names core_smoke_test mesh_validation_test abaqus_writer_test physical_groups_test
         mesh_topology_test surface_mesher_test gltf_writer_test surface_refiner_test
-        web_view_writer_test model_binary_io_test openmodel_project_test project_archive_test mesh_importer_test fem_results_test analysis_setup_test mesh_selection_test mesh_constraints_test material_database_test material_library_test code_aster_test mesh_quality_test cad_face_mapper_test mesh_bodies_test mesh_runs_test rigid_link_test gmsh_settings_test process_runner_test web_base64_test heat1d_test heat1d_script_test heat1d_display_test heat2d_test heat2d_script_test)
+        web_view_writer_test model_binary_io_test openmodel_project_test project_archive_test mesh_importer_test fem_results_test analysis_setup_test mesh_selection_test mesh_constraints_test material_database_test material_library_test code_aster_test mesh_quality_test cad_face_mapper_test mesh_bodies_test mesh_runs_test rigid_link_test gmsh_settings_test process_runner_test web_base64_test heat1d_test heat1d_script_test heat1d_display_test heat2d_test heat2d_script_test heat2d_mesh_test)
     if(OPENMODEL_BUILD_CLI)
         list(APPEND _openmodel_core_test_names openmodel_cli_info openmodel_cli_validate_demo)
     endif()
@@ -840,7 +842,7 @@ if(OPENMODEL_BUILD_GMSH_BACKEND)
         set(GMSH_RUNTIME_LIBRARY_RELEASE "${_gmsh_dll_RELEASE}")
     endif()
 
-    add_library(openmodel_gmsh STATIC src/GmshMesher.cpp)
+    add_library(openmodel_gmsh STATIC src/GmshMesher.cpp src/Heat2DGmsh.cpp)
     target_link_libraries(openmodel_gmsh PUBLIC OpenModel::Core ${_openmodel_gmsh_target})
     # Ensure the user-specified include path is present even when a package
     # config target was discovered and GMSH_INCLUDE_DIR was explicitly set.
@@ -859,6 +861,10 @@ if(OPENMODEL_BUILD_GMSH_BACKEND)
         endif()
         add_test(NAME gmsh_integration_test COMMAND gmsh_integration_test)
         set_tests_properties(gmsh_integration_test PROPERTIES LABELS "integration;gmsh" TIMEOUT 180)
+        add_executable(heat2d_gmsh_test tests/heat2d_gmsh_test.cpp)
+        target_link_libraries(heat2d_gmsh_test PRIVATE openmodel_gmsh)
+        add_test(NAME heat2d_gmsh_test COMMAND heat2d_gmsh_test)
+        set_tests_properties(heat2d_gmsh_test PROPERTIES LABELS "integration;gmsh" TIMEOUT 300)
         add_executable(gmsh_structured_test tests/gmsh_structured_test.cpp)
         target_link_libraries(gmsh_structured_test PRIVATE openmodel_gmsh)
         add_test(NAME gmsh_structured_test COMMAND gmsh_structured_test)
@@ -878,6 +884,7 @@ if(OPENMODEL_BUILD_GMSH_BACKEND)
         if(TARGET gmsh_integration_test)
             openmodel_copy_gmsh_runtime(gmsh_integration_test)
             openmodel_copy_gmsh_runtime(gmsh_structured_test)
+            openmodel_copy_gmsh_runtime(heat2d_gmsh_test)
         endif()
         if(TARGET openmodel-cli)
             openmodel_copy_gmsh_runtime(openmodel-cli)
