@@ -342,12 +342,15 @@ void testThinPlateAssessment() {
     CHECK(adiabatic.notes.size() == 2);
 
     // Bi = h (t/2) / k = 2 * 0.05 / 1 = 0.1: exactly at the limit, applicable.
-    const ThinPlateAssessment atLimit = assessThinPlate(0.1, 1.0, 2.0);
+    // The default limit is 0.02: the same Bi = 0.1 is then not applicable.
+    CHECK(assessThinPlate(0.1, 1.0, 2.0).biotLimit == 0.02);
+    CHECK(!assessThinPlate(0.1, 1.0, 2.0).applicable);
+    const ThinPlateAssessment atLimit = assessThinPlate(0.1, 1.0, 2.0, 0.1);
     CHECK(atLimit.applicable);
     CHECK(std::abs(atLimit.biot - 0.1) < 1e-15);
 
     // Bi = 2.5 * 0.05 = 0.125 > 0.1: not applicable.
-    const ThinPlateAssessment above = assessThinPlate(0.1, 1.0, 2.5);
+    const ThinPlateAssessment above = assessThinPlate(0.1, 1.0, 2.5, 0.1);
     CHECK(!above.applicable);
     CHECK(std::abs(above.biot - 0.125) < 1e-15);
 

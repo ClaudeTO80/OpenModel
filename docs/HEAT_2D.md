@@ -104,8 +104,8 @@ and the mid-plane temperature, relative to the maximum temperature:
 | 2.0 | 0.1 | 4.8e-2 |
 | 20 | 1.0 | 3.3e-1 |
 
-The deviation is about Bi/2 for small Bi. With the default limit of 0.1 the through-thickness deviation can reach about
-5 %; a 1 % deviation needs Bi around 0.02. The limit is a choice of the user, not a fixed rule of the code. The 2D model
+The deviation is about Bi/2 for small Bi. The default limit is Bi = 0.02, which keeps the through-thickness deviation
+near 1 %; a limit of 0.1 would allow about 5 %. The limit is a choice of the user, not a fixed rule of the code. The 2D model
 itself does not include the z-face exchange at all, so the deviation above is the error of ignoring it.
 
 ## 5. Script (`analysis heat 2d`)

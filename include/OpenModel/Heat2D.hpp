@@ -116,9 +116,9 @@ struct ThinPlateAssessment {
  * @param thickness  t > 0, the extent along z
  * @param conductivity  k > 0 at the operating temperature
  * @param faceCoefficient  h_z >= 0, effective coefficient on the faces normal to z
- * @param biotLimit  limit on Bi, 0 < biotLimit (0.1 is the usual choice)
+ * @param biotLimit  limit on Bi, 0 < biotLimit (default 0.02: a deviation of about 1 % of the through-thickness gradient)
  */
-ThinPlateAssessment assessThinPlate(double thickness, double conductivity, double faceCoefficient, double biotLimit = 0.1);
+ThinPlateAssessment assessThinPlate(double thickness, double conductivity, double faceCoefficient, double biotLimit = 0.02);
 
 /**
  * @brief Solves the model.
