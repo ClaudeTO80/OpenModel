@@ -224,6 +224,22 @@ header `time,x,y,temperature`, then one row per recorded time and node.
 
 Not done: the script has no tag selection by name, no per-time values, and no CLI or GUI entry yet.
 
+### Command line (`openmodel heat2d`)
+
+```
+openmodel heat2d <script.txt> [--csv out.csv]
+```
+
+Runs a script of either kind: the structured one (`analysis heat 2d`) always, the mesh one (`analysis heat 2d mesh`) when
+the binary is built with the Gmsh backend (otherwise it exits with code 2 and says so). The CSV goes to the file, or to
+standard output without `--csv`; the summary line goes to standard error. Exit code 0 when the run converged, 1 on any
+error (script, file, solver) or when the run did not converge, 2 on a usage error.
+
+Verified in CTest: `openmodel_cli_heat2d` on `examples/heat2d/plate_fourier.txt` (20 x 20 grid, converged, centre
+0.0738170 against the Fourier value 0.0736713, a difference of 1.5e-4 on the coarser grid; the 40 x 40 script test gives
+3.6e-5), and `openmodel_cli_heat2d_missing_file` (exit 1). The mesh path of the command is not run by CTest: its
+parser and runner are tested by `heat2d_mesh_script_test` and `heat2d_mesh_run_test`.
+
 ## 6. Limits (not done or not verified)
 
 * Staircase boundary for holes in the structured solver: first-order geometric error. Curved holes need the mesh path (5b).

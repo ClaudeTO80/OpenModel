@@ -1,0 +1,10 @@
+# Unit square, -lap(T) = 1, zero on the four sides: the double Fourier series is the reference.
+analysis heat 2d
+plate lx=1 ly=1 nx=20 ny=20
+material k=1 rhocp=1
+heat q=1
+temperature side=left T=0
+temperature side=right T=0
+temperature side=bottom T=0
+temperature side=top T=0
+step steady

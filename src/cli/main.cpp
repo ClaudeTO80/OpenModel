@@ -11,6 +11,8 @@
 #include <OpenModel/MeshImporter.hpp>
 #include <OpenModel/WebViewWriter.hpp>
 #include <OpenModel/FemResults.hpp>
+#include <OpenModel/Heat2DScript.hpp>
+#include <OpenModel/Heat2DMeshScript.hpp>
 #include <OpenModel/ResultBinding.hpp>
 #include <OpenModel/MeshValidator.hpp>
 #include <OpenModel/SurfaceMesh.hpp>
@@ -20,6 +22,7 @@
 #include <filesystem>
 #ifdef OPENMODEL_HAS_GMSH
 #include <OpenModel/GmshMesher.hpp>
+#include <OpenModel/Heat2DGmsh.hpp>
 #endif
 
 #include <algorithm>
@@ -300,6 +303,100 @@ int prepareAster(const std::string& meshPath, const std::string& scriptPath, con
     return 0;
 }
 
+void usage();
+
+namespace H2 = OpenModel::Heat2D;
+
+/** @brief True when the first command of a script is `analysis heat 2d mesh` (comments and blank lines skipped). */
+bool isMeshHeatScript(const std::string& text) {
+    std::istringstream lines(text);
+    std::string line;
+    while (std::getline(lines, line)) {
+        const std::size_t hash = line.find('#');
+        if (hash != std::string::npos) line.erase(hash);
+        std::istringstream words(line);
+        std::vector<std::string> w;
+        std::string token;
+        while (words >> token) w.push_back(token);
+        if (w.empty()) continue;
+        return w.size() >= 4 && w[0] == "analysis" && w[1] == "heat" && w[2] == "2d" && w[3] == "mesh";
+    }
+    return false;
+}
+
+/** @brief Writes the CSV to a file, or to standard output when no path is given. */
+bool writeCsvOutput(const std::string& csv, const std::string& path) {
+    if (path.empty()) {
+        std::cout << csv;
+        return static_cast<bool>(std::cout);
+    }
+    std::ofstream out(path, std::ios::binary);
+    if (!out) {
+        std::cerr << "Cannot write " << path << "\n";
+        return false;
+    }
+    out << csv;
+    return static_cast<bool>(out);
+}
+
+/** @brief Runs an `analysis heat 2d mesh` script (needs the Gmsh backend). */
+int runMeshHeat2d(const std::string& scriptPath, const std::string& text, const std::string& csvPath) {
+#ifdef OPENMODEL_HAS_GMSH
+    H2::MeshScriptProblem problem;
+    std::vector<std::string> errors;
+    if (!H2::parseMeshScript(text, problem, errors)) {
+        for (const auto& e : errors) std::cerr << scriptPath << ": " << e << "\n";
+        return 1;
+    }
+    H2::TriangleMesh mesh;
+    H2::MeshResult result;
+    const std::string error = H2::runMeshScript(problem, mesh, result);
+    if (!error.empty()) {
+        std::cerr << "Heat 2D mesh failed: " << error << "\n";
+        return 1;
+    }
+    if (!writeCsvOutput(H2::meshResultToCsv(mesh, result), csvPath)) return 1;
+    std::cerr << "Heat 2D mesh: " << mesh.nodes.size() << " nodes, " << mesh.triangles.size() << " triangles, "
+              << result.times.size() << " recorded time(s), " << (result.converged ? "converged" : "NOT converged") << "\n";
+    return result.converged ? 0 : 1;
+#else
+    (void)text;
+    (void)csvPath;
+    std::cerr << "analysis heat 2d mesh needs the Gmsh backend (configure with OPENMODEL_BUILD_GMSH_BACKEND=ON)\n";
+    return 2;
+#endif
+}
+
+/** @brief `openmodel heat2d <script.txt> [--csv out.csv]`: runs a 2D heat script, structured or mesh. */
+int runHeat2dCommand(int argc, char** argv) {
+    if (argc < 3 || argc > 5) { usage(); return 2; }
+    std::string csvPath;
+    for (int i = 3; i < argc; ++i) {
+        if (std::string(argv[i]) == "--csv" && i + 1 < argc) csvPath = argv[++i];
+        else { usage(); return 2; }
+    }
+    const std::string scriptPath = argv[2];
+    std::string text;
+    if (!readTextFile(scriptPath, text)) return 1;
+    if (isMeshHeatScript(text)) return runMeshHeat2d(scriptPath, text, csvPath);
+
+    H2::ScriptProblem problem;
+    std::vector<std::string> errors;
+    if (!H2::parseScript(text, problem, errors)) {
+        for (const auto& e : errors) std::cerr << scriptPath << ": " << e << "\n";
+        return 1;
+    }
+    const H2::Result result = H2::runScript(problem);
+    if (!result.error.empty()) {
+        std::cerr << "Heat 2D failed: " << result.error << "\n";
+        return 1;
+    }
+    if (!writeCsvOutput(H2::resultToCsv(result, problem), csvPath)) return 1;
+    std::cerr << "Heat 2D: " << result.nodesX << " x " << result.nodesY << " grid, " << result.times.size()
+              << " recorded time(s), " << (result.converged ? "converged" : "NOT converged") << "\n";
+    return result.converged ? 0 : 1;
+}
+
 void usage() {
     std::cout << "OpenModel " << OpenModel::versionString() << "\n"
               << "Usage:\n"
@@ -311,6 +408,7 @@ void usage() {
               << "  openmodel demo-glb <output.glb>\n"
               << "  openmodel demo-web <output.mgwv> [cells-per-side]\n"
               << "  openmodel convert <input.omb|input.inp|input.mail> <output.omb|.inp> [--coords exact|q16|q32]\n"
+              << "  openmodel heat2d <script.txt> [--csv out.csv]   (analysis heat 2d; analysis heat 2d mesh needs the Gmsh backend)\n"
               << "  openmodel project-export <project.omproj> <archive.zip>   (stored ZIP: manifest and all assets)\n"
               << "  openmodel project-import <archive.zip> <new-directory>    (extracts and verifies the project)\n"
               << "  openmodel export-web <input.omb|input.inp|input.mail> <output.mgwv> [--no-interior] [--field x|y|z|r]\n"
@@ -383,6 +481,7 @@ int main(int argc, char** argv) {
         } catch (const std::exception& error) { std::cerr << error.what() << "\n"; return 1; }
         return 0;
     }
+    if (command == "heat2d") return runHeat2dCommand(argc, argv);
     if (command == "convert") {
         // convert <input> <output> [--coords exact|q16|q32]: converts a mesh file to MGOM or to Abaqus input.
         std::vector<std::string> positional;
